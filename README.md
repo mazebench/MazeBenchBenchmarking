@@ -11,7 +11,7 @@ A deliberately tiny site that renders the complete MazeBench main world as one T
 - `render/v1/special-piece-renderers.mjs` — non-asset special geometry and lift triangles
 - `render/v1/asset-renderers.mjs` — authored GLB loading plus the exact gem-shaped fallback
 - `render/v1/three-renderer.mjs` — the version 1 scene and input controller
-- `editor/v1/` — the version 1 room editor and source MazeBench toolbox definitions
+- `editor/v1/` — the version 1 room editor, source toolbox definitions, and static 3D toolbox previews
 - `index.html` — the single page entry point
 
 There is no physics engine, game loop, build step, package manager, or framework in this repository. The only vendored runtime is the source repository's exact Three.js version (`0.184.0`); the small GLB bundle contains only renderer assets referenced by the level parser.

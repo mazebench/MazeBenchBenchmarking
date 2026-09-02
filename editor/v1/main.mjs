@@ -5,6 +5,7 @@ import {
   loadMainWorld,
   serializeLevel
 } from "../../render/v1/world-renderer.mjs";
+import { renderToolboxPreviews } from "./toolbox-previews.mjs";
 
 const elements = {
   stage: document.getElementById("stage"),
@@ -147,6 +148,7 @@ function setTool(token) {
 
 function buildToolbox() {
   const fragment = document.createDocumentFragment();
+  const previews = [];
   parserTools().forEach((token) => {
     const button = document.createElement("button");
     const descriptor = describeCell(cellForTool(token));
@@ -155,15 +157,24 @@ function buildToolbox() {
     button.className = "tool";
     button.dataset.token = token;
     button.title = `${toolName(token)} — ${token}`;
+    button.setAttribute("aria-label", `${toolName(token)} — ${token}`);
     button.style.setProperty("--tool-color", visual?.color || "#050608");
+    const canvas = document.createElement("canvas");
+    canvas.width = 96;
+    canvas.height = 96;
+    canvas.setAttribute("aria-hidden", "true");
     const label = document.createElement("span");
     label.textContent = token === "__erase_top__" ? "×" : token;
-    button.append(label);
+    button.append(canvas, label);
     button.addEventListener("click", () => setTool(token));
     fragment.append(button);
+    if (token !== "__erase_top__") previews.push({ button, canvas, token });
   });
   elements.toolbox.replaceChildren(fragment);
   setTool(currentTool);
+  renderToolboxPreviews(previews).catch((error) => {
+    console.warn("Toolbox previews could not be rendered.", error);
+  });
 }
 
 function buildRoomControls() {
