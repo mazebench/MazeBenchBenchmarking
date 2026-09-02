@@ -395,12 +395,15 @@ function buildRoomControls() {
 
 function updateRoomChrome() {
   const label = currentRoom.position.join("×");
+  const routeRoom = encodeURIComponent(currentRoom.position.join("x"));
   elements.roomName.textContent = label;
   elements.fileName.textContent = currentRoom.fileName;
   elements.fileName.title = currentRoom.fileName;
   elements.gemCount.textContent = String(countBlock(currentRoom.objects, "gem"));
   elements.roomSelect.value = currentRoom.fileName;
-  elements.playLink.href = `../../play/v1/?room=${currentRoom.position.join("x")}`;
+  elements.playLink.href = `../../play/v1/?room=${routeRoom}`;
+  elements.playLink.textContent = `Play v1 · ${label}`;
+  elements.playLink.setAttribute("aria-label", `Play room ${label} in play mode v1`);
   elements.roomGrid.querySelectorAll("button").forEach((button) => {
     button.classList.toggle("is-current", button.dataset.file === currentRoom.fileName);
   });

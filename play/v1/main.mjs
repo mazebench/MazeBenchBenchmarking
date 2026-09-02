@@ -60,9 +60,12 @@ function updateSession(summary) {
 function openRoom(room) {
   currentRoom = room;
   const label = room.position.join("×");
+  const routeRoom = encodeURIComponent(room.position.join("x"));
   elements.roomName.textContent = label;
   elements.fileName.textContent = room.fileName;
-  elements.editorLink.href = `../../editor/v1/?room=${room.position.join("x")}`;
+  elements.editorLink.href = `../../editor/v1/?room=${routeRoom}`;
+  elements.editorLink.textContent = `Edit ${label}`;
+  elements.editorLink.setAttribute("aria-label", `Edit room ${label} in editor v1`);
   markCurrentRoom(room);
   const url = new URL(location.href);
   url.searchParams.set("room", room.position.join("x"));
@@ -117,4 +120,3 @@ try {
   elements.state.textContent = "Play mode failed to load.";
   console.error(error);
 }
-

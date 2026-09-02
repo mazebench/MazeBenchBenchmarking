@@ -10,6 +10,7 @@ const elements = {
   room: document.getElementById("room-value"),
   file: document.getElementById("file-value"),
   cell: document.getElementById("cell-value"),
+  play: document.getElementById("play-link"),
   editor: document.getElementById("editor-link"),
   zoomIn: document.getElementById("zoom-in"),
   zoomOut: document.getElementById("zoom-out"),
@@ -33,10 +34,15 @@ function inspect(hit) {
 function select(hit) {
   if (!hit) return;
   selectedRoom = hit.room;
+  const routeRoom = encodeURIComponent(hit.room.position.join("x"));
+  const roomLabel = hit.room.position.join("×");
   renderer.selectRoom(hit.room);
   inspect(hit);
-  elements.editor.href = `./editor/v1/?room=${encodeURIComponent(hit.room.position.join("x"))}`;
-  elements.editor.textContent = `Edit ${hit.room.position.join("×")}`;
+  elements.play.href = `./play/v1/?room=${routeRoom}`;
+  elements.play.textContent = `Play ${roomLabel}`;
+  elements.play.setAttribute("aria-label", `Play room ${roomLabel} in play mode v1`);
+  elements.editor.href = `./editor/v1/?room=${routeRoom}`;
+  elements.editor.textContent = `Edit ${roomLabel}`;
 }
 
 elements.zoomIn.addEventListener("click", () => renderer?.zoomBy(0.78));
