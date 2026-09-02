@@ -2,6 +2,7 @@ import { loadMazeBenchEngineV1 } from "../../engine/v1/engine.mjs";
 import { AsciiMazeRendererV1 } from "../../render-ascii/v1/ascii-renderer.mjs";
 import { ThreeMazeRendererV1 } from "../../render/v1/three-renderer.mjs";
 import { loadMainWorldV2 } from "../../render/v1/voxel-world-v2.mjs";
+import { cameraRelativeMoveDirection } from "./camera-relative-input.mjs";
 import { PlaySessionV1 } from "./play-session.mjs";
 import { installRoomControlsV1 } from "./room-controls.mjs";
 
@@ -84,6 +85,11 @@ function setAsciiPitch(pitch) {
   updateAsciiCameraLabel();
 }
 
+function moveFromCamera(direction) {
+  const worldDirection = cameraRelativeMoveDirection(direction, renderer?.heading || 0);
+  if (worldDirection) return session?.move(worldDirection);
+}
+
 function setViewMode(mode) {
   viewMode = mode === "ascii" ? "ascii" : "3d";
   const ascii = viewMode === "ascii";
@@ -162,7 +168,7 @@ elements.undo.addEventListener("click", () => session?.undo());
 elements.seededGlyphs.addEventListener("change", updateSeedOptions);
 elements.asciiSeed.addEventListener("change", updateSeedOptions);
 elements.directionButtons.forEach((button) => {
-  button.addEventListener("click", () => session?.move(button.dataset.direction));
+  button.addEventListener("click", () => moveFromCamera(button.dataset.direction));
 });
 window.addEventListener("keydown", (event) => {
   if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isEditableTarget(event.target)) return;
@@ -205,7 +211,7 @@ window.addEventListener("keydown", (event) => {
   }[event.key];
   if (!direction) return;
   event.preventDefault();
-  if (!event.repeat) session?.move(direction);
+  if (!event.repeat) moveFromCamera(direction);
 });
 
 try {

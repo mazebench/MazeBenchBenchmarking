@@ -5,6 +5,7 @@ import test from "node:test";
 
 import { countActiveRoleV1 } from "../engine/v1/adapter.mjs";
 import { instantiateMazeBenchEngineV1 } from "../engine/v1/engine.mjs";
+import { cameraRelativeMoveDirection } from "../play/v1/camera-relative-input.mjs";
 import { PlaySessionV1 } from "../play/v1/play-session.mjs";
 
 const blocks = [
@@ -19,6 +20,22 @@ async function loadEngine() {
   const bytes = await readFile(new URL("../engine/v1/voxel_physics.wasm", import.meta.url));
   return { bytes, engine: await instantiateMazeBenchEngineV1(bytes) };
 }
+
+test("play arrows rotate from screen space into world space at every camera heading", () => {
+  assert.deepEqual(
+    [0, 1, 2, 3].map((heading) =>
+      ["up", "right", "down", "left"].map((direction) =>
+        cameraRelativeMoveDirection(direction, heading))),
+    [
+      ["up", "right", "down", "left"],
+      ["left", "up", "right", "down"],
+      ["down", "left", "up", "right"],
+      ["right", "down", "left", "up"]
+    ]
+  );
+  assert.equal(cameraRelativeMoveDirection("unknown", 0), null);
+  assert.equal(cameraRelativeMoveDirection("up", -1), "right");
+});
 
 test("engine v1 is the byte-identical UnitTest WebAssembly build", async () => {
   const { bytes, engine } = await loadEngine();
