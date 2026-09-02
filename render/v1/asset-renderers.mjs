@@ -85,6 +85,8 @@ function addPartWithEdges(content, part, color, transform, threshold = 28) {
   mesh.position.copy(transform.position);
   mesh.scale.copy(transform.scale);
   mesh.rotation.copy(transform.rotation);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   content.add(mesh);
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(part.geometry, threshold), edgeMaterial());
   edges.position.copy(transform.position);
@@ -167,6 +169,8 @@ export function addGemAsset(content, record, dimensions) {
   model.parts.forEach((part) => {
     const mesh = new THREE.Mesh(part.geometry, renderMaterial(part.color || "#00e7e6"));
     mesh.position.set(-center.x, -model.bounds.min.y, -center.z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = false;
     group.add(mesh);
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(part.geometry, 28), edgeMaterial());
     edges.position.copy(mesh.position);

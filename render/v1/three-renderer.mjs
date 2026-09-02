@@ -46,11 +46,20 @@ import {
   zoomTransitionAt
 } from "./camera-transitions.mjs";
 import { addGenericNumberFaces } from "./generic-labels.mjs";
+import { MazeFuzzyOverlayV1 } from "./fuzzy-overlay.mjs";
 
 const CARDINAL_STEP = Math.PI * 0.5;
 const DEFAULT_HEADING = 0;
 const DEFAULT_PITCH = 0.72;
 const DRAG_HEADING_THRESHOLD = 48;
+const OUTLINE_LAYER = 1;
+const OUTLINE_PIXEL_OFFSETS = Object.freeze([
+  Object.freeze([0, 0]),
+  Object.freeze([-1, 0]),
+  Object.freeze([1, 0]),
+  Object.freeze([0, -1]),
+  Object.freeze([0, 1])
+]);
 const HEADING_DIRECTIONS = Object.freeze([
   { near: "down", far: "up" },
   { near: "right", far: "left" },
@@ -81,6 +90,10 @@ export class ThreeMazeRendererV1 {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    this.renderer.shadowMap.enabled = this.mode !== "world";
+    this.renderer.shadowMap.autoUpdate = false;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.fuzzyOverlay = new MazeFuzzyOverlayV1(canvas, this.mode !== "world");
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2();
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -127,7 +140,26 @@ export class ThreeMazeRendererV1 {
     const key = new THREE.DirectionalLight("#ffffff", 1.2);
     key.position.set(5, 18, -5);
     key.target.position.set(0, 0, 0);
+    key.castShadow = this.mode !== "world";
+    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.bias = -0.0002;
+    key.shadow.normalBias = 0.006;
+    key.shadow.radius = 4;
+    this.keyLight = key;
     this.scene.add(key, key.target);
+  }
+
+  configureShadows() {
+    if (!this.keyLight?.castShadow) return;
+    const span = Math.max(this.totalWidth, this.totalHeight, 8);
+    const shadowCamera = this.keyLight.shadow.camera;
+    shadowCamera.left = -span;
+    shadowCamera.right = span;
+    shadowCamera.top = span;
+    shadowCamera.bottom = -span;
+    shadowCamera.near = 1;
+    shadowCamera.far = span * 3;
+    shadowCamera.updateProjectionMatrix();
   }
 
   installEvents() {
@@ -388,6 +420,7 @@ export class ThreeMazeRendererV1 {
     this.world = world;
     this.totalWidth = this.mode === "editor" ? world.roomWidth : world.columns.length * world.roomWidth;
     this.totalHeight = this.mode === "editor" ? world.roomHeight : world.rows.length * world.roomHeight;
+    this.configureShadows();
     this.setSelection(null);
     const modelUrls = this.rebuild();
     this.requestModels(modelUrls);
@@ -427,6 +460,7 @@ export class ThreeMazeRendererV1 {
       totalWidth: this.totalWidth,
       totalHeight: this.totalHeight
     });
+    this.assignRenderLayers(this.placementPreview);
     this.render();
   }
 
@@ -583,6 +617,7 @@ export class ThreeMazeRendererV1 {
       if (!faces.length) return;
       const geometry = geometryFromFaces(faces);
       const mesh = new THREE.Mesh(geometry, renderMaterial(group.color));
+      mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.content.add(mesh);
       const edges = new THREE.LineSegments(edgeGeometryFromFaces(faces), edgeMaterial());
@@ -592,7 +627,7 @@ export class ThreeMazeRendererV1 {
   }
 
   addEditorGrid(cells) {
-    if (this.mode !== "editor") return;
+    if (this.mode === "world") return;
     const positions = [];
     const seen = new Set();
     const add = (from, to, y) => {
@@ -613,7 +648,8 @@ export class ThreeMazeRendererV1 {
     if (!positions.length) return;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    this.content.add(new THREE.LineSegments(geometry, edgeMaterial(0x715c3d, 0.34)));
+    const opacity = this.mode === "editor" ? 0.34 : 0.2;
+    this.content.add(new THREE.LineSegments(geometry, edgeMaterial(0x715c3d, opacity)));
   }
 
   addEditorPickMesh(metadata) {
@@ -687,12 +723,14 @@ export class ThreeMazeRendererV1 {
     data.terrainAssets.forEach((record) => addTerrainAsset(this.content, record, dimensions));
     data.gems.forEach((record) => addGemAsset(this.content, record, dimensions));
     data.specialPieces.forEach((record) => addSpecialPiece(this.content, record, dimensions));
-    if (this.mode !== "world") {
+    if (this.mode === "editor") {
       data.genericLabels?.forEach((record) => addGenericNumberFaces(this.content, record, dimensions));
     }
     this.addEditorGrid(data.editorGridCells);
     if (data.pickRecords) this.addEditorVoxelPickMesh(data.pickRecords);
     else this.addEditorPickMesh(data.cellMetadata);
+    this.assignRenderLayers(this.content);
+    if (this.renderer.shadowMap.enabled) this.renderer.shadowMap.needsUpdate = true;
     this.render();
     return data.modelUrls;
   }
@@ -703,6 +741,7 @@ export class ThreeMazeRendererV1 {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+    this.fuzzyOverlay.resize();
     this.render();
   }
 
@@ -732,9 +771,50 @@ export class ThreeMazeRendererV1 {
     });
   }
 
+  assignRenderLayers(root) {
+    root.traverse((object) => {
+      if (object.isLineSegments && object.material?.userData?.mazeOutline) {
+        // The full world remains a single combined render pass. Splitting its
+        // 94k-object scene into face and outline passes made camera movement
+        // needlessly expensive.
+        object.layers.set(this.mode === "world" ? 0 : OUTLINE_LAYER);
+      }
+    });
+  }
+
+  renderThickOutlines() {
+    const width = Math.max(1, this.canvas.width);
+    const height = Math.max(1, this.canvas.height);
+    // The world map can contain thousands of meshes. Keep its edge pass to one
+    // draw; the five screen-space stamps are reserved for single-room views.
+    const pixelOffsets = this.mode === "world"
+      ? OUTLINE_PIXEL_OFFSETS.slice(0, 1)
+      : OUTLINE_PIXEL_OFFSETS;
+    const previousAutoClear = this.renderer.autoClear;
+    const previousBackground = this.scene.background;
+    this.renderer.autoClear = false;
+    this.scene.background = null;
+    this.camera.layers.set(OUTLINE_LAYER);
+    try {
+      pixelOffsets.forEach(([x, y]) => {
+        this.camera.setViewOffset(width, height, x, y, width, height);
+        this.camera.updateProjectionMatrix();
+        this.renderer.render(this.scene, this.camera);
+      });
+    } finally {
+      this.scene.background = previousBackground;
+      this.camera.clearViewOffset();
+      this.camera.updateProjectionMatrix();
+      this.camera.layers.set(0);
+      this.renderer.autoClear = previousAutoClear;
+    }
+  }
+
   render() {
     this.updateCamera();
+    this.camera.layers.set(0);
     this.renderer.render(this.scene, this.camera);
+    if (this.mode !== "world") this.renderThickOutlines();
   }
 
   zoomBy(factor) {

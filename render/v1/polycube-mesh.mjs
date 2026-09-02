@@ -36,13 +36,37 @@ export function renderMaterial(color) {
 export function edgeMaterial(color = 0x000000, opacity = 1) {
   const key = `${color}:${opacity}`;
   if (!lineMaterialCache.has(key)) {
-    lineMaterialCache.set(key, new THREE.LineBasicMaterial({
+    const material = new THREE.LineBasicMaterial({
       color,
       depthTest: true,
       depthWrite: false,
       opacity,
       transparent: opacity < 1
-    }));
+    });
+    material.userData.mazeOutline = (color === 0x000000 || color === "#000000") && opacity >= 0.999;
+    if (material.userData.mazeOutline) {
+      // MazeBenchEngine pulls edge vertices toward the eye along their view
+      // ray so outlines win the depth test without sliding across the model.
+      material.onBeforeCompile = (shader) => {
+        shader.vertexShader = shader.vertexShader.replace(
+          "#include <project_vertex>",
+          [
+            "vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );",
+            "float edgePullBias = 0.024;",
+            "if ( isPerspectiveMatrix( projectionMatrix ) ) {",
+            "  float edgeViewDistance = max( length( mvPosition.xyz ), 0.0001 );",
+            "  float edgePull = max( edgePullBias, edgeViewDistance * 0.0015 );",
+            "  mvPosition.xyz *= max( edgeViewDistance - edgePull, 0.0 ) / edgeViewDistance;",
+            "} else {",
+            "  mvPosition.z += edgePullBias;",
+            "}",
+            "gl_Position = projectionMatrix * mvPosition;"
+          ].join("\n")
+        );
+      };
+      material.customProgramCacheKey = () => "maze-outline-depth-bias-v1";
+    }
+    lineMaterialCache.set(key, material);
   }
   return lineMaterialCache.get(key);
 }
@@ -165,6 +189,8 @@ export function addOutlinedMesh(content, geometry, color, transform = {}, thresh
   if (transform.position) mesh.position.copy(transform.position);
   if (transform.rotation) mesh.rotation.copy(transform.rotation);
   if (transform.scale) mesh.scale.copy(transform.scale);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   content.add(mesh);
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, threshold), edgeMaterial());
   if (transform.position) edges.position.copy(transform.position);
