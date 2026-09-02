@@ -37,7 +37,7 @@
       id="viewport"
       class="viewport is-loading"
       tabindex="0"
-      aria-label="Complete 16 by 16 MazeBench world map. Use arrow keys to move between rooms."
+      aria-label="Complete 16 by 16 MazeBench world map. Use A and D to rotate, W and S to tilt."
     >
       <div id="stage" class="stage">
         <canvas id="world" aria-label="Three-dimensional MazeBench main world"></canvas>
@@ -62,7 +62,7 @@
         <span>Cell</span>
         <output id="cell-value">—</output>
       </div>
-      <p class="hint">Drag to orbit · wheel to zoom · double-click a room to focus</p>
+      <p class="hint">A/D rotate 90° · W/S tilt · wheel zooms · double-click focuses</p>
     </footer>
 
     <script type="module" src="./render/v1/main.mjs"></script>

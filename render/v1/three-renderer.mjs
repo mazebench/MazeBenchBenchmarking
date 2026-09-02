@@ -21,8 +21,18 @@ import {
 import { addSpecialPiece } from "./special-piece-renderers.mjs";
 import { MAZE_COLORS, parseCellState } from "./world-renderer.mjs";
 
-const DEFAULT_YAW = Math.PI * 0.25;
+const CARDINAL_STEP = Math.PI * 0.5;
+const DEFAULT_HEADING = 0;
 const DEFAULT_PITCH = 0.72;
+const PITCH_STEP = THREE.MathUtils.degToRad(6);
+const MIN_PITCH = 0.18;
+const MAX_PITCH = 1.48;
+const DRAG_HEADING_THRESHOLD = 48;
+
+function isEditableTarget(target) {
+  return target instanceof HTMLElement
+    && (target.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName));
+}
 
 function groupEntry(groups, key, settings) {
   if (!groups.has(key)) groups.set(key, { ...settings, voxels: [], voxelKeys: new Set() });
@@ -46,7 +56,8 @@ export class ThreeMazeRendererV1 {
     this.mouse = new THREE.Vector2();
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this.target = new THREE.Vector3();
-    this.yaw = DEFAULT_YAW;
+    this.heading = DEFAULT_HEADING;
+    this.yaw = this.heading * CARDINAL_STEP;
     this.pitch = DEFAULT_PITCH;
     this.distance = 30;
     this.content = new THREE.Group();
@@ -85,7 +96,7 @@ export class ThreeMazeRendererV1 {
         this.paintAt(event, true);
         return;
       }
-      this.pointer = { x: event.clientX, y: event.clientY, moved: false };
+      this.pointer = { x: event.clientX, y: event.clientY, moved: false, headingDrag: 0 };
     });
     this.canvas.addEventListener("pointermove", (event) => {
       if (this.painting) return this.paintAt(event, false);
@@ -95,8 +106,14 @@ export class ThreeMazeRendererV1 {
         this.pointer.moved ||= Math.abs(dx) + Math.abs(dy) > 3;
         this.pointer.x = event.clientX;
         this.pointer.y = event.clientY;
-        this.yaw -= dx * 0.006;
-        this.pitch = Math.max(0.18, Math.min(1.48, this.pitch + dy * 0.004));
+        this.pointer.headingDrag += dx;
+        while (Math.abs(this.pointer.headingDrag) >= DRAG_HEADING_THRESHOLD) {
+          this.rotateCardinal(this.pointer.headingDrag > 0 ? -1 : 1, false);
+          this.pointer.headingDrag += this.pointer.headingDrag > 0
+            ? -DRAG_HEADING_THRESHOLD
+            : DRAG_HEADING_THRESHOLD;
+        }
+        this.pitch = Math.max(MIN_PITCH, Math.min(MAX_PITCH, this.pitch + dy * 0.004));
         return this.render();
       }
       this.onInspect?.(this.hitTest(event));
@@ -112,6 +129,27 @@ export class ThreeMazeRendererV1 {
     };
     this.canvas.addEventListener("pointerup", finishPointer);
     this.canvas.addEventListener("pointercancel", finishPointer);
+    window.addEventListener("keydown", (event) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isEditableTarget(event.target)) return;
+      const key = event.key.toLowerCase();
+      if (!["w", "a", "s", "d"].includes(key)) return;
+      event.preventDefault();
+      if (key === "a") this.rotateCardinal(-1);
+      if (key === "d") this.rotateCardinal(1);
+      if (key === "w") this.tiltCamera(PITCH_STEP);
+      if (key === "s") this.tiltCamera(-PITCH_STEP);
+    });
+  }
+
+  rotateCardinal(direction, render = true) {
+    this.heading = (this.heading + direction + 4) % 4;
+    this.yaw = this.heading * CARDINAL_STEP;
+    if (render) this.render();
+  }
+
+  tiltCamera(amount) {
+    this.pitch = Math.max(MIN_PITCH, Math.min(MAX_PITCH, this.pitch + amount));
+    this.render();
   }
 
   paintAt(event, start) {
@@ -401,6 +439,8 @@ export class ThreeMazeRendererV1 {
       this.target.z + Math.cos(this.yaw) * horizontal
     );
     this.camera.lookAt(this.target);
+    this.canvas.dataset.cameraHeading = String(this.heading * 90);
+    this.canvas.dataset.cameraPitch = String(Math.round(THREE.MathUtils.radToDeg(this.pitch)));
     this.content.traverse((object) => {
       if (object.userData.liftMarker) object.rotation.y = this.yaw;
     });
@@ -419,7 +459,8 @@ export class ThreeMazeRendererV1 {
 
   resetView() {
     this.target.set(0, this.mode === "world" ? 1.5 : 1.2, 0);
-    this.yaw = DEFAULT_YAW;
+    this.heading = DEFAULT_HEADING;
+    this.yaw = this.heading * CARDINAL_STEP;
     this.pitch = DEFAULT_PITCH;
     this.distance = this.fitDistance();
     this.render();
