@@ -23,6 +23,19 @@ export function resolveEditorPaintTargetV2(
   };
 }
 
+export function editorEraseRowKey(target) {
+  const coordinate = resolveEditorPaintTargetV2(target, { erase: true });
+  const blockId = target?.object?.blockId ?? target?.block?.id;
+  const rowKind = BASE_LAYER_BLOCKS.has(blockId) ? "surface" : "object";
+  return `${coordinate.z}:${rowKind}`;
+}
+
+export function resolveEditorEraseTargetV2(target, strokeRowKey = null) {
+  const coordinate = resolveEditorPaintTargetV2(target, { erase: true });
+  if (strokeRowKey !== null && editorEraseRowKey(target) !== strokeRowKey) return null;
+  return coordinate;
+}
+
 export function orientationFromPaintFace(target, allowBottom = false) {
   if (target?.face === "bottom-face") return allowBottom ? "bottom" : null;
   const dx = Math.sign(Number(target?.dx) || 0);

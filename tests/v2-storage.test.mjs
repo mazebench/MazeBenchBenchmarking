@@ -11,7 +11,9 @@ import {
   placeObjectInCell
 } from "../render/v1/cell-objects-v2.mjs";
 import {
+  editorEraseRowKey,
   editorPaintLayer,
+  resolveEditorEraseTargetV2,
   resolveEditorPaintTargetV2,
   voxelPlacementForTool
 } from "../editor/v1/face-placement-v2.mjs";
@@ -288,6 +290,28 @@ test("editor paint drags stay on their starting layer and base floors stay on ze
   assert.equal(editorPaintLayer("weightless-box", 1, 0), 0);
   assert.equal(editorPaintLayer("floor", 7, 4), 0);
   assert.equal(editorPaintLayer("ice-floor", 7, 4), 0);
+});
+
+test("editor erase drags never fall through to another layer", () => {
+  const upperHit = { sourceX: 4, sourceY: 5, sourceZ: 2, object: { blockId: "wall" } };
+  const floorHit = { sourceX: 4, sourceY: 5, sourceZ: 0, object: { blockId: "floor" } };
+  assert.deepEqual(resolveEditorEraseTargetV2(upperHit), { x: 4, y: 5, z: 2 });
+  assert.deepEqual(resolveEditorEraseTargetV2(upperHit, "2:object"), { x: 4, y: 5, z: 2 });
+  assert.equal(resolveEditorEraseTargetV2(floorHit, "2:object"), null);
+});
+
+test("an erase drag cannot fall through a z-zero block into its z-zero floor", () => {
+  const floor = { x: 4, y: 5, z: 0, blockId: "floor" };
+  const block = { x: 4, y: 5, z: 0, blockId: "wall" };
+  const blockHit = { sourceX: 4, sourceY: 5, sourceZ: 0, object: block };
+  const floorHit = { sourceX: 4, sourceY: 5, sourceZ: 0, object: floor };
+  const strokeRow = editorEraseRowKey(blockHit);
+
+  const firstErase = eraseOneObjectAtCell([floor, block], blockHit, cellObjectSelectionKey(block));
+  assert.deepEqual(firstErase.objects, [floor]);
+  assert.equal(strokeRow, "0:object");
+  assert.equal(editorEraseRowKey(floorHit), "0:surface");
+  assert.equal(resolveEditorEraseTargetV2(floorHit, strokeRow), null);
 });
 
 test("punchers point out from horizontal, top, and bottom highlighted faces", () => {

@@ -10,7 +10,9 @@ import {
 import { renderToolboxPreviews } from "./toolbox-previews.mjs";
 import { isDirectionalTool, parserToolTokens, portraitToken } from "./directional-tools.mjs";
 import {
+  editorEraseRowKey,
   editorPaintLayer,
+  resolveEditorEraseTargetV2,
   resolveEditorPaintTargetV2,
   rotateVoxelObject,
   voxelPlacementForTool
@@ -77,6 +79,7 @@ let savedObjects = null;
 let dirty = false;
 let hoverHit = null;
 let paintStrokeLayer = null;
+let eraseStrokeRow = null;
 const solvers = new EditorSolversV1();
 let solverBusy = false;
 let replayGeneration = 0;
@@ -202,13 +205,16 @@ function paint(hit, gesture) {
   const erase = currentTool === "__erase_top__";
   if (gesture.start) {
     paintStrokeLayer = null;
+    eraseStrokeRow = null;
     pushUndo();
   }
 
   if (erase) {
-    const coordinate = resolveEditorPaintTargetV2(hit, { erase: true });
+    const coordinate = resolveEditorEraseTargetV2(hit, eraseStrokeRow);
+    if (!coordinate) return;
     const result = eraseOneObjectAtCell(currentRoom.objects, coordinate, hit.selectionKey);
     if (!result.changed) return;
+    if (eraseStrokeRow === null) eraseStrokeRow = editorEraseRowKey(hit);
     currentRoom.objects = result.objects;
     renderer.setRoom(currentRoom, { preserveCamera: true });
     inspectCoordinate(coordinate);
