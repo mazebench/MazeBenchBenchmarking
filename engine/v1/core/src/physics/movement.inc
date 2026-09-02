@@ -152,6 +152,42 @@ int32_t MovingSupportBelowObject(
       if (moving_support == -1) moving_support = support_object;
       continue;
     }
+    if (carry_from_player && support_object >= 0 &&
+        support_object != object) {
+      int32_t support_size = 0;
+      for (int32_t support_member = g_object_head[support_object];
+           support_member >= 0;
+           support_member = g_next_object_voxel[support_member]) {
+        ++support_size;
+      }
+      bool support_is_terrain_anchored = false;
+      for (int32_t support_member = g_object_head[support_object];
+           support_member >= 0;
+           support_member = g_next_object_voxel[support_member]) {
+        const Voxel& supported = voxels[support_member];
+        if (supported.z == INT32_MIN) continue;
+        const int32_t anchor = FindVoxelAt(
+            voxels,
+            supported.x,
+            supported.y,
+            supported.z - 1,
+            width,
+            height);
+        if (anchor >= 0 && g_voxel_object[anchor] < 0 &&
+            !IsIceRole(voxels[anchor].role)) {
+          support_is_terrain_anchored = true;
+          break;
+        }
+      }
+      if (support_size == 1 && support_is_terrain_anchored) {
+        // The player's top contact carries a body only when the player is its
+        // effective carrier. A separate grounded cube is a stable pedestal,
+        // so it keeps a bridged polycube in place when the player walks out
+        // beneath it. Interlocking polycubes still use the carrier/collision
+        // closure below rather than being reduced to a single point support.
+        return -1;
+      }
+    }
     // Ordinary terrain provides an immovable foothold, so one moving contact
     // cannot carry the body. Ice has no such anchoring friction, and contact
     // with a different movable object is resolved by the support graph.
@@ -373,8 +409,17 @@ void AdvanceUnmovedGravityOneStep(
         g_object_gravity_armed[object] == 0) {
       continue;
     }
-    if (!(immediate_support_loss && g_component_objects[object] != 0) &&
-        ObjectHasStableDirectSupport(voxels, object, width, height)) {
+    if (immediate_support_loss && g_component_objects[object] != 0) {
+      // The caller has already proven that this whole support component is
+      // vacated by the horizontal half of the current tick. Every level of
+      // the stack therefore owns a simultaneous downward proposal now; do
+      // not make upper members spend an extra arming-only frame.
+      g_object_falling[object] = 1;
+      g_pending_fall[object] = 1;
+      found_pending = true;
+      continue;
+    }
+    if (ObjectHasStableDirectSupport(voxels, object, width, height)) {
       g_object_falling[object] = 0;
       continue;
     }
@@ -1234,7 +1279,8 @@ bool TranslatePlayerLiftPayload(
     int32_t dy,
     int32_t dz,
     int32_t width,
-    int32_t height) {
+    int32_t height,
+    bool commit_translation = true) {
   ClearMovingObjects();
   int32_t seeded = 0;
 
@@ -1324,7 +1370,9 @@ bool TranslatePlayerLiftPayload(
       height,
       false,
       true,
-      true);
+      true,
+      true,
+      commit_translation);
 }
 
 // Only a player that horizontally enters a lowered platform toggles it; a
@@ -1583,7 +1631,8 @@ bool RaiseVacatedUpwardPlayerLift(
     int32_t player_index,
     int32_t from_x,
     int32_t from_y,
-    int32_t from_z) {
+    int32_t from_z,
+    bool allow_top_lift) {
   const Voxel& player = voxels[player_index];
   if (player.x == from_x && player.y == from_y && player.z == from_z) {
     return false;
@@ -1602,6 +1651,7 @@ bool RaiseVacatedUpwardPlayerLift(
     Voxel& lift = voxels[index];
     if (lift.role == kPlayerLiftRole && lift.generic_id >= 0 &&
         lift.generic_id <= 9 && lift.generic_id % 2 == 0 &&
+        (allow_top_lift || lift.generic_id >= 2) &&
         lift.x == from_x && lift.y == from_y && lift.z == from_z) {
       // A blocked or voluntarily departing rider leaves the lowered fixture
       // behind. With nobody to actuate, every mounting returns to its raised
@@ -1619,6 +1669,45 @@ bool RaiseVacatedUpwardPlayerLift(
     }
   }
   return false;
+}
+
+bool VacatedUpwardPlayerLiftNeedsRetry(
+    Voxel* voxels,
+    int32_t count,
+    int32_t player_index,
+    int32_t width,
+    int32_t height) {
+  const Voxel& player = voxels[player_index];
+  int32_t lift_index = -1;
+  for (int32_t index = 0; index < count; ++index) {
+    const Voxel& lift = voxels[index];
+    if (lift.role != kPlayerLiftRole || lift.generic_id != 0 ||
+        lift.x != player.x || lift.y != player.y || lift.z != player.z) {
+      continue;
+    }
+    if (lift_index >= 0) return false;
+    lift_index = index;
+  }
+  if (lift_index < 0 || player.z == INT32_MAX) return false;
+
+  // Probe the lift transaction without committing it. A lowered lift which
+  // could have raised its rider is an authored stable state and stays down
+  // after departure. Only a lift whose attempted rise was obstructed earns a
+  // one-tick retry after the rider has moved clear.
+  return !TranslatePlayerLiftPayload(
+      voxels,
+      count,
+      player_index,
+      lift_index,
+      player.x,
+      player.y,
+      player.z,
+      0,
+      0,
+      1,
+      width,
+      height,
+      false);
 }
 
 bool TogglePlayerLiftAtPlayer(
@@ -2143,10 +2232,8 @@ int32_t UphillSlopeContactObject(
 void AddDeliberateUphillSlopeContactClosure(
     Voxel* voxels,
     int32_t width,
-    int32_t height,
-    int32_t initial_contact_voxel) {
+    int32_t height) {
   bool added = true;
-  bool initial_pass = true;
   while (added) {
     added = false;
     for (int32_t object = 0; object < g_object_count; ++object) {
@@ -2156,7 +2243,6 @@ void AddDeliberateUphillSlopeContactClosure(
       }
       for (int32_t member = g_object_head[object]; member >= 0;
            member = g_next_object_voxel[member]) {
-        if (initial_pass && member != initial_contact_voxel) continue;
         const int32_t uphill = UphillSlopeContactObject(
             voxels,
             voxels[member],
@@ -2173,7 +2259,6 @@ void AddDeliberateUphillSlopeContactClosure(
         added = true;
       }
     }
-    initial_pass = false;
   }
 }
 
@@ -2257,7 +2342,8 @@ void AddSlopeCarriedObjects(
     Voxel* voxels,
     int32_t player_index,
     int32_t width,
-    int32_t height) {
+    int32_t height,
+    bool preserve_matching_latent_motion) {
   BuildCarriedObjects(voxels, player_index, false, width, height);
   bool promoted = true;
   while (promoted) {
@@ -2274,14 +2360,21 @@ void AddSlopeCarriedObjects(
               IsYellowCloneSlopeRole(voxels[member].role);
         }
       }
+      const bool rider_continues_before_redirect =
+          preserve_matching_latent_motion && carrier >= 0 &&
+          !carrier_is_movable_ramp &&
+          g_object_direction[object] <= 3 &&
+          g_object_direction[object] == g_component_indegree[carrier];
       if (g_object_falling[object] != 0 ||
-          (g_object_direction[object] <= 3 &&
-           !carrier_is_movable_ramp)) {
-        // A body already committed to gravity keeps its own proposal as
-        // support departs. A latent-direction stack above an ordinary body
-        // also keeps its synchronized fall/slide proposal. A movable ramp is
-        // the exception: it transports its stationary rider first, and the
-        // rider acquires downhill momentum from the ramp after the commit.
+          (g_mandatory_objects[object] != 0 &&
+           g_object_direction[object] <= 3 &&
+           !carrier_is_movable_ramp) ||
+          rider_continues_before_redirect) {
+        // A body already committed to gravity or to an active horizontal
+        // proposal keeps that proposal as support departs. A latent falling
+        // stack which arrived with its carrier also continues vertically when
+        // that support moves out underneath it. Otherwise, a body arriving
+        // from another axis has just been caught and follows its carrier.
         g_carried_objects[object] = 0;
         g_moving_objects[object] = g_mandatory_objects[object];
         g_carrier_parent[object] = -1;
@@ -2470,6 +2563,9 @@ bool TranslateSlopeMomentumObjects(
     g_object_redirected[object] = 0;
     g_inherited_support_motion[object] = 0;
     g_component_objects[object] = 0;
+    // This scratch array is not needed for component topology until the
+    // later gravity pass, so retain each proposal's pre-slope direction here.
+    g_component_indegree[object] = g_object_direction[object];
     if (g_deferred_slope_objects[object] != 0) {
       g_mandatory_objects[object] = 0;
       g_moving_objects[object] = 0;
@@ -2639,7 +2735,8 @@ bool TranslateSlopeMomentumObjects(
   // ordinary uniform-delta carrier path cannot be used directly. Discover
   // the same support graph, then copy each carrier's exact 3D proposal to its
   // riders before validating the transaction.
-  AddSlopeCarriedObjects(voxels, player_index, width, height);
+  AddSlopeCarriedObjects(
+      voxels, player_index, width, height, !allow_push);
 
   for (int32_t object = 0; object < g_object_count; ++object) {
     if (g_mandatory_objects[object] == 0 ||
@@ -2717,9 +2814,18 @@ bool TranslateSlopeMomentumObjects(
   while (support_loss_changed) {
     support_loss_changed = false;
     for (int32_t object = 0; object < g_object_count; ++object) {
-      if (g_mandatory_objects[object] != 0 ||
-          g_component_objects[object] != 0 ||
+      if (g_component_objects[object] != 0 ||
           !ObjectIsActive(voxels, object, width, height)) {
+        continue;
+      }
+      const int32_t synchronized_carrier = g_carrier_parent[object];
+      if (synchronized_carrier >= 0 &&
+          g_mandatory_objects[synchronized_carrier] != 0 &&
+          g_object_dx[object] == g_object_dx[synchronized_carrier] &&
+          g_object_dy[object] == g_object_dy[synchronized_carrier] &&
+          g_object_dz[object] == g_object_dz[synchronized_carrier]) {
+        // The carrier vacates the old support cell but refills the rider's
+        // translated support cell with the same rigid transform.
         continue;
       }
       bool had_departing_support = false;
@@ -2739,6 +2845,16 @@ bool TranslateSlopeMomentumObjects(
                 voxel.x,
                 voxel.y,
                 voxel.z - 1)) {
+          if (g_mandatory_objects[object] != 0 &&
+              g_object_dx[object] == g_object_dx[support_object] &&
+              g_object_dy[object] == g_object_dy[support_object] &&
+              g_object_dz[object] == g_object_dz[support_object]) {
+            // Both bodies apply the same transform, so the support remains
+            // directly beneath the rider at the destination even if the
+            // carrier-parent marker was cleared after momentum resolution.
+            has_stable_support = true;
+            break;
+          }
           had_departing_support = true;
           continue;
         }
@@ -2751,6 +2867,12 @@ bool TranslateSlopeMomentumObjects(
         break;
       }
       if (had_departing_support && !has_stable_support) {
+        // A horizontal proposal cannot remain suspended above a support
+        // component that is falling during this same tick. Gravity wins for
+        // the rider too, so a whole vertical stack descends together instead
+        // of its upper member skating sideways through the air.
+        g_mandatory_objects[object] = 0;
+        g_moving_objects[object] = 0;
         g_component_objects[object] = 1;
         g_object_falling[object] = 1;
         support_loss_changed = true;

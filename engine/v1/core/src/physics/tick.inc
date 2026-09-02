@@ -511,6 +511,42 @@ TickResult step_tick(
   }
 
   if (state->phase == kMotionPlayerLift) {
+    if (state->reserved[0] == kResumeVacatedLift) {
+      const Voxel& player = voxels[player_index];
+      const int32_t from_x = player.x - dx;
+      const int32_t from_y = player.y - dy;
+      const int32_t from_z = player.z;
+      state->reserved[0] = kResumeNothing;
+      const bool raised = RaiseVacatedUpwardPlayerLift(
+          voxels,
+          count,
+          player_index,
+          from_x,
+          from_y,
+          from_z,
+          true);
+      if (raised) {
+        (void)RefreshOrangeButtonVisibility(voxels, count);
+      }
+      BuildSpatialIndex(voxels, count, width, height);
+      MarkObjectsForDeferredGravity(voxels, width, height, false);
+      const bool entry_lift_pending = PlayerLiftCanToggleOnEntry(
+          voxels,
+          count,
+          player_index,
+          from_x,
+          from_y,
+          width,
+          height);
+      const bool gravity_continues = ObjectsNeedGravityTick(
+          voxels, count, width, height, false);
+      return store_and_finish(
+          entry_lift_pending
+              ? kMotionPlayerLift
+              : gravity_continues ? kMotionGravity : kMotionComplete,
+          raised,
+          true);
+    }
     bool lift_will_raise = false;
     const int32_t lift_index = PlayerLiftAtPlayer(
         voxels,
@@ -595,7 +631,8 @@ TickResult step_tick(
             player_index,
             slide_from_x,
             slide_from_y,
-            slide_from_z);
+            slide_from_z,
+            false);
         player_lift_pending = PlayerLiftCanToggleOnEntry(
             voxels,
             count,
@@ -672,7 +709,8 @@ TickResult step_tick(
             player_index,
             slide_from_x,
             slide_from_y,
-            slide_from_z);
+            slide_from_z,
+            false);
         player_lift_pending = PlayerLiftCanToggleOnEntry(
             voxels,
             count,
@@ -784,6 +822,7 @@ TickResult step_tick(
     int32_t player_ice_dx = dx;
     int32_t player_ice_dy = dy;
     int32_t player_ice_dz = 0;
+    int32_t player_ice_leader_object = -1;
     if (player_has_ice_momentum) {
       player_ice_direction = RedirectSlopeDirection(
           voxels,
@@ -799,6 +838,33 @@ TickResult step_tick(
           player_ice_direction,
           width,
           height);
+      const Voxel& sliding_player = voxels[player_index];
+      const int32_t leader_voxel = FindVoxelAt(
+          voxels,
+          sliding_player.x + player_ice_dx,
+          sliding_player.y + player_ice_dy,
+          sliding_player.z + player_ice_dz,
+          width,
+          height);
+      player_ice_leader_object = leader_voxel >= 0
+          ? g_voxel_object[leader_voxel]
+          : -1;
+      if (player_ice_leader_object >= 0 &&
+          g_object_kind[player_ice_leader_object] == kWeightlessObject) {
+        const uint8_t leader_momentum = ReadObjectMomentum(
+            state->horizontal_momentum, player_ice_leader_object);
+        if (leader_momentum > 4 &&
+            ((leader_momentum - 1) & 3) == player_ice_direction) {
+          // A body pushed on the preceding Ice tick can temporarily gain a
+          // non-Ice contact from a different moving body. Its latent momentum
+          // still participates when the sliding player is immediately behind
+          // it, so all independent axes resolve in this same discrete tick.
+          g_mandatory_objects[player_ice_leader_object] = 1;
+          g_moving_objects[player_ice_leader_object] = 1;
+          g_object_direction[player_ice_leader_object] =
+              static_cast<uint8_t>(player_ice_direction);
+        }
+      }
     }
     g_ignored_support_voxel = player_index;
     bool player_was_pushed = false;
@@ -847,23 +913,18 @@ TickResult step_tick(
           true);
     }
 
-    if (player_has_ice_momentum) {
-      for (int32_t object = 0; object < g_object_count; ++object) {
-        if (g_mandatory_objects[object] == 0 ||
-            g_object_redirected[object] == 0) {
-          continue;
-        }
-        player_ice_direction = g_object_direction[object];
-        player_ice_dx = kDx[player_ice_direction];
-        player_ice_dy = kDy[player_ice_direction];
-        player_ice_dz = SlopeVerticalDelta(
-            voxels,
-            voxels[player_index],
-            player_ice_direction,
-            width,
-            height);
-        break;
-      }
+    if (player_has_ice_momentum && player_ice_leader_object >= 0 &&
+        g_mandatory_objects[player_ice_leader_object] != 0 &&
+        g_object_redirected[player_ice_leader_object] != 0) {
+      player_ice_direction = g_object_direction[player_ice_leader_object];
+      player_ice_dx = kDx[player_ice_direction];
+      player_ice_dy = kDy[player_ice_direction];
+      player_ice_dz = SlopeVerticalDelta(
+          voxels,
+          voxels[player_index],
+          player_ice_direction,
+          width,
+          height);
     }
 
     const bool player_rode_object =
@@ -905,7 +966,8 @@ TickResult step_tick(
             player_index,
             slide_from_x,
             slide_from_y,
-            slide_from_z);
+            slide_from_z,
+            false);
         player_lift_pending = PlayerLiftCanToggleOnEntry(
             voxels,
             count,
@@ -1021,6 +1083,10 @@ TickResult step_tick(
   const int32_t player_from_x = player.x;
   const int32_t player_from_y = player.y;
   const int32_t player_from_z = player.z;
+  const bool vacated_lift_retry_pending = !automatic_ice_motion &&
+      player_dz == 0 &&
+      VacatedUpwardPlayerLiftNeedsRetry(
+          voxels, count, player_index, width, height);
   const bool started_on_ice = IsSupportedByIce(voxels, player, width, height);
   const int32_t target_x = player.x + dx;
   const int32_t target_y = player.y + dy;
@@ -1081,11 +1147,11 @@ TickResult step_tick(
       diagonal_slope_contact = true;
     }
   }
-  if (target_index < 0 && target_z != INT32_MAX) {
-    // Moving into the cell directly beneath a weightless polycube carries the
-    // body forward in this same discrete tick. This is the vertical analogue
-    // of pushing a body in the destination cell and is important for tall,
-    // holey polycubes that bridge over the player's route.
+  if (target_index < 0 && player_dz < 0 && target_z != INT32_MAX) {
+    // A downhill step sweeps the vertical half-cell above its lower endpoint.
+    // A weightless body there receives the horizontal contact even though the
+    // player's final cube is one row lower. Level walking has no such sweep:
+    // it may enter an empty cavity beneath an independently supported body.
     const int32_t overhead = FindVoxelAt(
         voxels, target_x, target_y, target_z + 1, width, height);
     if (overhead >= 0 && g_voxel_object[overhead] >= 0 &&
@@ -1234,7 +1300,7 @@ TickResult step_tick(
       }
     }
     AddDeliberateUphillSlopeContactClosure(
-        voxels, width, height, target_index);
+        voxels, width, height);
     AddAutonomousSlopeObjects(
         voxels, player_index, state->direction, width, height, true);
     g_ignored_support_voxel = player_index;
@@ -1470,7 +1536,8 @@ TickResult step_tick(
         player_index,
         player_from_x,
         player_from_y,
-        player_from_z);
+        player_from_z,
+        false);
     player_lift_pending = !lowered_side_lift_for_entry &&
         PlayerLiftCanToggleOnEntry(
             voxels,
@@ -1491,6 +1558,12 @@ TickResult step_tick(
   if (pushed) g_ignored_support_voxel = player_index;
   MarkObjectsForDeferredGravity(voxels, width, height, false);
   g_ignored_support_voxel = -1;
+
+  if (vacated_lift_retry_pending) {
+    ClearHorizontalMomentum(state, count);
+    state->reserved[0] = kResumeVacatedLift;
+    return store_and_finish(kMotionPlayerLift, true, true);
+  }
 
   if (player_lift_pending) {
     ClearHorizontalMomentum(state, count);

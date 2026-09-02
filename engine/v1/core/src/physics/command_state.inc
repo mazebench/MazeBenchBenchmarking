@@ -9,6 +9,7 @@ constexpr uint8_t kResumeNothing = 0;
 constexpr uint8_t kResumePlayerIce = 1;
 constexpr uint8_t kResumeObjectIce = 2;
 constexpr uint8_t kResumeCommand = 3;
+constexpr uint8_t kResumeVacatedLift = 4;
 
 uint8_t ReadObjectFlag(
     const uint8_t* flags,
@@ -126,6 +127,8 @@ bool StoreSupportedMandatoryMomentum(
         (g_inherited_support_motion[object] != 0 ||
          ObjectIsFullyOnIce(voxels, object, width, height));
     bool supported_by_momentum_body = false;
+    bool supported_by_nonfalling_momentum_body = false;
+    uint8_t supporting_momentum_direction = UINT8_MAX;
     if (!supported_momentum && g_object_redirected[object] != 0) {
       for (int32_t member = g_object_head[object]; member >= 0;
            member = g_next_object_voxel[member]) {
@@ -137,10 +140,19 @@ bool StoreSupportedMandatoryMomentum(
         if (support_object >= 0 && support_object != object &&
             g_object_redirected[support_object] != 0) {
           supported_by_momentum_body = true;
-          break;
+          supported_by_nonfalling_momentum_body |=
+              g_object_falling[support_object] == 0;
+          if (g_object_falling[support_object] == 0 &&
+              g_object_direction[support_object] <= 3) {
+            supporting_momentum_direction =
+                g_object_direction[support_object];
+          }
         }
       }
     }
+    const bool moved_with_momentum_body =
+        supported_by_nonfalling_momentum_body &&
+        g_mandatory_objects[object] != 0;
     bool falling_toward_slope = false;
     if (!supported_momentum && g_object_falling[object] != 0) {
       for (int32_t member = g_object_head[object]; member >= 0;
@@ -156,14 +168,18 @@ bool StoreSupportedMandatoryMomentum(
         !supported_by_momentum_body) {
       continue;
     }
-    stored |= supported_momentum;
+    stored |= supported_momentum || moved_with_momentum_body;
     for (int32_t member = g_object_head[object]; member >= 0;
          member = g_next_object_voxel[member]) {
-      const int32_t direction = g_object_direction[object] <= 3
-          ? g_object_direction[object]
-          : fallback_direction;
+      const int32_t direction =
+          moved_with_momentum_body && supporting_momentum_direction <= 3
+          ? supporting_momentum_direction
+          : g_object_direction[object] <= 3
+              ? g_object_direction[object]
+              : fallback_direction;
       state->horizontal_momentum[member] = static_cast<uint8_t>(
-          direction + (supported_momentum ? 1 : 5));
+          direction +
+          ((supported_momentum || moved_with_momentum_body) ? 1 : 5));
     }
   }
   return stored;
@@ -178,7 +194,10 @@ void RestoreMandatoryMomentum(
   for (int32_t object = 0; object < g_object_count; ++object) {
     const uint8_t momentum = ReadObjectMomentum(
         state->horizontal_momentum, object);
-    if (momentum == 0) continue;
+    if (momentum == 0) {
+      g_object_direction[object] = UINT8_MAX;
+      continue;
+    }
     g_mandatory_objects[object] = 1;
     g_moving_objects[object] = 1;
     g_object_direction[object] = static_cast<uint8_t>((momentum - 1) & 3);

@@ -4,7 +4,13 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { countActiveRoleV1 } from "../engine/v1/adapter.mjs";
-import { instantiateMazeBenchEngineV1 } from "../engine/v1/engine.mjs";
+import {
+  ENGINE_SOURCE_COMMIT,
+  ENGINE_SOURCE_REPOSITORY,
+  ENGINE_SOURCE_TREE,
+  ENGINE_WASM_SHA256,
+  instantiateMazeBenchEngineV1
+} from "../engine/v1/engine.mjs";
 import { cameraRelativeMoveDirection } from "../play/v1/camera-relative-input.mjs";
 import { PlaySessionV1 } from "../play/v1/play-session.mjs";
 
@@ -39,10 +45,8 @@ test("play arrows rotate from screen space into world space at every camera head
 
 test("engine v1 is the byte-identical UnitTest WebAssembly build", async () => {
   const { bytes, engine } = await loadEngine();
-  assert.equal(
-    createHash("sha256").update(bytes).digest("hex"),
-    "09357602e0d68e7ddea6ddb1de407884f832ba981fac2c37fe9a4272cb4fe59f"
-  );
+  assert.match(ENGINE_SOURCE_COMMIT, /^[0-9a-f]{40}$/);
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), ENGINE_WASM_SHA256);
   assert.deepEqual(engine.info, {
     version: "v1",
     abi: 4,
@@ -50,6 +54,31 @@ test("engine v1 is the byte-identical UnitTest WebAssembly build", async () => {
     searchVoxelCapacity: 4_096,
     searchNodeCapacity: 180_000
   });
+});
+
+test("every vendored engine file matches its recorded upstream hash", async () => {
+  const manifest = JSON.parse(
+    await readFile(new URL("../engine/v1/upstream.json", import.meta.url), "utf8")
+  );
+  assert.equal(manifest.schemaVersion, 1);
+  assert.equal(manifest.sourceRepository, ENGINE_SOURCE_REPOSITORY);
+  assert.equal(manifest.sourceCommit, ENGINE_SOURCE_COMMIT);
+  assert.equal(manifest.sourceTree, ENGINE_SOURCE_TREE);
+  assert.equal(manifest.wasm.sha256, ENGINE_WASM_SHA256);
+
+  const wasm = await readFile(new URL("../engine/v1/voxel_physics.wasm", import.meta.url));
+  assert.equal(wasm.byteLength, manifest.wasm.bytes);
+  assert.equal(createHash("sha256").update(wasm).digest("hex"), manifest.wasm.sha256);
+
+  for (const entry of manifest.files) {
+    assert.equal(entry.path.startsWith("/") || entry.path.includes(".."), false);
+    const contents = await readFile(new URL(`../engine/v1/core/${entry.path}`, import.meta.url));
+    assert.equal(
+      createHash("sha256").update(contents).digest("hex"),
+      entry.sha256,
+      `vendored engine file differs: ${entry.path}`
+    );
+  }
 });
 
 test("exact solver and play commands share the copied engine", async () => {

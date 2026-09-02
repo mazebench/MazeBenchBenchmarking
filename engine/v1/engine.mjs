@@ -9,9 +9,14 @@ import {
   roomFromEngineStateV1,
   writeEngineStateV1
 } from "./adapter.mjs";
+export {
+  ENGINE_SOURCE_COMMIT,
+  ENGINE_SOURCE_REPOSITORY,
+  ENGINE_SOURCE_TREE,
+  ENGINE_WASM_SHA256
+} from "./upstream.mjs";
 
 export const ENGINE_VERSION = "v1";
-export const ENGINE_SOURCE_COMMIT = "54a0c6f6d6cf0cbe651c58bdbce1da09b365e484";
 
 const SEARCH_STATUSES = Object.freeze({
   [-1]: "invalid",
@@ -197,4 +202,3 @@ export function loadMazeBenchEngineV1() {
   }
   return sharedEnginePromise;
 }
-

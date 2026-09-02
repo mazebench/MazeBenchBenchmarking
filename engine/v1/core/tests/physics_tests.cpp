@@ -1064,6 +1064,44 @@ void TestPushCannotWalkPlayerOffWallSupport() {
         "pushing must not let the player walk off a non-Floor support");
 }
 
+void TestEnteringBeneathSupportedWeightlessBodyDoesNotCarryIt() {
+  voxelbench::Voxel voxels[] = {
+      {1, 2, 1, Role("player"), -1},
+      {0, 1, 2, Role("weightless-pushable"), 0},
+      {1, 1, 2, Role("weightless-pushable"), 0},
+      {2, 1, 2, Role("weightless-pushable"), 0},
+      {0, 1, 1, Role("wall"), -1},
+      {2, 1, 1, Role("wall"), -1},
+      {1, 2, 0, Role("floor"), -1},
+      {1, 1, 0, Role("floor"), -1},
+  };
+  Check(voxelbench::simulate_turn(voxels, 8, 3, 3, 0) == 0,
+        "walking beneath a supported weightless body should run");
+  Check(voxels[0].x == 1 && voxels[0].y == 1 && voxels[0].z == 1,
+        "the player should enter the empty cell beneath the body");
+  Check(voxels[1].y == 1 && voxels[2].y == 1 && voxels[3].y == 1,
+        "entering underneath must not acquire or translate the body");
+}
+
+void TestPlayerDepartureDoesNotCarryMultiplySupportedBody() {
+  voxelbench::Voxel voxels[] = {
+      {0, 2, 1, Role("player"), -1},
+      {0, 2, 2, Role("weightless-pushable"), 0},
+      {1, 2, 2, Role("weightless-pushable"), 0},
+      {2, 2, 2, Role("weightless-pushable"), 0},
+      {2, 2, 1, Role("weightless-pushable"), 1},
+      {0, 2, 0, Role("floor"), -1},
+      {0, 1, 0, Role("floor"), -1},
+      {2, 2, 0, Role("floor"), -1},
+  };
+  Check(voxelbench::simulate_turn(voxels, 8, 3, 3, 0) == 0,
+        "walking out beneath a multiply supported body should run");
+  Check(voxels[0].x == 0 && voxels[0].y == 1,
+        "the player should leave its old support position");
+  Check(voxels[1].y == 2 && voxels[2].y == 2 && voxels[3].y == 2,
+        "a stationary movable foothold should retain the bridged body");
+}
+
 void TestSearchCollectsEveryGem() {
   static voxelbench::PhysicsWorkspace physics_workspace;
   static voxelbench::SearchWorkspace search_workspace;
@@ -1191,6 +1229,30 @@ void TestSlopeCarrierMovesStationaryRider() {
         "a stationary body resting on the slope mover should ride with it");
 }
 
+void TestRemotePolycubeMemberCarriesPerpendicularSlopeRider() {
+  voxelbench::Voxel voxels[25];
+  int32_t count = 0;
+  for (int32_t y = 0; y < 4; ++y) {
+    for (int32_t x = 0; x < 4; ++x) {
+      voxels[count++] = {x, y, 0, Role("floor"), -1};
+    }
+  }
+  voxels[count++] = {0, 1, 1, Role("ice"), -1};
+  voxels[count++] = {0, 1, 2, Role("ice-slope-left"), -1};
+  voxels[count++] = {0, 1, 3, Role("weightless-pushable"), 0};
+  voxels[count++] = {1, 1, 1, Role("ice"), -1};
+  voxels[count++] = {1, 1, 2, Role("weightless-pushable"), 1};
+  voxels[count++] = {2, 1, 1, Role("weightless-pushable"), 1};
+  voxels[count++] = {2, 1, 2, Role("weightless-pushable"), 1};
+  voxels[count++] = {2, 2, 1, Role("player"), -1};
+  voxels[count++] = {3, 1, 1, Role("ice"), -1};
+
+  Check(voxelbench::simulate_turn(voxels, count, 4, 4, 0) == 0,
+        "a push through a remote slope contact should run");
+  Check(voxels[18].y == 0,
+        "every member of the pushed polycube should transmit slope contact");
+}
+
 void TestSlopeAndFlatIceBridgeNeedsDeliberatePush() {
   voxelbench::Voxel voxels[] = {
       {0, 2, 1, Role("player"), -1},
@@ -1281,6 +1343,45 @@ void TestPlayerLiftToggleUsesItsOwnAnimationTick() {
         "the following animation tick should complete the lift toggle");
   Check(state.tick == 2 && voxels[0].z == 2 && voxels[1].generic_id == 1,
         "the second tick should raise both lift state and rider");
+}
+
+void TestLeavingAuthoredLoweredLiftKeepsItLowered() {
+  voxelbench::Voxel voxels[] = {
+      {1, 2, 1, Role("player"), -1},
+      {1, 2, 1, Role("player-lift"), 0},
+      {1, 2, 0, Role("floor"), -1},
+      {1, 1, 0, Role("floor"), -1},
+  };
+  Check(voxelbench::simulate_turn(voxels, 4, 3, 3, 0) == 0,
+        "leaving an authored lowered lift should run");
+  Check(voxels[0].y == 1 && voxels[1].generic_id == 0,
+        "an ordinary lowered lift should remain lowered after departure");
+}
+
+void TestBlockedLoweredLiftRetriesAfterRiderLeaves() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  voxelbench::Voxel voxels[] = {
+      {1, 2, 1, Role("player"), -1},
+      {1, 2, 1, Role("player-lift"), 0},
+      {1, 2, 2, Role("wall"), -1},
+      {1, 2, 0, Role("floor"), -1},
+      {1, 1, 0, Role("floor"), -1},
+  };
+  voxelbench::reset_workspace(&workspace);
+  voxelbench::reset_motion_state(&state);
+  Check(voxelbench::step_tick(
+            &workspace, &state, voxels, 5, 3, 3, 0) ==
+            voxelbench::TickResult::kMore,
+        "a rider should first leave its ceiling-blocked lift");
+  Check(state.tick == 1 && voxels[0].y == 1 && voxels[1].generic_id == 0,
+        "the departure frame should keep the blocked lift lowered");
+  Check(voxelbench::step_tick(
+            &workspace, &state, voxels, 5, 3, 3, 0) ==
+            voxelbench::TickResult::kComplete,
+        "the vacated lift should retry on its own following tick");
+  Check(state.tick == 2 && voxels[1].generic_id == 1,
+        "the unobstructed vacated lift should finish raised");
 }
 
 void TestLiftRidesWeightlessCarrierWithStatefulCollision() {
@@ -1801,16 +1902,21 @@ int main() {
   TestPolycubeSettlesAsOneBodyBeforeHorizontalInput();
   TestSearchRequiresACommandToCollectStartingGem();
   TestPushCannotWalkPlayerOffWallSupport();
+  TestEnteringBeneathSupportedWeightlessBodyDoesNotCarryIt();
+  TestPlayerDepartureDoesNotCarryMultiplySupportedBody();
   TestSearchCollectsEveryGem();
   TestSearchStoresLargePolycubeAsOneEntity();
   TestGeneralSearchChecksRaisedPolycubeCollisions();
   TestCappedSearchDoesNotClaimAnOptimalProof();
   TestSlopeCarrierMovesStationaryRider();
+  TestRemotePolycubeMemberCarriesPerpendicularSlopeRider();
   TestSlopeAndFlatIceBridgeNeedsDeliberatePush();
   TestOpposingSlopeLandingCancelsStoredMomentum();
   TestPlayerEnteringLoweredLiftRaisesAndRides();
   TestPlayerEnteringRaisedLiftLowersAndRides();
   TestPlayerLiftToggleUsesItsOwnAnimationTick();
+  TestLeavingAuthoredLoweredLiftKeepsItLowered();
+  TestBlockedLoweredLiftRetriesAfterRiderLeaves();
   TestLiftRidesWeightlessCarrierWithStatefulCollision();
   TestBlockedPlayerLiftRefusesToRaise();
   TestOverlappingPlayerLiftsDoNotDependOnVoxelOrder();
@@ -1834,6 +1940,6 @@ int main() {
     std::cerr << failures << " C++ physics test(s) failed\n";
     return EXIT_FAILURE;
   }
-  std::cout << "all 70 C++ physics/search tests passed\n";
+  std::cout << "all 75 C++ physics/search tests passed\n";
   return EXIT_SUCCESS;
 }

@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
+  "sourceCommit": "e3825b0cab809632a6e61e1902e57a923e96333c",
+  "sourceTree": "6c999d2bb5fdcd85891aaa22ee1736915187b359",
+  "abiVersion": 4,
+  "voxelStride": 5,
+  "wasm": {
+    "sourcePath": "apps/web/public/physics/voxel_physics.wasm",
+    "sha256": "38ddef23563b4c28f55bc752938940ee2c6851a4a4a3deba1f4ecc97d138ed87",
+    "bytes": 411242
+  },
+  "files": [
+    {
+      "mode": "100644",
+      "path": "benchmarks/fixtures/mixed_3d_427.csv",
+      "sha256": "48faafdc753c2a867759c8ff1af56e78d57c3489082402acf9fe19c42509512c"
+    },
+    {
+      "mode": "100644",
+      "path": "benchmarks/search_benchmark.cpp",
+      "sha256": "48c95c96f2a7858787ee978eaf4e1696c0fd4c192b32e7071d96a4ada80a4173"
+    },
+    {
+      "mode": "100644",
+      "path": "benchmarks/turn_benchmark.cpp",
+      "sha256": "3c9cfb91dd12bce5b5bb1426cc295a3b2f832606bbebcbd913fa28573c5e940b"
+    },
+    {
+      "mode": "100644",
+      "path": "benchmarks/wasm_search_benchmark.mjs",
+      "sha256": "b03f74c49010bdd96b01b55424b481f085c9b919084f733052594510504eabe1"
+    },
+    {
+      "mode": "100644",
+      "path": "CMakeLists.txt",
+      "sha256": "437294fe15c0a6913fb71d48cdc9fae757d3ae9e3816b2e1c9ba2c5a46331917"
+    },
+    {
+      "mode": "100644",
+      "path": "include/voxelbench/physics.hpp",
+      "sha256": "2a2342f50c97623eb81dd8bd64cde14cbb0df9caad029b92d6ac1dc0620a0a43"
+    },
+    {
+      "mode": "100644",
+      "path": "include/voxelbench/search.hpp",
+      "sha256": "a7e5ab6d0b0dbee9a3f47d932c6e90424c6a520706939c71a56839a69d51800a"
+    },
+    {
+      "mode": "100644",
+      "path": "README.md",
+      "sha256": "6a96c81a4625b2305ee49f04e9b26619ed53be7ef6043f001152145cdd32ddde"
+    },
+    {
+      "mode": "100644",
+      "path": "src/physics.cpp",
+      "sha256": "1879b06d42834299277ed1c0318cde018ca7e6f764eca64924271ec2b28cfe30"
+    },
+    {
+      "mode": "100644",
+      "path": "src/physics/command_state.inc",
+      "sha256": "ee0263e418658779589f2622ac5acfa231c653be07660638ffcaa5d3537e7f0d"
+    },
+    {
+      "mode": "100644",
+      "path": "src/physics/cycle_public.inc",
+      "sha256": "3f32cd2319e431f18c1c179e9d5285b36b5d2430bb5961dea94409c2543fa79a"
+    },
+    {
+      "mode": "100644",
+      "path": "src/physics/cycle.inc",
+      "sha256": "9ec796fff399928ed9148a85452623d40beffcdf7ce02a8e1067aa81b14a12ad"
+    },
+    {
+      "mode": "100644",
+      "path": "src/physics/movement.inc",
+      "sha256": "2f597c54cc2051ff422ddac79348957e1a74c73162ca8c52cc77010664df3456"
+    },
+    {
+      "mode": "100644",
+      "path": "src/physics/objects.inc",
+      "sha256": "dbb67f59f661c7765c7ab8a550ccb6ee3e9873c369b7c3ab245e69a55121ddbf"
+    },
+    {
+      "mode": "100644",
+      "path": "src/physics/public_core.inc",
+      "sha256": "a50ac01ba60c4c7311585e7e03e73ba7258c94b82fc8fea3ce0b4e833a8f3992"
+    },
+    {
+      "mode": "100644",
+      "path": "src/physics/simulate.inc",
+      "sha256": "0c0e5365247a3badeb4a51ceb3f62090a9efc9d4e60a07872177b3718721bf2e"
+    },
+    {
+      "mode": "100644",
+      "path": "src/physics/tick.inc",
+      "sha256": "21ec3c0827b960710db8ae91a9b77fe7d02c7009486f115ac06f6c67f030bfee"
+    },
+    {
+      "mode": "100644",
+      "path": "src/physics/workspace.inc",
+      "sha256": "b21f4ada3439480e1927928452e7b7784b7b3f6999844856cee749da5b27490b"
+    },
+    {
+      "mode": "100644",
+      "path": "src/search.cpp",
+      "sha256": "0615bff0ed6beb7bbcc4709e3ddd64347b4f4f383a3b52723191694cf48010ac"
+    },
+    {
+      "mode": "100644",
+      "path": "src/wasm_api.cpp",
+      "sha256": "f6446d04f2fd651641b6af0806687ba879c13cda9efe362513a2676b4cb24f6b"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/passive_differential.test.mjs",
+      "sha256": "e701b09fd27a4d5b94ff98d8435b5c89ac1375c5d5020b343f73e33260d01000"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/physics_tests.cpp",
+      "sha256": "2eea2cb54130fde65700b6c03ee2ddd98207c9efe909c4e14eb83d4b8801fdb4"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/project_suite.test.mjs",
+      "sha256": "2b56511656f9219e1461d0456e3ce42057c908550b68d1a11d4f3dc171bc3475"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/wasm_api.test.mjs",
+      "sha256": "e4d6f374c8e8d911068a6b3328d466f908ab3f730bafcc252cb3c32b95755c67"
+    }
+  ]
+}
