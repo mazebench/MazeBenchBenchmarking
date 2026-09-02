@@ -16,6 +16,7 @@ const elements = {
   gemCount: document.getElementById("gem-count"),
   state: document.getElementById("play-state"),
   reset: document.getElementById("reset"),
+  undo: document.getElementById("undo"),
   editorLink: document.getElementById("editor-link"),
   directionButtons: [...document.querySelectorAll("[data-direction]")]
 };
@@ -49,7 +50,10 @@ function updateSession(summary) {
   elements.directionButtons.forEach((button) => {
     button.disabled = summary.solved || !summary.playerActive;
   });
+  elements.undo.disabled = !summary.canUndo;
   if (summary.error) elements.state.textContent = summary.error;
+  else if (summary.undone) elements.state.textContent = "Undid the last command.";
+  else if (summary.reset) elements.state.textContent = "Room reset.";
   else if (summary.solved) elements.state.textContent = "All gems collected.";
   else if (!summary.playerActive) elements.state.textContent = "Player fell out of the room.";
   else if (summary.cycle) elements.state.textContent = "Cycle detected; command rolled back.";
@@ -74,11 +78,20 @@ function openRoom(room) {
 }
 
 elements.reset.addEventListener("click", () => session?.reset());
+elements.undo.addEventListener("click", () => session?.undo());
 elements.directionButtons.forEach((button) => {
   button.addEventListener("click", () => session?.move(button.dataset.direction));
 });
 window.addEventListener("keydown", (event) => {
   if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+  const key = event.key.toLowerCase();
+  if (key === "r" || key === "z") {
+    event.preventDefault();
+    if (event.repeat) return;
+    if (key === "r") session?.reset();
+    else session?.undo();
+    return;
+  }
   const direction = {
     ArrowUp: "up",
     ArrowRight: "right",

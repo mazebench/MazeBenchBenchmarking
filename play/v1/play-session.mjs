@@ -16,11 +16,12 @@ export class PlaySessionV1 {
     this.definitions = definitions;
     this.onFrame = callbacks.onFrame || (() => {});
     this.onChange = callbacks.onChange || (() => {});
-    this.frameDelay = callbacks.frameDelay || 105;
+    this.frameDelay = callbacks.frameDelay ?? 105;
     this.room = null;
     this.state = null;
     this.initialState = null;
     this.moves = 0;
+    this.history = [];
     this.queue = [];
     this.running = false;
     this.generation = 0;
@@ -32,6 +33,7 @@ export class PlaySessionV1 {
     this.initialState = this.engine.createState(room);
     this.state = cloneState(this.initialState);
     this.moves = 0;
+    this.history.length = 0;
     this.queue.length = 0;
     this.running = false;
     this.publish();
@@ -43,16 +45,30 @@ export class PlaySessionV1 {
     this.generation += 1;
     this.state = cloneState(this.initialState);
     this.moves = 0;
+    this.history.length = 0;
     this.queue.length = 0;
     this.running = false;
-    this.publish();
+    this.publish({ reset: true });
     this.onFrame(this.state, this.room);
+  }
+
+  undo() {
+    if (!this.state || !this.history.length) return false;
+    this.generation += 1;
+    const previous = this.history.pop();
+    this.state = cloneState(previous.state);
+    this.moves = previous.moves;
+    this.queue.length = 0;
+    this.running = false;
+    this.publish({ undone: true });
+    this.onFrame(this.state, this.room);
+    return true;
   }
 
   move(direction) {
     if (!this.state || this.queue.length >= 8 || this.isSolved || this.playerCount < 1) return;
     this.queue.push(direction);
-    this.drain();
+    return this.drain();
   }
 
   get gemCount() {
@@ -77,6 +93,7 @@ export class PlaySessionV1 {
       playerActive: this.playerCount > 0,
       queued: this.queue.length,
       solved: this.isSolved,
+      canUndo: this.history.length > 0,
       ...extra
     });
   }
@@ -89,6 +106,9 @@ export class PlaySessionV1 {
     try {
       while (this.queue.length && runGeneration === this.generation) {
         const direction = this.queue.shift();
+        this.history.push({ state: cloneState(this.state), moves: this.moves });
+        if (this.history.length > 256) this.history.shift();
+        this.publish();
         const simulation = await this.engine.simulateCommand(
           this.state,
           direction,
@@ -117,4 +137,3 @@ export class PlaySessionV1 {
     }
   }
 }
-

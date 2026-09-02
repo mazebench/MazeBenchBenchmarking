@@ -5,6 +5,7 @@ import test from "node:test";
 
 import { countActiveRoleV1 } from "../engine/v1/adapter.mjs";
 import { instantiateMazeBenchEngineV1 } from "../engine/v1/engine.mjs";
+import { PlaySessionV1 } from "../play/v1/play-session.mjs";
 
 const blocks = [
   { id: "floor", roleId: "floor", visual: { kind: "floor" } },
@@ -77,4 +78,42 @@ test("storage-v2 surface Ice produces the engine's multi-tick slide", async () =
   const result = await engine.simulateCommand(room, "up", blocks);
   assert.deepEqual(result.frames.map((frame) => frame.objects[0].y), [3, 2, 1, 0]);
   assert.equal(result.final.objects[0].y, 0);
+});
+
+test("play v1 undo restores the prior engine state and reset clears history", async () => {
+  const { engine } = await loadEngine();
+  const room = {
+    width: 3,
+    height: 3,
+    objects: [
+      { x: 1, y: 2, z: 0, blockId: "player" },
+      { x: 1, y: 2, z: 0, blockId: "floor" },
+      { x: 1, y: 1, z: 0, blockId: "floor" },
+      { x: 1, y: 0, z: 0, blockId: "floor" }
+    ]
+  };
+  const changes = [];
+  const session = new PlaySessionV1(engine, blocks, {
+    frameDelay: 0,
+    onChange: (summary) => changes.push(summary)
+  });
+  session.open(room);
+
+  await session.move("up");
+  assert.equal(session.moves, 1);
+  assert.equal(session.state.objects[0].y, 1);
+  assert.equal(changes.at(-1).canUndo, true);
+
+  assert.equal(session.undo(), true);
+  assert.equal(session.moves, 0);
+  assert.equal(session.state.objects[0].y, 2);
+  assert.equal(changes.at(-1).undone, true);
+  assert.equal(changes.at(-1).canUndo, false);
+
+  await session.move("up");
+  session.reset();
+  assert.equal(session.moves, 0);
+  assert.equal(session.state.objects[0].y, 2);
+  assert.equal(changes.at(-1).reset, true);
+  assert.equal(session.undo(), false);
 });

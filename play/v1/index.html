@@ -16,7 +16,8 @@
       </div>
       <div class="play-actions">
         <a id="editor-link" href="../../editor/v1/">Edit room</a>
-        <button id="reset" type="button">Reset room</button>
+        <button id="undo" type="button" disabled>Undo (Z)</button>
+        <button id="reset" type="button">Reset (R)</button>
       </div>
     </header>
 
@@ -24,7 +25,7 @@
       <section id="stage" class="play-stage" aria-label="Three-dimensional MazeBench play mode">
         <canvas id="play-canvas"></canvas>
         <div id="loading" class="loading">Loading engine v1…</div>
-        <div class="camera-help">Arrow keys move · A/D rotate · W/S tilt · Q/E zoom</div>
+        <div class="camera-help">Arrow keys move · R reset · Z undo · A/D rotate · W/S tilt · Q/E zoom</div>
       </section>
 
       <aside class="play-sidebar">
