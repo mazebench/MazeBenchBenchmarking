@@ -23,9 +23,11 @@ import {
   CAMERA_TILT_DECEL,
   CAMERA_TILT_MAX_SPEED,
   CAMERA_YAW_DURATION_MS,
+  CAMERA_ZOOM_DURATION_MS,
   easeInOutQuad,
   easeToward,
-  yawTransitionAt
+  yawTransitionAt,
+  zoomTransitionAt
 } from "../render/v1/camera-transitions.mjs";
 import {
   voxelPieceDefinition,
@@ -51,6 +53,15 @@ test("camera quarter turns ease smoothly and finish on the exact cardinal angle"
   const accelerating = easeToward(0, CAMERA_TILT_MAX_SPEED, CAMERA_TILT_ACCEL / 60);
   assert.ok(accelerating > 0 && accelerating < CAMERA_TILT_MAX_SPEED);
   assert.ok(easeToward(accelerating, 0, CAMERA_TILT_DECEL / 60) < accelerating);
+
+  const zoom = { startMs: 200, startDistance: 100, targetDistance: 25 };
+  const zoomMidpoint = zoomTransitionAt(zoom, 200 + CAMERA_ZOOM_DURATION_MS / 2);
+  assert.equal(zoomMidpoint.complete, false);
+  assert.ok(Math.abs(zoomMidpoint.distance - 50) < 1e-9);
+  assert.deepEqual(zoomTransitionAt(zoom, 200 + CAMERA_ZOOM_DURATION_MS), {
+    complete: true,
+    distance: 25
+  });
 });
 
 test("v2 rooms preserve stacked, overlapping, and oriented objects", () => {

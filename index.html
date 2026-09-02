@@ -27,9 +27,9 @@
 
       <nav class="map-controls" aria-label="Map zoom">
         <a id="editor-link" class="editor-link" href="./editor/v1/">Editor v1</a>
-        <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+        <button id="zoom-out" type="button" aria-label="Zoom out (E)">−</button>
         <button id="fit-map" type="button">Fit</button>
-        <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+        <button id="zoom-in" type="button" aria-label="Zoom in (Q)">+</button>
       </nav>
     </header>
 
@@ -37,7 +37,7 @@
       id="viewport"
       class="viewport is-loading"
       tabindex="0"
-      aria-label="Complete 16 by 16 MazeBench world map. Use A and D to rotate, W and S to tilt."
+      aria-label="Complete 16 by 16 MazeBench world map. Use A and D to rotate, W and S to tilt, Q and E to zoom."
     >
       <div id="stage" class="stage">
         <canvas id="world" aria-label="Three-dimensional MazeBench main world"></canvas>
@@ -62,7 +62,7 @@
         <span>Cell</span>
         <output id="cell-value">—</output>
       </div>
-      <p class="hint">A/D rotate 90° · W/S tilt · wheel zooms · double-click focuses</p>
+      <p class="hint">A/D rotate 90° · W/S tilt · Q/E zoom · double-click focuses</p>
     </footer>
 
     <script type="module" src="./render/v1/main.mjs"></script>

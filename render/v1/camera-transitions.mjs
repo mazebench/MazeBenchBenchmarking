@@ -5,6 +5,7 @@ export const CAMERA_TILT_MAX_SPEED = Math.PI * 0.72;
 export const CAMERA_TILT_ACCEL = Math.PI * 3.4;
 export const CAMERA_TILT_DECEL = Math.PI * 4.2;
 export const CAMERA_YAW_DURATION_MS = 400;
+export const CAMERA_ZOOM_DURATION_MS = 320;
 
 export function easeInOutQuad(progress) {
   const value = Math.max(0, Math.min(1, progress));
@@ -25,5 +26,17 @@ export function yawTransitionAt(animation, now) {
     complete: progress >= 1,
     yaw: animation.startYaw +
       (animation.targetYaw - animation.startYaw) * easeInOutQuad(progress)
+  };
+}
+
+export function zoomTransitionAt(animation, now) {
+  const progress = Math.min(1, (now - animation.startMs) / CAMERA_ZOOM_DURATION_MS);
+  if (progress >= 1) return { complete: true, distance: animation.targetDistance };
+  const eased = easeInOutQuad(progress);
+  const start = Math.max(0.001, animation.startDistance);
+  const target = Math.max(0.001, animation.targetDistance);
+  return {
+    complete: false,
+    distance: Math.exp(Math.log(start) + (Math.log(target) - Math.log(start)) * eased)
   };
 }

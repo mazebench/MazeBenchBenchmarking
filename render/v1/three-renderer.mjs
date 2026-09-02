@@ -32,7 +32,8 @@ import {
   CAMERA_TILT_DECEL,
   CAMERA_TILT_MAX_SPEED,
   easeToward,
-  yawTransitionAt
+  yawTransitionAt,
+  zoomTransitionAt
 } from "./camera-transitions.mjs";
 
 const CARDINAL_STEP = Math.PI * 0.5;
@@ -85,7 +86,8 @@ export class ThreeMazeRendererV1 {
       lastMs: 0,
       tiltDirection: 0,
       tiltVelocity: 0,
-      yawAnimation: null
+      yawAnimation: null,
+      zoomAnimation: null
     };
     this.runCameraFrame = this.runCameraFrame.bind(this);
     this.content = new THREE.Group();
@@ -166,13 +168,15 @@ export class ThreeMazeRendererV1 {
     window.addEventListener("keydown", (event) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isEditableTarget(event.target)) return;
       const key = event.key.toLowerCase();
-      if (!["w", "a", "s", "d"].includes(key)) return;
+      if (!["w", "a", "s", "d", "q", "e"].includes(key)) return;
       event.preventDefault();
       if (key === "w" || key === "s") {
         this.cameraMotion.heldTiltKeys.add(key);
         this.recomputeTiltDirection();
-      } else if (!event.repeat) {
+      } else if ((key === "a" || key === "d") && !event.repeat) {
         this.rotateCardinal(key === "a" ? -1 : 1);
+      } else if (!event.repeat) {
+        this.zoomBy(key === "q" ? 0.82 : 1 / 0.82);
       }
     });
     window.addEventListener("keyup", (event) => {
@@ -240,6 +244,17 @@ export class ThreeMazeRendererV1 {
       }
     }
 
+    if (motion.zoomAnimation) {
+      const transition = zoomTransitionAt(motion.zoomAnimation, now);
+      this.distance = transition.distance;
+      if (transition.complete) {
+        this.distance = motion.zoomAnimation.targetDistance;
+        motion.zoomAnimation = null;
+      } else {
+        continueLoop = true;
+      }
+    }
+
     if (motion.tiltDirection || motion.tiltVelocity) {
       const targetVelocity = motion.tiltDirection * CAMERA_TILT_MAX_SPEED;
       const rate = motion.tiltDirection ? CAMERA_TILT_ACCEL : CAMERA_TILT_DECEL;
@@ -263,11 +278,13 @@ export class ThreeMazeRendererV1 {
     const motion = this.cameraMotion;
     if (motion.frameId) cancelAnimationFrame(motion.frameId);
     if (motion.yawAnimation) this.yaw = motion.yawAnimation.targetYaw;
+    if (motion.zoomAnimation) this.distance = motion.zoomAnimation.targetDistance;
     motion.frameId = 0;
     motion.lastMs = 0;
     motion.tiltDirection = 0;
     motion.tiltVelocity = 0;
     motion.yawAnimation = null;
+    motion.zoomAnimation = null;
     motion.heldTiltKeys.clear();
   }
 
@@ -624,6 +641,7 @@ export class ThreeMazeRendererV1 {
     this.canvas.dataset.cameraHeading = String(this.heading * 90);
     this.canvas.dataset.cameraPitch = String(Math.round(THREE.MathUtils.radToDeg(this.pitch)));
     this.canvas.dataset.cameraYawDegrees = THREE.MathUtils.radToDeg(this.yaw).toFixed(3);
+    this.canvas.dataset.cameraDistance = this.distance.toFixed(3);
     this.content.traverse((object) => {
       if (object.userData.liftMarker) object.rotation.y = this.yaw;
     });
@@ -636,8 +654,14 @@ export class ThreeMazeRendererV1 {
 
   zoomBy(factor) {
     const limits = this.mode === "world" ? [22, 1000] : [7, 110];
-    this.distance = Math.max(limits[0], Math.min(limits[1], this.distance * factor));
-    this.render();
+    const fromDistance = this.cameraMotion.zoomAnimation?.targetDistance ?? this.distance;
+    const targetDistance = Math.max(limits[0], Math.min(limits[1], fromDistance * factor));
+    this.cameraMotion.zoomAnimation = {
+      startMs: performance.now(),
+      startDistance: this.distance,
+      targetDistance
+    };
+    this.scheduleCameraFrame();
   }
 
   resetView() {
@@ -652,6 +676,7 @@ export class ThreeMazeRendererV1 {
 
   focusRoom(room) {
     if (!room || this.mode !== "world") return;
+    this.cameraMotion.zoomAnimation = null;
     this.target.set(
       room.columnIndex * this.world.roomWidth - this.totalWidth / 2 + this.world.roomWidth / 2,
       1.5,
