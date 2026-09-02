@@ -6,6 +6,7 @@
     <meta name="description" content="MazeBench play mode powered by the copied engine v1 WebAssembly core.">
     <title>MazeBench — Play v1</title>
     <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="../../render-ascii/v1/styles.css">
   </head>
   <body>
     <header class="play-topbar">
@@ -16,16 +17,31 @@
       </div>
       <div class="play-actions">
         <a id="editor-link" href="../../editor/v1/">Edit room</a>
+        <button id="view-toggle" type="button">ASCII (M)</button>
         <button id="undo" type="button" disabled>Undo (Z)</button>
         <button id="reset" type="button">Reset (R)</button>
       </div>
     </header>
 
     <main class="play-layout">
-      <section id="stage" class="play-stage" aria-label="Three-dimensional MazeBench play mode">
+      <section id="stage" class="play-stage" aria-label="MazeBench play mode with 3D and ASCII views">
         <canvas id="play-canvas"></canvas>
+        <div id="ascii-view" class="ascii-view" hidden>
+          <div class="ascii-toolbar">
+            <strong>ASCII renderer v1</strong>
+            <span id="ascii-camera" class="ascii-camera" aria-live="polite">top-diagonal · 0°</span>
+            <label><input id="seeded-glyphs" type="checkbox"> Seed glyphs</label>
+            <label>Seed <input id="ascii-seed" type="text" value="1" spellcheck="false" disabled></label>
+          </div>
+          <div class="ascii-scroll">
+            <div class="ascii-frame">
+              <pre id="ascii-board" class="ascii-board" aria-label="MazeBench ASCII room"></pre>
+              <div id="ascii-legend" class="ascii-legend" aria-label="Dynamic glyph legend" hidden></div>
+            </div>
+          </div>
+        </div>
         <div id="loading" class="loading">Loading engine v1…</div>
-        <div class="camera-help">Arrow keys move · R reset · Z undo · A/D rotate · W/S tilt · Q/E zoom</div>
+        <div id="camera-help" class="camera-help">M ASCII · arrows move · R reset · Z undo · A/D rotate · W/S tilt · Q/E zoom</div>
       </section>
 
       <aside class="play-sidebar">

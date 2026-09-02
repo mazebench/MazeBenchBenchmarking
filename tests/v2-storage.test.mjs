@@ -49,6 +49,16 @@ import {
   puncherDirectionVector,
   slopeGeometry
 } from "../render/v1/special-piece-renderers.mjs";
+import {
+  CLONE_GLYPHS,
+  hiddenAsciiGlyphMap
+} from "../render-ascii/v1/glyph-contract.mjs";
+import {
+  glyphCatalogForRoom,
+  glyphForObject,
+  normalizeAsciiPitch,
+  renderAsciiFrameV1
+} from "../render-ascii/v1/ascii-scene.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const definitions = new Map(V2_BLOCK_CATALOG.map((block) => [block.id, block]));
@@ -127,6 +137,104 @@ test("slash centering eases the board target back to the origin", () => {
     x: 0,
     z: 0
   });
+});
+
+test("ASCII renderer v1 preserves MazeBench's exact seeded glyph contract", async () => {
+  const seedOne = await hiddenAsciiGlyphMap("1");
+  assert.deepEqual(Object.fromEntries(
+    [" ", "A", "W", "I", "P", "G", "C", "U", "▲", "Ā", "Ͱ"]
+      .map((glyph) => [glyph, seedOne.get(glyph) || glyph])
+  ), {
+    " ": "}", A: "q", W: "j", I: "8", P: "P", G: "G",
+    C: "!", U: "?", "▲": "▷", "Ā": "ͻ", "Ͱ": "Ǜ"
+  });
+});
+
+test("ASCII renderer v1 allocates stable Unicode glyphs for unbounded numbered families", () => {
+  const room = {
+    width: 2,
+    height: 2,
+    objects: [
+      { x: 0, y: 0, z: 0, blockId: "clone", genericId: 0, groupId: 0 },
+      { x: 1, y: 0, z: 0, blockId: "clone", genericId: 700, groupId: 700 },
+      { x: 0, y: 1, z: 0, blockId: "clone-slope", genericId: 700, groupId: 700, orientation: "up" },
+      { x: 1, y: 1, z: 0, blockId: "weightless-box", genericId: 900, groupId: 900 }
+    ]
+  };
+  const catalog = glyphCatalogForRoom(room);
+  assert.equal(glyphForObject(room.objects[0], definitions.get("clone"), 0, catalog), CLONE_GLYPHS.c0);
+  const numberedClone = glyphForObject(room.objects[1], definitions.get("clone"), 0, catalog);
+  const numberedSlope = glyphForObject(room.objects[2], definitions.get("clone-slope"), 0, catalog);
+  const numberedBlock = glyphForObject(room.objects[3], definitions.get("weightless-box"), 0, catalog);
+  assert.equal(Array.from(numberedClone.top).length, 1);
+  assert.equal(Array.from(numberedSlope.top).length, 1);
+  assert.equal(Array.from(numberedBlock.top).length, 1);
+  assert.notEqual(numberedClone.top, numberedSlope.top);
+  assert.notEqual(numberedClone.top, numberedBlock.top);
+});
+
+test("ASCII renderer v1 composes a colored 4x4 top tile for every board cell", async () => {
+  const room = {
+    width: 2,
+    height: 2,
+    objects: [
+      { x: 0, y: 0, z: 0, blockId: "floor" },
+      { x: 0, y: 0, z: 0, blockId: "player" },
+      { x: 1, y: 0, z: 0, blockId: "floor" },
+      { x: 1, y: 0, z: 0, blockId: "gem" },
+      { x: 0, y: 1, z: 0, blockId: "floor" },
+      { x: 1, y: 1, z: 0, blockId: "wall" }
+    ]
+  };
+  const frame = await renderAsciiFrameV1(room, definitions);
+  assert.equal(frame.width, 8);
+  assert.equal(frame.height, 8);
+  assert.equal(frame.rows.length, 8);
+  assert.ok(frame.rows.every((row) => Array.from(row).length === 8));
+  assert.deepEqual(frame.cells.map((row) => row.map((cell) => cell.glyph)), [
+    ["P", "G"],
+    ["A", "W"]
+  ]);
+
+  const hidden = await renderAsciiFrameV1(room, definitions, {
+    hideNames: true,
+    hideNamesSeed: "1"
+  });
+  assert.equal(hidden.cells[0][0].glyph, "P");
+  assert.equal(hidden.cells[0][1].glyph, "G");
+  assert.equal(hidden.cells[1][0].glyph, "q");
+  assert.equal(hidden.cells[1][1].glyph, "j");
+});
+
+test("ASCII renderer v1 exposes MazeBench's five stacked camera pitches", async () => {
+  const room = {
+    width: 3,
+    height: 3,
+    objects: [
+      ...Array.from({ length: 9 }, (_, index) => ({
+        x: index % 3,
+        y: Math.floor(index / 3),
+        z: 0,
+        blockId: "floor"
+      })),
+      { x: 1, y: 1, z: 0, blockId: "wall" },
+      { x: 1, y: 1, z: 1, blockId: "wall" },
+      { x: 0, y: 1, z: 0, blockId: "player" }
+    ]
+  };
+  const frames = await Promise.all(Array.from({ length: 5 }, (_, pitch) =>
+    renderAsciiFrameV1(room, definitions, { pitch })));
+
+  assert.deepEqual(frames.map((frame) => frame.pitch), [0, 1, 2, 3, 4]);
+  assert.equal(frames[0].text.includes("WWWW"), true);
+  assert.equal(frames[0].text.includes("wwww"), false);
+  assert.equal(frames[1].text.includes("WWWW"), true);
+  assert.equal(frames[1].text.includes("wwww"), true);
+  assert.equal(frames[4].text.includes("WWWW"), false);
+  assert.equal(frames[4].text.includes("wwww"), true);
+  assert.ok(frames[1].text.match(/wwww/g).length >= 2, "both stacked wall sides remain visible");
+  assert.equal(normalizeAsciiPitch(-10), 0);
+  assert.equal(normalizeAsciiPitch(99), 4);
 });
 
 test("v2 rooms preserve stacked, overlapping, and oriented objects", () => {

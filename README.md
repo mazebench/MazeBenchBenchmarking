@@ -14,6 +14,7 @@ A deliberately small localhost site that renders the complete MazeBench main wor
 - `render/v1/special-piece-renderers.mjs` — non-asset special geometry and lift triangles
 - `render/v1/asset-renderers.mjs` — authored GLB loading plus the exact gem-shaped fallback
 - `render/v1/three-renderer.mjs` — the version 1 scene and input controller
+- `render-ascii/v1/` — MazeBench's colored five-pitch ASCII observation renderer, dynamic Unicode identities, and seeded hidden-glyph contract
 - `engine/v1/core/` — unchanged copied C++ engine source, headers, tests, and benchmarks from MazeBenchEngineUnitTest
 - `engine/v1/voxel_physics.wasm` — the exact copied UnitTest release engine; physics and exact search live here
 - `engine/v1/engine.mjs` — the small storage-v2/browser ABI boundary
@@ -36,7 +37,7 @@ Then open <http://localhost:8080>.
 
 The small local server also provides the editor's narrowly scoped save endpoint and serves WebAssembly with its required MIME type. The active editor writes only the 256 JSON rooms listed in the v2 manifest, validates their object data, and keeps every room exactly 16×16. The v1 text save route remains available only for compatibility.
 
-Open play mode at <http://localhost:8080/play/v1/> or the editor at <http://localhost:8080/editor/v1/>.
+Open play mode at <http://localhost:8080/play/v1/> or the editor at <http://localhost:8080/editor/v1/>. In play mode, `M` swaps between the same live engine state in 3D and ASCII. ASCII uses `A`/`D` for its four cardinal headings and `W`/`S` for MazeBench's five views from top-down through side-on.
 
 ## Level storage versions
 
@@ -59,4 +60,4 @@ Only the 256 files referenced by the main world's 16×16 `world_map.json` are in
 
 ## Add another renderer
 
-Put the alternate implementation in a sibling directory such as `render/v2/`. Renderer v1 is self-contained and exposes its version as `RENDERER_VERSION` in `world-renderer.mjs`.
+Put alternate implementations in sibling version directories such as `render/v2/` or `render-ascii/v2/`. Both renderer families keep v1 self-contained and expose a version constant.
