@@ -19,7 +19,7 @@ function groupEntry(groups, key, settings) {
   return groups.get(key);
 }
 
-function renderSource(object, block) {
+export function voxelRenderSource(object, block) {
   return {
     ...object,
     type: block.visual?.modelType || block.id,
@@ -31,7 +31,7 @@ function renderSource(object, block) {
   };
 }
 
-function pieceDefinition(object, block) {
+export function voxelPieceDefinition(object, block) {
   const bottom = object.z;
   const color = block.color;
   const kind = block.visual?.kind || "cube";
@@ -125,8 +125,8 @@ export function collectVoxelSceneV2(renderer) {
       if (!block) return;
       const x = room.columnIndex * renderer.world.roomWidth + object.x;
       const y = room.rowIndex * renderer.world.roomHeight + object.y;
-      const source = renderSource(object, block);
-      const definition = pieceDefinition(object, block);
+      const source = voxelRenderSource(object, block);
+      const definition = voxelPieceDefinition(object, block);
       recordTop(x, y, definition.top);
       pickRecords.push({
         room,

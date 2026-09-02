@@ -18,9 +18,36 @@ import {
   V2_ROOM_FORMAT,
   V2_WORLD_FORMAT
 } from "../render/v1/voxel-world-v2.mjs";
+import {
+  CAMERA_TILT_ACCEL,
+  CAMERA_TILT_DECEL,
+  CAMERA_TILT_MAX_SPEED,
+  CAMERA_YAW_DURATION_MS,
+  easeInOutQuad,
+  easeToward,
+  yawTransitionAt
+} from "../render/v1/camera-transitions.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const definitions = new Map(V2_BLOCK_CATALOG.map((block) => [block.id, block]));
+
+test("camera quarter turns ease smoothly and finish on the exact cardinal angle", () => {
+  assert.equal(easeInOutQuad(0), 0);
+  assert.equal(easeInOutQuad(0.5), 0.5);
+  assert.equal(easeInOutQuad(1), 1);
+  const animation = { startMs: 100, startYaw: 0, targetYaw: Math.PI / 2 };
+  const midpoint = yawTransitionAt(animation, 100 + CAMERA_YAW_DURATION_MS / 2);
+  assert.equal(midpoint.complete, false);
+  assert.equal(midpoint.yaw, Math.PI / 4);
+  assert.deepEqual(yawTransitionAt(animation, 100 + CAMERA_YAW_DURATION_MS), {
+    complete: true,
+    yaw: Math.PI / 2
+  });
+
+  const accelerating = easeToward(0, CAMERA_TILT_MAX_SPEED, CAMERA_TILT_ACCEL / 60);
+  assert.ok(accelerating > 0 && accelerating < CAMERA_TILT_MAX_SPEED);
+  assert.ok(easeToward(accelerating, 0, CAMERA_TILT_DECEL / 60) < accelerating);
+});
 
 test("v2 rooms preserve stacked, overlapping, and oriented objects", () => {
   const objects = [

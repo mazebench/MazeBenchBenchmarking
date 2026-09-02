@@ -23,11 +23,21 @@ import { MAZE_COLORS, parseCellState } from "./world-renderer.mjs";
 import { cellObjectSelectionKey } from "./cell-objects-v2.mjs";
 import { collectVoxelSceneV2 } from "./voxel-scene-v2.mjs";
 import { V2_WORLD_FORMAT } from "./voxel-world-v2.mjs";
+import {
+  clearPlacementPreview,
+  renderPlacementPreview
+} from "./placement-preview-v2.mjs";
+import {
+  CAMERA_TILT_ACCEL,
+  CAMERA_TILT_DECEL,
+  CAMERA_TILT_MAX_SPEED,
+  easeToward,
+  yawTransitionAt
+} from "./camera-transitions.mjs";
 
 const CARDINAL_STEP = Math.PI * 0.5;
 const DEFAULT_HEADING = 0;
 const DEFAULT_PITCH = 0.72;
-const PITCH_STEP = THREE.MathUtils.degToRad(6);
 const MIN_PITCH = 0.18;
 const MAX_PITCH = 1.48;
 const DRAG_HEADING_THRESHOLD = 48;
@@ -69,8 +79,19 @@ export class ThreeMazeRendererV1 {
     this.yaw = this.heading * CARDINAL_STEP;
     this.pitch = DEFAULT_PITCH;
     this.distance = 30;
+    this.cameraMotion = {
+      frameId: 0,
+      heldTiltKeys: new Set(),
+      lastMs: 0,
+      tiltDirection: 0,
+      tiltVelocity: 0,
+      yawAnimation: null
+    };
+    this.runCameraFrame = this.runCameraFrame.bind(this);
     this.content = new THREE.Group();
-    this.scene.add(this.content);
+    this.placementPreview = new THREE.Group();
+    this.placementPreview.renderOrder = 30;
+    this.scene.add(this.content, this.placementPreview);
     this.pickMeshes = [];
     this.cellTops = new Map();
     this.pointer = null;
@@ -105,6 +126,7 @@ export class ThreeMazeRendererV1 {
         this.paintAt(event, true);
         return;
       }
+      this.cancelCameraMotion();
       this.pointer = { x: event.clientX, y: event.clientY, moved: false, headingDrag: 0 };
     });
     this.canvas.addEventListener("pointermove", (event) => {
@@ -143,26 +165,112 @@ export class ThreeMazeRendererV1 {
       const key = event.key.toLowerCase();
       if (!["w", "a", "s", "d"].includes(key)) return;
       event.preventDefault();
-      if (key === "a") this.rotateCardinal(-1);
-      if (key === "d") this.rotateCardinal(1);
-      if (key === "w") this.tiltCamera(PITCH_STEP);
-      if (key === "s") this.tiltCamera(-PITCH_STEP);
+      if (key === "w" || key === "s") {
+        this.cameraMotion.heldTiltKeys.add(key);
+        this.recomputeTiltDirection();
+      } else if (!event.repeat) {
+        this.rotateCardinal(key === "a" ? -1 : 1);
+      }
+    });
+    window.addEventListener("keyup", (event) => {
+      const key = event.key.toLowerCase();
+      if (key !== "w" && key !== "s") return;
+      this.cameraMotion.heldTiltKeys.delete(key);
+      this.recomputeTiltDirection();
+    });
+    window.addEventListener("blur", () => {
+      this.cameraMotion.heldTiltKeys.clear();
+      this.recomputeTiltDirection();
     });
   }
 
-  rotateCardinal(direction, render = true) {
+  rotateCardinal(direction, animate = true) {
+    const motion = this.cameraMotion;
     this.heading = (this.heading + direction + 4) % 4;
-    this.yaw = this.heading * CARDINAL_STEP;
-    if (render) this.render();
+    const fromYaw = motion.yawAnimation?.targetYaw ?? this.yaw;
+    const targetYaw = fromYaw + direction * CARDINAL_STEP;
+    if (!animate) {
+      motion.yawAnimation = null;
+      this.yaw = targetYaw;
+      return;
+    }
+    motion.yawAnimation = {
+      startMs: performance.now(),
+      startYaw: this.yaw,
+      targetYaw
+    };
+    this.scheduleCameraFrame();
   }
 
-  tiltCamera(amount) {
-    this.pitch = Math.max(MIN_PITCH, Math.min(MAX_PITCH, this.pitch + amount));
+  recomputeTiltDirection() {
+    const motion = this.cameraMotion;
+    let direction = 0;
+    if (motion.heldTiltKeys.has("s")) direction = -1;
+    if (motion.heldTiltKeys.has("w")) direction = 1;
+    motion.tiltDirection = direction;
+    if (direction || motion.tiltVelocity) this.scheduleCameraFrame();
+  }
+
+  scheduleCameraFrame() {
+    if (!this.cameraMotion.frameId) {
+      this.cameraMotion.frameId = requestAnimationFrame(this.runCameraFrame);
+    }
+  }
+
+  runCameraFrame(now) {
+    const motion = this.cameraMotion;
+    motion.frameId = 0;
+    const deltaSeconds = motion.lastMs
+      ? Math.min(0.05, Math.max(0.001, (now - motion.lastMs) / 1000))
+      : 1 / 60;
+    motion.lastMs = now;
+    let continueLoop = false;
+
+    if (motion.yawAnimation) {
+      const transition = yawTransitionAt(motion.yawAnimation, now);
+      this.yaw = transition.yaw;
+      if (transition.complete) {
+        this.yaw = motion.yawAnimation.targetYaw;
+        motion.yawAnimation = null;
+      } else {
+        continueLoop = true;
+      }
+    }
+
+    if (motion.tiltDirection || motion.tiltVelocity) {
+      const targetVelocity = motion.tiltDirection * CAMERA_TILT_MAX_SPEED;
+      const rate = motion.tiltDirection ? CAMERA_TILT_ACCEL : CAMERA_TILT_DECEL;
+      motion.tiltVelocity = easeToward(motion.tiltVelocity, targetVelocity, rate * deltaSeconds);
+      if (!motion.tiltDirection && Math.abs(motion.tiltVelocity) < 0.002) motion.tiltVelocity = 0;
+      const previousPitch = this.pitch;
+      this.pitch = Math.max(
+        MIN_PITCH,
+        Math.min(MAX_PITCH, previousPitch + motion.tiltVelocity * deltaSeconds)
+      );
+      if (this.pitch === previousPitch && !motion.tiltDirection) motion.tiltVelocity = 0;
+      if (motion.tiltDirection || motion.tiltVelocity) continueLoop = true;
+    }
+
     this.render();
+    if (continueLoop) this.scheduleCameraFrame();
+    else motion.lastMs = 0;
+  }
+
+  cancelCameraMotion() {
+    const motion = this.cameraMotion;
+    if (motion.frameId) cancelAnimationFrame(motion.frameId);
+    if (motion.yawAnimation) this.yaw = motion.yawAnimation.targetYaw;
+    motion.frameId = 0;
+    motion.lastMs = 0;
+    motion.tiltDirection = 0;
+    motion.tiltVelocity = 0;
+    motion.yawAnimation = null;
+    motion.heldTiltKeys.clear();
   }
 
   cameraDirections() {
-    return HEADING_DIRECTIONS[this.heading];
+    const quarterTurns = ((Math.round(this.yaw / CARDINAL_STEP) % 4) + 4) % 4;
+    return HEADING_DIRECTIONS[quarterTurns];
   }
 
   paintAt(event, start) {
@@ -177,6 +285,7 @@ export class ThreeMazeRendererV1 {
   }
 
   setWorld(world, options = {}) {
+    clearPlacementPreview(this.placementPreview);
     this.world = world;
     this.totalWidth = this.mode === "editor" ? world.roomWidth : world.columns.length * world.roomWidth;
     this.totalHeight = this.mode === "editor" ? world.roomHeight : world.rows.length * world.roomHeight;
@@ -210,6 +319,20 @@ export class ThreeMazeRendererV1 {
       this.rebuild();
       this.render();
     });
+  }
+
+  setPlacementPreview(object) {
+    const block = object ? this.world.blockDefinitions?.get(object.blockId) : null;
+    renderPlacementPreview(this.placementPreview, object, block, {
+      totalWidth: this.totalWidth,
+      totalHeight: this.totalHeight
+    });
+    this.render();
+  }
+
+  clearPlacementPreview() {
+    clearPlacementPreview(this.placementPreview);
+    this.render();
   }
 
   collectScene() {
@@ -494,6 +617,7 @@ export class ThreeMazeRendererV1 {
     this.camera.lookAt(this.target);
     this.canvas.dataset.cameraHeading = String(this.heading * 90);
     this.canvas.dataset.cameraPitch = String(Math.round(THREE.MathUtils.radToDeg(this.pitch)));
+    this.canvas.dataset.cameraYawDegrees = THREE.MathUtils.radToDeg(this.yaw).toFixed(3);
     this.content.traverse((object) => {
       if (object.userData.liftMarker) object.rotation.y = this.yaw;
     });
@@ -511,6 +635,7 @@ export class ThreeMazeRendererV1 {
   }
 
   resetView() {
+    this.cancelCameraMotion();
     this.target.set(0, this.mode === "world" ? 1.5 : 1.2, 0);
     this.heading = DEFAULT_HEADING;
     this.yaw = this.heading * CARDINAL_STEP;
