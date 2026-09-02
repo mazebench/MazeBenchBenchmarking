@@ -329,7 +329,15 @@ function expandedTopPixels(cells) {
 }
 
 function highestTerrain(cell) {
-  return Math.max(-1, ...(cell?.terrain || []).map((record) => record.top));
+  return Math.max(-Infinity, ...(cell?.terrain || []).map((record) => record.top));
+}
+
+function sceneVerticalBounds(scene) {
+  const records = [...scene.values()].flatMap((cell) => [...cell.terrain, ...cell.actors]);
+  return {
+    bottom: Math.min(0, ...records.flatMap((record) => [record.bottom, record.top])),
+    top: Math.max(0, ...records.flatMap((record) => [record.bottom, record.top]))
+  };
 }
 
 function layeredPixels(room, definitions, yaw, pitch, catalog) {
@@ -338,16 +346,19 @@ function layeredPixels(room, definitions, yaw, pitch, catalog) {
   const topRows = ASCII_TILE_SIZE - pitch;
   const sideRows = pitch;
   const rowStep = Math.max(1, topRows);
-  const maxHeight = Math.max(0, ...[...scene.values()].flatMap((cell) =>
-    [...cell.terrain, ...cell.actors].map((record) => record.top)));
+  const verticalBounds = sceneVerticalBounds(scene);
+  const minHeight = verticalBounds.bottom;
+  const maxHeight = verticalBounds.top;
   const topMargin = maxHeight * sideRows + 1;
   const width = dimensions.width * ASCII_TILE_SIZE;
-  const height = topMargin + dimensions.height * rowStep + ASCII_TILE_SIZE + Math.max(1, sideRows) + 2;
+  const negativeMargin = Math.max(0, -minHeight) * sideRows;
+  const height = topMargin + dimensions.height * rowStep + ASCII_TILE_SIZE +
+    Math.max(1, sideRows) + negativeMargin + 2;
   const canvas = blankCanvas(width, height);
 
   for (let displayY = 0; displayY < dimensions.height; displayY += 1) {
     const baseY = topMargin + displayY * rowStep;
-    for (let level = 0; level <= maxHeight; level += 1) {
+    for (let level = minHeight; level <= maxHeight; level += 1) {
       for (let displayX = 0; displayX < dimensions.width; displayX += 1) {
         const cell = scene.get(`${displayX},${displayY}`);
         if (!cell) continue;
@@ -415,10 +426,11 @@ function layeredPixels(room, definitions, yaw, pitch, catalog) {
 function sidePixels(room, definitions, yaw, catalog) {
   const dimensions = displayDimensions(room, yaw);
   const scene = sceneCells(room, definitions, yaw, catalog);
-  const maxHeight = Math.max(1, ...[...scene.values()].flatMap((cell) =>
-    [...cell.terrain, ...cell.actors].map((record) => record.top)));
+  const verticalBounds = sceneVerticalBounds(scene);
+  const maxHeight = Math.max(1, verticalBounds.top);
   const baseline = maxHeight * ASCII_TILE_SIZE;
-  const canvas = blankCanvas(dimensions.width * ASCII_TILE_SIZE, baseline + 1);
+  const negativeRows = Math.max(0, -verticalBounds.bottom) * ASCII_TILE_SIZE;
+  const canvas = blankCanvas(dimensions.width * ASCII_TILE_SIZE, baseline + negativeRows + 1);
   for (let displayY = dimensions.height - 1; displayY >= 0; displayY -= 1) {
     for (let displayX = 0; displayX < dimensions.width; displayX += 1) {
       const cell = scene.get(`${displayX},${displayY}`);

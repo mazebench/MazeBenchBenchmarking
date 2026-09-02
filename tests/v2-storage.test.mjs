@@ -8,7 +8,8 @@ import {
   eraseOneObjectAtCell,
   objectPaintsInsideClickedBody,
   objectIsSurface,
-  placeObjectInCell
+  placeObjectInCell,
+  solidPlacementCoversBaseSurface
 } from "../render/v1/cell-objects-v2.mjs";
 import {
   editorEraseRowKey,
@@ -240,6 +241,27 @@ test("ASCII renderer v1 exposes MazeBench's five stacked camera pitches", async 
   assert.equal(normalizeAsciiPitch(99), 4);
 });
 
+test("ASCII renderer v1 retains objects in negative vertical rows at every pitch", async () => {
+  const room = {
+    width: 2,
+    height: 1,
+    objects: [
+      { x: 0, y: 0, z: -2, blockId: "wall" },
+      { x: 1, y: 0, z: -1, blockId: "player" }
+    ]
+  };
+  const frames = await Promise.all(Array.from({ length: 5 }, (_, pitch) =>
+    renderAsciiFrameV1(room, definitions, { pitch })));
+
+  frames.forEach((frame, pitch) => {
+    const visibleNames = new Set(frame.pixels.flat().map((pixel) => pixel.name));
+    assert.equal(visibleNames.has("wall"), true, `negative wall missing at pitch ${pitch}`);
+    assert.equal(visibleNames.has("player"), true, `negative player missing at pitch ${pitch}`);
+  });
+  assert.equal(frames[4].text.includes("wwww"), true);
+  assert.equal(frames[4].text.includes("pppp"), true);
+});
+
 test("v2 rooms preserve stacked, overlapping, and oriented objects", () => {
   const objects = [
     { x: 3, y: 4, z: 0, blockId: "floor" },
@@ -382,6 +404,24 @@ test("floor surfaces survive solid placement and can be replaced independently",
     cellObjectSelectionKey(block)
   );
   assert.deepEqual(erased.objects, [floor]);
+});
+
+test("editor rejects a solid Row-zero placement that would cover floor or ice", () => {
+  const floor = { x: 2, y: 2, z: 0, blockId: "floor" };
+  const ice = { x: 3, y: 2, z: 0, blockId: "ice-floor" };
+  const wallOnFloor = { x: 2, y: 2, z: 0, blockId: "wall" };
+  const wallOnIce = { x: 3, y: 2, z: 0, blockId: "wall" };
+  const wallOnEmpty = { x: 4, y: 2, z: 0, blockId: "wall" };
+
+  assert.equal(solidPlacementCoversBaseSurface([floor, ice], wallOnFloor, definitions), true);
+  assert.equal(solidPlacementCoversBaseSurface([floor, ice], wallOnIce, definitions), true);
+  assert.equal(solidPlacementCoversBaseSurface([floor, ice], wallOnEmpty, definitions), false);
+  assert.equal(solidPlacementCoversBaseSurface([floor], { ...wallOnFloor, z: -1 }, definitions), false);
+  assert.equal(solidPlacementCoversBaseSurface(
+    [floor],
+    { ...wallOnFloor, blockId: "orange-button", orientation: "top" },
+    definitions
+  ), false);
 });
 
 test("every directional slope is a closed five-surface wedge", () => {

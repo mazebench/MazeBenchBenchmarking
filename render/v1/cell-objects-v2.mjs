@@ -12,6 +12,14 @@ export function objectPaintsInsideClickedBody(block) {
   return block?.visual?.kind !== "lift" && objectCanShareCell(block);
 }
 
+export function solidPlacementCoversBaseSurface(objects, placement, definitions) {
+  const block = definitions.get(placement.blockId);
+  if (placement.z !== 0 || objectIsSurface(block) || objectCanShareCell(block)) return false;
+  const coordinate = cellCoordinateKey(placement);
+  return objects.some((object) =>
+    cellCoordinateKey(object) === coordinate && objectIsSurface(definitions.get(object.blockId)));
+}
+
 export function cellCoordinateKey(object) {
   return `${object.x},${object.y},${object.z}`;
 }
