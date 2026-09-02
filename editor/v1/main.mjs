@@ -344,9 +344,11 @@ function buildToolbox() {
     const displayToken = generic
       ? concreteGenericToolToken(token, selectedGenericIds[generic.family])
       : token;
-    const directionHint = isDirectionalTool(parser, token) ? " — faces camera when placed" : "";
-    button.title = `${toolName(displayToken)} — ${displayToken}${directionHint}`;
-    button.setAttribute("aria-label", `${toolName(displayToken)}${generic ? "; choose numeric ID" : directionHint}`);
+    const placementHint = /^p[rlud]$/.test(token)
+      ? " — faces highlighted surface"
+      : isDirectionalTool(parser, token) ? " — faces camera when placed" : "";
+    button.title = `${toolName(displayToken)} — ${displayToken}${placementHint}`;
+    button.setAttribute("aria-label", `${toolName(displayToken)}${generic ? "; choose numeric ID" : placementHint}`);
     button.style.setProperty("--tool-color", visual?.color || "#050608");
     const canvas = document.createElement("canvas");
     canvas.width = 96;

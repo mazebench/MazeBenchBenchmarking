@@ -28,12 +28,21 @@ import {
   renderPlacementPreview
 } from "./placement-preview-v2.mjs";
 import {
+  CAMERA_PAN_ACCEL_MULTIPLIER,
+  CAMERA_PAN_DECEL_MULTIPLIER,
   CAMERA_TILT_ACCEL,
   CAMERA_TILT_DECEL,
   CAMERA_TILT_MAX_SPEED,
+  CAMERA_ZOOM_ACCEL,
+  CAMERA_ZOOM_DECEL,
+  CAMERA_ZOOM_MAX_LOG_SPEED,
+  cameraRelativePanVector,
+  centerTransitionAt,
   clampCameraPitch,
   easeToward,
+  panSpeedForDistance,
   yawTransitionAt,
+  zoomDistanceAtVelocity,
   zoomTransitionAt
 } from "./camera-transitions.mjs";
 import { addGenericNumberFaces } from "./generic-labels.mjs";
@@ -82,10 +91,17 @@ export class ThreeMazeRendererV1 {
     this.distance = 30;
     this.cameraMotion = {
       frameId: 0,
-      heldTiltKeys: new Set(),
+      heldKeys: new Set(),
       lastMs: 0,
+      panHorizontal: 0,
+      panForward: 0,
+      panVelocityX: 0,
+      panVelocityZ: 0,
       tiltDirection: 0,
       tiltVelocity: 0,
+      zoomDirection: 0,
+      zoomVelocity: 0,
+      centerAnimation: null,
       yawAnimation: null,
       zoomAnimation: null
     };
@@ -168,26 +184,28 @@ export class ThreeMazeRendererV1 {
     window.addEventListener("keydown", (event) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isEditableTarget(event.target)) return;
       const key = event.key.toLowerCase();
-      if (!["w", "a", "s", "d", "q", "e"].includes(key)) return;
+      const continuousKeys = ["w", "s", "q", "e", "arrowleft", "arrowright", "arrowup", "arrowdown"];
+      if (!["a", "d", "/", ...continuousKeys].includes(key)) return;
       event.preventDefault();
-      if (key === "w" || key === "s") {
-        this.cameraMotion.heldTiltKeys.add(key);
-        this.recomputeTiltDirection();
+      if (continuousKeys.includes(key)) {
+        this.cameraMotion.heldKeys.add(key);
+        if (key === "q" || key === "e") this.cameraMotion.zoomAnimation = null;
+        this.recomputeContinuousDirections();
       } else if ((key === "a" || key === "d") && !event.repeat) {
         this.rotateCardinal(key === "a" ? -1 : 1);
       } else if (!event.repeat) {
-        this.zoomBy(key === "q" ? 0.82 : 1 / 0.82);
+        this.centerBoard();
       }
     });
     window.addEventListener("keyup", (event) => {
       const key = event.key.toLowerCase();
-      if (key !== "w" && key !== "s") return;
-      this.cameraMotion.heldTiltKeys.delete(key);
-      this.recomputeTiltDirection();
+      if (!this.cameraMotion.heldKeys.has(key)) return;
+      this.cameraMotion.heldKeys.delete(key);
+      this.recomputeContinuousDirections();
     });
     window.addEventListener("blur", () => {
-      this.cameraMotion.heldTiltKeys.clear();
-      this.recomputeTiltDirection();
+      this.cameraMotion.heldKeys.clear();
+      this.recomputeContinuousDirections();
     });
   }
 
@@ -209,13 +227,18 @@ export class ThreeMazeRendererV1 {
     this.scheduleCameraFrame();
   }
 
-  recomputeTiltDirection() {
+  recomputeContinuousDirections() {
     const motion = this.cameraMotion;
-    let direction = 0;
-    if (motion.heldTiltKeys.has("s")) direction = -1;
-    if (motion.heldTiltKeys.has("w")) direction = 1;
-    motion.tiltDirection = direction;
-    if (direction || motion.tiltVelocity) this.scheduleCameraFrame();
+    motion.tiltDirection = Number(motion.heldKeys.has("w")) - Number(motion.heldKeys.has("s"));
+    motion.zoomDirection = Number(motion.heldKeys.has("e")) - Number(motion.heldKeys.has("q"));
+    motion.panHorizontal = Number(motion.heldKeys.has("arrowright")) - Number(motion.heldKeys.has("arrowleft"));
+    motion.panForward = Number(motion.heldKeys.has("arrowup")) - Number(motion.heldKeys.has("arrowdown"));
+    if (motion.panHorizontal || motion.panForward) motion.centerAnimation = null;
+    if (
+      motion.tiltDirection || motion.tiltVelocity ||
+      motion.zoomDirection || motion.zoomVelocity ||
+      motion.panHorizontal || motion.panForward || motion.panVelocityX || motion.panVelocityZ
+    ) this.scheduleCameraFrame();
   }
 
   clampPitch(pitch) {
@@ -259,6 +282,19 @@ export class ThreeMazeRendererV1 {
       }
     }
 
+    if (motion.centerAnimation) {
+      const transition = centerTransitionAt(motion.centerAnimation, now);
+      this.target.x = transition.x;
+      this.target.z = transition.z;
+      if (transition.complete) {
+        this.target.x = motion.centerAnimation.targetX;
+        this.target.z = motion.centerAnimation.targetZ;
+        motion.centerAnimation = null;
+      } else {
+        continueLoop = true;
+      }
+    }
+
     if (motion.tiltDirection || motion.tiltVelocity) {
       const targetVelocity = motion.tiltDirection * CAMERA_TILT_MAX_SPEED;
       const rate = motion.tiltDirection ? CAMERA_TILT_ACCEL : CAMERA_TILT_DECEL;
@@ -268,6 +304,40 @@ export class ThreeMazeRendererV1 {
       this.pitch = this.clampPitch(previousPitch + motion.tiltVelocity * deltaSeconds);
       if (this.pitch === previousPitch && !motion.tiltDirection) motion.tiltVelocity = 0;
       if (motion.tiltDirection || motion.tiltVelocity) continueLoop = true;
+    }
+
+    if (motion.zoomDirection || motion.zoomVelocity) {
+      const targetVelocity = motion.zoomDirection * CAMERA_ZOOM_MAX_LOG_SPEED;
+      const rate = motion.zoomDirection ? CAMERA_ZOOM_ACCEL : CAMERA_ZOOM_DECEL;
+      motion.zoomVelocity = easeToward(motion.zoomVelocity, targetVelocity, rate * deltaSeconds);
+      if (!motion.zoomDirection && Math.abs(motion.zoomVelocity) < 0.002) motion.zoomVelocity = 0;
+      const limits = this.zoomLimits();
+      const previousDistance = this.distance;
+      this.distance = zoomDistanceAtVelocity(this.distance, motion.zoomVelocity, deltaSeconds, limits);
+      if (this.distance === previousDistance && motion.zoomDirection) motion.zoomVelocity = 0;
+      if (motion.zoomDirection || motion.zoomVelocity) continueLoop = true;
+    }
+
+    if (motion.panHorizontal || motion.panForward || motion.panVelocityX || motion.panVelocityZ) {
+      const input = cameraRelativePanVector(this.yaw, motion.panHorizontal, motion.panForward);
+      const speed = panSpeedForDistance(this.distance);
+      const hasInput = Boolean(motion.panHorizontal || motion.panForward);
+      const rate = speed * (hasInput ? CAMERA_PAN_ACCEL_MULTIPLIER : CAMERA_PAN_DECEL_MULTIPLIER);
+      motion.panVelocityX = easeToward(motion.panVelocityX, input.x * speed, rate * deltaSeconds);
+      motion.panVelocityZ = easeToward(motion.panVelocityZ, input.z * speed, rate * deltaSeconds);
+      if (!hasInput && Math.hypot(motion.panVelocityX, motion.panVelocityZ) < 0.01) {
+        motion.panVelocityX = 0;
+        motion.panVelocityZ = 0;
+      }
+      const limitX = Math.max(0, this.totalWidth / 2);
+      const limitZ = Math.max(0, this.totalHeight / 2);
+      const previousX = this.target.x;
+      const previousZ = this.target.z;
+      this.target.x = Math.max(-limitX, Math.min(limitX, previousX + motion.panVelocityX * deltaSeconds));
+      this.target.z = Math.max(-limitZ, Math.min(limitZ, previousZ + motion.panVelocityZ * deltaSeconds));
+      if (this.target.x === previousX && Math.sign(motion.panVelocityX) === Math.sign(this.target.x)) motion.panVelocityX = 0;
+      if (this.target.z === previousZ && Math.sign(motion.panVelocityZ) === Math.sign(this.target.z)) motion.panVelocityZ = 0;
+      if (hasInput || motion.panVelocityX || motion.panVelocityZ) continueLoop = true;
     }
 
     this.render();
@@ -284,9 +354,16 @@ export class ThreeMazeRendererV1 {
     motion.lastMs = 0;
     motion.tiltDirection = 0;
     motion.tiltVelocity = 0;
+    motion.zoomDirection = 0;
+    motion.zoomVelocity = 0;
+    motion.panHorizontal = 0;
+    motion.panForward = 0;
+    motion.panVelocityX = 0;
+    motion.panVelocityZ = 0;
+    motion.centerAnimation = null;
     motion.yawAnimation = null;
     motion.zoomAnimation = null;
-    motion.heldTiltKeys.clear();
+    motion.heldKeys.clear();
   }
 
   cameraDirections() {
@@ -648,6 +725,8 @@ export class ThreeMazeRendererV1 {
     this.canvas.dataset.cameraPitch = String(Math.round(THREE.MathUtils.radToDeg(this.pitch)));
     this.canvas.dataset.cameraYawDegrees = THREE.MathUtils.radToDeg(this.yaw).toFixed(3);
     this.canvas.dataset.cameraDistance = this.distance.toFixed(3);
+    this.canvas.dataset.cameraTargetX = this.target.x.toFixed(3);
+    this.canvas.dataset.cameraTargetZ = this.target.z.toFixed(3);
     this.content.traverse((object) => {
       if (object.userData.liftMarker) object.rotation.y = this.yaw;
     });
@@ -659,13 +738,37 @@ export class ThreeMazeRendererV1 {
   }
 
   zoomBy(factor) {
-    const limits = this.mode === "world" ? [22, 1000] : [7, 110];
+    const limits = this.zoomLimits();
     const fromDistance = this.cameraMotion.zoomAnimation?.targetDistance ?? this.distance;
     const targetDistance = Math.max(limits[0], Math.min(limits[1], fromDistance * factor));
+    this.cameraMotion.zoomVelocity = 0;
     this.cameraMotion.zoomAnimation = {
       startMs: performance.now(),
       startDistance: this.distance,
       targetDistance
+    };
+    this.scheduleCameraFrame();
+  }
+
+  zoomLimits() {
+    return this.mode === "world" ? [22, 1000] : [7, 110];
+  }
+
+  centerBoard() {
+    const motion = this.cameraMotion;
+    for (const key of ["arrowleft", "arrowright", "arrowup", "arrowdown"]) {
+      motion.heldKeys.delete(key);
+    }
+    motion.panHorizontal = 0;
+    motion.panForward = 0;
+    motion.panVelocityX = 0;
+    motion.panVelocityZ = 0;
+    motion.centerAnimation = {
+      startMs: performance.now(),
+      startX: this.target.x,
+      startZ: this.target.z,
+      targetX: 0,
+      targetZ: 0
     };
     this.scheduleCameraFrame();
   }
@@ -682,7 +785,10 @@ export class ThreeMazeRendererV1 {
 
   focusRoom(room) {
     if (!room || this.mode !== "world") return;
+    this.cameraMotion.centerAnimation = null;
     this.cameraMotion.zoomAnimation = null;
+    this.cameraMotion.panVelocityX = 0;
+    this.cameraMotion.panVelocityZ = 0;
     this.target.set(
       room.columnIndex * this.world.roomWidth - this.totalWidth / 2 + this.world.roomWidth / 2,
       1.5,

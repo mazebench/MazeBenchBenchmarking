@@ -22,22 +22,33 @@ import {
   V2_WORLD_FORMAT
 } from "../render/v1/voxel-world-v2.mjs";
 import {
+  CAMERA_CENTER_DURATION_MS,
+  CAMERA_PAN_ACCEL_MULTIPLIER,
   CAMERA_TILT_ACCEL,
   CAMERA_TILT_DECEL,
   CAMERA_TILT_MAX_SPEED,
   CAMERA_YAW_DURATION_MS,
+  CAMERA_ZOOM_ACCEL,
   CAMERA_ZOOM_DURATION_MS,
+  CAMERA_ZOOM_MAX_LOG_SPEED,
+  cameraRelativePanVector,
+  centerTransitionAt,
   clampCameraPitch,
   easeInOutQuad,
   easeToward,
+  panSpeedForDistance,
   yawTransitionAt,
+  zoomDistanceAtVelocity,
   zoomTransitionAt
 } from "../render/v1/camera-transitions.mjs";
 import {
   voxelPieceDefinition,
   voxelRenderSource
 } from "../render/v1/voxel-scene-v2.mjs";
-import { slopeGeometry } from "../render/v1/special-piece-renderers.mjs";
+import {
+  puncherDirectionVector,
+  slopeGeometry
+} from "../render/v1/special-piece-renderers.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const definitions = new Map(V2_BLOCK_CATALOG.map((block) => [block.id, block]));
@@ -73,6 +84,49 @@ test("editor camera pitch can orbit below while other views stay above", () => {
   assert.ok(clampCameraPitch(-0.8, true) < 0);
   assert.ok(clampCameraPitch(-0.8, false) > 0);
   assert.ok(clampCameraPitch(-Math.PI, true) > -Math.PI / 2);
+});
+
+test("held zoom and arrow pan controls accelerate continuously in camera space", () => {
+  assert.deepEqual(cameraRelativePanVector(0, 1, 0), { x: 1, z: 0 });
+  assert.deepEqual(cameraRelativePanVector(0, 0, 1), { x: 0, z: -1 });
+  const quarterTurnRight = cameraRelativePanVector(Math.PI / 2, 1, 0);
+  assert.ok(Math.abs(quarterTurnRight.x) < 1e-12);
+  assert.equal(quarterTurnRight.z, -1);
+  const diagonal = cameraRelativePanVector(0, 1, 1);
+  assert.ok(Math.abs(Math.hypot(diagonal.x, diagonal.z) - 1) < 1e-12);
+
+  const panSpeed = panSpeedForDistance(30);
+  assert.ok(panSpeed > 5);
+  assert.ok(easeToward(0, panSpeed, panSpeed * CAMERA_PAN_ACCEL_MULTIPLIER / 60) > 0);
+
+  const zoomVelocity = easeToward(
+    0,
+    -CAMERA_ZOOM_MAX_LOG_SPEED,
+    CAMERA_ZOOM_ACCEL / 60
+  );
+  assert.ok(zoomDistanceAtVelocity(30, zoomVelocity, 1 / 60, [7, 110]) < 30);
+  assert.equal(zoomDistanceAtVelocity(7, -1, 1, [7, 110]), 7);
+  assert.equal(zoomDistanceAtVelocity(110, 1, 1, [7, 110]), 110);
+});
+
+test("slash centering eases the board target back to the origin", () => {
+  const animation = {
+    startMs: 100,
+    startX: 24,
+    startZ: -12,
+    targetX: 0,
+    targetZ: 0
+  };
+  assert.deepEqual(centerTransitionAt(animation, 100 + CAMERA_CENTER_DURATION_MS / 2), {
+    complete: false,
+    x: 12,
+    z: -6
+  });
+  assert.deepEqual(centerTransitionAt(animation, 100 + CAMERA_CENTER_DURATION_MS), {
+    complete: true,
+    x: 0,
+    z: 0
+  });
 });
 
 test("v2 rooms preserve stacked, overlapping, and oriented objects", () => {
@@ -113,6 +167,28 @@ test("side-face placement uses the adjacent 3D cell and records the face orienta
   const lift = voxelPlacementForTool("L", coordinate, hit, { near: "down", far: "up" });
   assert.equal(lift.orientation, "east");
   assert.equal(lift.stateId, 1);
+
+  const puncher = voxelPlacementForTool("pr", coordinate, hit, { near: "down", far: "up" });
+  assert.equal(puncher.orientation, "east");
+  assert.equal(puncher.variantId, 2);
+});
+
+test("punchers point out from horizontal, top, and bottom highlighted faces", () => {
+  const coordinate = { x: 3, y: 4, z: 2 };
+  const camera = { near: "left", far: "right" };
+  const top = voxelPlacementForTool("pr", coordinate, {
+    dx: 0, dy: 0, dz: 1, face: "top"
+  }, camera);
+  const bottom = voxelPlacementForTool("pr", coordinate, {
+    dx: 0, dy: 0, dz: -1, face: "bottom-face"
+  }, camera);
+  assert.equal(top.orientation, "top");
+  assert.equal(top.variantId, 0);
+  assert.equal(bottom.orientation, "bottom");
+  assert.equal(bottom.variantId, 5);
+  assert.deepEqual(puncherDirectionVector("top").toArray(), [0, 1, 0]);
+  assert.deepEqual(puncherDirectionVector("bottom").toArray(), [0, -1, 0]);
+  assert.deepEqual(puncherDirectionVector("west").toArray(), [-1, 0, 0]);
 });
 
 test("placement previews use the real oriented button and slope definitions", () => {

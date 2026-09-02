@@ -191,26 +191,35 @@ function addSideLift(content, record, dimensions) {
   content.add(marker);
 }
 
-function directionVector(direction) {
-  return {
-    left: { x: -1, z: 0 },
-    up: { x: 0, z: -1 },
-    down: { x: 0, z: 1 },
-    right: { x: 1, z: 0 }
-  }[["left", "up", "down"].includes(direction) ? direction : "right"];
+export function puncherDirectionVector(direction) {
+  const normalized = String(direction || "right").toLowerCase();
+  const vectors = {
+    bottom: new THREE.Vector3(0, -1, 0),
+    down: new THREE.Vector3(0, 0, 1),
+    east: new THREE.Vector3(1, 0, 0),
+    left: new THREE.Vector3(-1, 0, 0),
+    north: new THREE.Vector3(0, 0, -1),
+    right: new THREE.Vector3(1, 0, 0),
+    south: new THREE.Vector3(0, 0, 1),
+    top: new THREE.Vector3(0, 1, 0),
+    up: new THREE.Vector3(0, 0, -1),
+    west: new THREE.Vector3(-1, 0, 0)
+  };
+  return vectors[normalized] || vectors.right;
 }
 
 function addPuncher(content, record, dimensions) {
   const cell = centerFor(record, dimensions);
-  const vector = directionVector(record.source.direction);
+  const vector = puncherDirectionVector(record.source.direction);
   const backOffset = 0.5 - PUNCHER_DEPTH / 2;
-  const center = { x: cell.x - vector.x * backOffset, z: cell.z - vector.z * backOffset };
-  const y = record.definition.bottom + 0.54;
-  const rotation = new THREE.Euler();
-  if (vector.x > 0) rotation.z = -Math.PI / 2;
-  else if (vector.x < 0) rotation.z = Math.PI / 2;
-  else if (vector.z > 0) rotation.x = Math.PI / 2;
-  else rotation.x = -Math.PI / 2;
+  const center = new THREE.Vector3(
+    cell.x,
+    record.definition.bottom + 0.5,
+    cell.z
+  ).addScaledVector(vector, -backOffset);
+  const rotation = new THREE.Euler().setFromQuaternion(
+    new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), vector)
+  );
   [
     { radius: PUNCHER_RADIUS, depth: PUNCHER_DEPTH, offset: 0, color: "#ef4444" },
     { radius: PUNCHER_RADIUS * 0.66, depth: PUNCHER_DEPTH * 0.45, offset: PUNCHER_DEPTH * 0.58, color: "#f8fafc" },
@@ -221,7 +230,7 @@ function addPuncher(content, record, dimensions) {
     addOutlinedMesh(content, geometry, part.color, {
       position: new THREE.Vector3(
         center.x + vector.x * part.offset,
-        y,
+        center.y + vector.y * part.offset,
         center.z + vector.z * part.offset
       ),
       rotation

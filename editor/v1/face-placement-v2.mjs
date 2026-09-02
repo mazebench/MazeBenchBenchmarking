@@ -78,8 +78,8 @@ export function voxelPlacementForTool(token, coordinate, target, cameraDirection
     placement.orientation = cameraDirections.far;
     placement.variantId = DIRECTION_INDEX[placement.orientation];
   } else if (identity.puncher) {
-    placement.orientation = cameraDirections.near;
-    placement.variantId = DIRECTION_INDEX[placement.orientation];
+    placement.orientation = orientationFromPaintFace(target, true);
+    placement.variantId = SIDE_ORIENTATION_INDEX[placement.orientation];
   } else if (identity.lift) {
     const orientation = orientationFromPaintFace(target, false);
     if (!orientation) return null;
