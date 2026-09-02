@@ -24,6 +24,8 @@ export const ASCII_TILE_SIZE = 4;
 export const ASCII_MAX_PITCH = 4;
 
 const DIRECTIONS = Object.freeze(["up", "right", "down", "left"]);
+const FACE_ORIENTATIONS = Object.freeze(["top", "north", "east", "south", "west", "bottom"]);
+const ORANGE_BUTTON_COLOR = "#ffb347";
 const ORIENTATION_ALIASES = Object.freeze({
   north: "up",
   east: "right",
@@ -74,6 +76,51 @@ function worldCoordinatesForDisplay(room, yaw, x, y) {
     case 2: return { x: room.width - 1 - x, y: room.height - 1 - y };
     case 3: return { x: room.width - 1 - y, y: x };
     default: return { x, y };
+  }
+}
+
+function displayCoordinatesForWorld(room, yaw, x, y) {
+  switch (yaw) {
+    case 1: return { x: room.height - 1 - y, y: x };
+    case 2: return { x: room.width - 1 - x, y: room.height - 1 - y };
+    case 3: return { x: y, y: room.width - 1 - x };
+    default: return { x, y };
+  }
+}
+
+function normalizeFaceOrientation(object) {
+  const candidate = String(object?.orientation || "").toLowerCase();
+  const aliases = {
+    up: "top",
+    front: "north",
+    right: "east",
+    back: "south",
+    left: "west",
+    down: "bottom",
+    ceiling: "bottom"
+  };
+  const orientation = aliases[candidate] || candidate;
+  if (FACE_ORIENTATIONS.includes(orientation)) return orientation;
+  const variant = Number.isInteger(object?.variantId) ? object.variantId : 0;
+  return FACE_ORIENTATIONS[((variant % FACE_ORIENTATIONS.length) + FACE_ORIENTATIONS.length) %
+    FACE_ORIENTATIONS.length];
+}
+
+function screenFaceOrientation(object, yaw) {
+  const orientation = normalizeFaceOrientation(object);
+  const direction = { north: "up", east: "right", south: "down", west: "left" }[orientation];
+  return direction ? cameraRelativeDirection(direction, yaw) : orientation;
+}
+
+function fixtureSupportCoordinates(object) {
+  // Side fixtures are stored in the pass-through voxel outside their mount.
+  // Project their pixels back onto the supporting cube's visible face.
+  switch (normalizeFaceOrientation(object)) {
+    case "north": return { x: object.x, y: object.y + 1 };
+    case "east": return { x: object.x - 1, y: object.y };
+    case "south": return { x: object.x, y: object.y - 1 };
+    case "west": return { x: object.x + 1, y: object.y };
+    default: return { x: object.x, y: object.y };
   }
 }
 
@@ -169,7 +216,8 @@ export function glyphForObject(object, definition, yaw = 0, catalog = null) {
 }
 
 function observationColor(object, definition) {
-  if (["floor", "exit", "orange-button", "floating-floor"].includes(object.blockId)) return "#d6bd94";
+  if (object.blockId === "orange-button") return ORANGE_BUTTON_COLOR;
+  if (["floor", "exit", "floating-floor"].includes(object.blockId)) return "#d6bd94";
   if (["ice-floor", "ice-block", "ice-slope"].includes(object.blockId)) return "#a9d6f4";
   if (["wall", "wall-slope"].includes(object.blockId)) return "#23262c";
   if (["orange-wall", "orange-slope"].includes(object.blockId)) return "#b85f16";
@@ -187,30 +235,166 @@ function observationColor(object, definition) {
   return definition?.color || "#d6bd94";
 }
 
+function isLoweredLift(object) {
+  if (object.blockId !== "lift") return false;
+  if (Number.isInteger(object.stateId)) return object.stateId !== 1;
+  if (Number.isInteger(object.engineGenericId)) return object.engineGenericId % 2 === 0;
+  if (Number.isInteger(object.genericId)) return object.genericId % 2 === 0;
+  return true;
+}
+
+function faceFixtureKind(object) {
+  if (object.blockId === "orange-button") return "button";
+  if (isLoweredLift(object)) return "lift";
+  return null;
+}
+
+function fixtureDrawPriority(fixture) {
+  return fixture === "lift" ? 0 : 1;
+}
+
+function isBaseSurface(definition) {
+  return definition?.visual?.kind === "floor" || definition?.visual?.kind === "exit";
+}
+
+function explicitObjectIsHidden(object, definition) {
+  return object.engineHidden === true ||
+    (definition?.roleId === "orange-wall" &&
+      (Number(object.stateId) === 2 || definition.visual?.orangeForm === "hidden"));
+}
+
 function visibleTop(object, definition) {
   const base = Number(object.z) || 0;
+  const fixture = faceFixtureKind(object);
+  if (fixture) {
+    const orientation = normalizeFaceOrientation(object);
+    return orientation === "top" || orientation === "bottom" ? base : base + 1;
+  }
   const kind = definition?.visual?.kind;
   if (kind === "floor" || kind === "exit") return base;
   if (kind === "model") return base + Math.max(1, Number(definition.visual.height) || 1);
-  if (kind === "lift" && object.stateId !== 1) return base + 0.2;
   return base + 1;
 }
 
 function visibilityPriority(object, definition) {
-  if (object.blockId === "player") return 100;
-  if (object.blockId === "gem") return 90;
-  if (object.blockId === "puncher") return 80;
-  if (object.blockId === "orange-button") return 70;
-  if (definition?.category === "actor") return 60;
-  if (["floor", "ice-floor", "exit"].includes(object.blockId)) return 10;
-  return 30;
+  if (object.blockId === "player") return 1000;
+  if (definition?.occupancy === "solid" && definition?.category === "actor") return 950;
+  if (definition?.occupancy === "solid" || object.blockId === "orange-wall" ||
+      (object.blockId === "lift" && !isLoweredLift(object))) return 900;
+  if (object.blockId === "puncher") return 800;
+  if (object.blockId === "gem") return 700;
+  if (definition?.category === "actor") return 650;
+  if (faceFixtureKind(object) === "button") return 120;
+  if (faceFixtureKind(object) === "lift") return 110;
+  if (isBaseSurface(definition)) return 10;
+  return 600;
 }
 
-function topObjectsByCell(room, definitions) {
+function stableObjectKey(object) {
+  return JSON.stringify([
+    object.blockId,
+    object.groupId ?? object.genericId ?? -1,
+    normalizeFaceOrientation(object),
+    object.stateId ?? 0,
+    object.variantId ?? 0,
+    object.mechanismDepth ?? -1,
+    object.instanceId ?? ""
+  ]);
+}
+
+function selectWinner(entries) {
+  return entries.reduce((winner, candidate) => {
+    if (!winner || candidate.priority > winner.priority) return candidate;
+    if (candidate.priority < winner.priority) return winner;
+    return stableObjectKey(candidate.object).localeCompare(stableObjectKey(winner.object)) < 0
+      ? candidate
+      : winner;
+  }, null);
+}
+
+function retractedOrangeWallIsBuried(entry, entries) {
+  if (entry.definition?.roleId !== "orange-wall" ||
+      Math.max(0, Number(entry.object.mechanismDepth) || 0) === 0) {
+    return false;
+  }
+  const wallBottom = Number(entry.object.z) || 0;
+  const wallTop = wallBottom + 1;
+  return entries.some((candidate) => {
+    if (candidate === entry || candidate.object.x !== entry.object.x ||
+        candidate.object.y !== entry.object.y ||
+        candidate.definition?.roleId === "orange-wall" ||
+        faceFixtureKind(candidate.object)) {
+      return false;
+    }
+    if (isBaseSurface(candidate.definition)) {
+      return (Number(candidate.object.z) || 0) >= wallTop;
+    }
+    const candidateBottom = Number(candidate.object.z) || 0;
+    return candidateBottom <= wallBottom &&
+      visibleTop(candidate.object, candidate.definition) >= wallTop;
+  });
+}
+
+function renderableObjects(room, definitions) {
+  let entries = (room.objects || []).map((object, index) => ({
+    definition: definitions.get(object.blockId),
+    index,
+    object,
+    priority: visibilityPriority(object, definitions.get(object.blockId))
+  })).filter((entry) =>
+    entry.object.x >= 0 && entry.object.y >= 0 &&
+    entry.object.x < room.width && entry.object.y < room.height &&
+    !explicitObjectIsHidden(entry.object, entry.definition));
+  entries = entries.filter((entry) => !retractedOrangeWallIsBuried(entry, entries));
+
+  const locations = new Map();
+  entries.forEach((entry) => {
+    const key = `${entry.object.x},${entry.object.y},${entry.object.z}`;
+    if (!locations.has(key)) locations.set(key, []);
+    locations.get(key).push(entry);
+  });
+
+  const retained = [];
+  locations.forEach((occupants) => {
+    const fixtures = occupants.filter((entry) => faceFixtureKind(entry.object));
+    const surfaces = occupants.filter((entry) => isBaseSurface(entry.definition));
+    const ordinary = occupants.filter((entry) =>
+      !faceFixtureKind(entry.object) && !isBaseSurface(entry.definition));
+    const winner = selectWinner(ordinary);
+    if (winner) {
+      // A full occupant owns the whole voxel and occludes every surface or
+      // face fixture there. Fixtures only compose when no ordinary body wins.
+      retained.push(winner);
+      return;
+    }
+
+    const surface = selectWinner(surfaces);
+    if (surface) retained.push(surface);
+    const uniqueFaces = new Map();
+    fixtures.forEach((entry) => {
+      const key = `${faceFixtureKind(entry.object)}:${normalizeFaceOrientation(entry.object)}`;
+      const current = uniqueFaces.get(key);
+      uniqueFaces.set(key, selectWinner(current ? [current, entry] : [entry]));
+    });
+    retained.push(...uniqueFaces.values());
+  });
+  return retained.sort((left, right) => left.index - right.index).map((entry) => entry.object);
+}
+
+function topLayersByCell(room, definitions) {
   const cells = new Map();
   (room.objects || []).forEach((object, index) => {
-    if (object.engineHidden || object.x < 0 || object.y < 0 || object.x >= room.width || object.y >= room.height) return;
     const definition = definitions.get(object.blockId);
+    const fixture = faceFixtureKind(object);
+    const key = `${object.x},${object.y}`;
+    if (!cells.has(key)) cells.set(key, { base: null, fixtures: [] });
+    const cell = cells.get(key);
+    if (fixture) {
+      if (normalizeFaceOrientation(object) === "top") {
+        cell.fixtures.push({ definition, fixture, index, object, top: Number(object.z) || 0 });
+      }
+      return;
+    }
     const candidate = {
       definition,
       index,
@@ -218,13 +402,19 @@ function topObjectsByCell(room, definitions) {
       priority: visibilityPriority(object, definition),
       top: visibleTop(object, definition)
     };
-    const key = `${object.x},${object.y}`;
-    const current = cells.get(key);
+    const current = cell.base;
     if (!current || candidate.top > current.top ||
         (candidate.top === current.top && candidate.priority > current.priority) ||
-        (candidate.top === current.top && candidate.priority === current.priority && index > current.index)) {
-      cells.set(key, candidate);
+        (candidate.top === current.top && candidate.priority === current.priority &&
+          stableObjectKey(candidate.object).localeCompare(stableObjectKey(current.object)) < 0)) {
+      cell.base = candidate;
     }
+  });
+  cells.forEach((cell) => {
+    const highest = Math.max(cell.base?.top ?? -Infinity, ...cell.fixtures.map((fixture) => fixture.top));
+    cell.fixtures = cell.fixtures.filter((fixture) => fixture.top === highest)
+      .sort((left, right) => fixtureDrawPriority(left.fixture) - fixtureDrawPriority(right.fixture));
+    if (cell.base && cell.base.top < highest) cell.base = null;
   });
   return cells;
 }
@@ -247,20 +437,25 @@ function objectRecord(object, definition, yaw, catalog, index) {
   const pair = glyphForObject(object, definition, yaw, catalog);
   const bottom = Number.isFinite(Number(object.z)) ? Math.floor(Number(object.z)) : 0;
   const kind = definition?.visual?.kind;
-  const surfaceOnly = object.blockId === "orange-button" ||
-    (object.blockId === "lift" && object.stateId !== 1);
+  const fixture = faceFixtureKind(object);
+  const orientation = fixture ? normalizeFaceOrientation(object) : null;
+  const surfaceOnly = fixture !== null;
   const height = kind === "model"
     ? Math.max(1, Math.floor(Number(definition.visual.height) || 1))
     : 1;
-  const top = kind === "floor" || kind === "exit" || surfaceOnly
-    ? bottom
-    : bottom + height;
+  const top = kind === "floor" || kind === "exit" ||
+    (surfaceOnly && (orientation === "top" || orientation === "bottom"))
+      ? bottom
+      : bottom + height;
   const color = observationColor(object, definition);
   return {
     bottom,
     category: definition?.category === "actor" ? "actor" : "terrain",
+    fixture,
     index,
     object,
+    orientation,
+    screenOrientation: fixture ? screenFaceOrientation(object, yaw) : null,
     side: { color, glyph: pair.side, name: object.blockId },
     surfaceOnly,
     top,
@@ -270,25 +465,31 @@ function objectRecord(object, definition, yaw, catalog, index) {
 
 function sceneCells(room, definitions, yaw, catalog) {
   const cells = new Map();
+  const dimensions = displayDimensions(room, yaw);
   (room.objects || []).forEach((object, index) => {
-    if (object.engineHidden || object.x < 0 || object.y < 0 || object.x >= room.width || object.y >= room.height) return;
     const definition = definitions.get(object.blockId);
     const record = objectRecord(object, definition, yaw, catalog, index);
-    const display = (() => {
-      switch (yaw) {
-        case 1: return { x: room.height - 1 - object.y, y: object.x };
-        case 2: return { x: room.width - 1 - object.x, y: room.height - 1 - object.y };
-        case 3: return { x: object.y, y: room.width - 1 - object.x };
-        default: return { x: object.x, y: object.y };
-      }
-    })();
+    const fixtureCoordinates = record.fixture
+      ? fixtureSupportCoordinates(object)
+      : { x: object.x, y: object.y };
+    const display = displayCoordinatesForWorld(
+      room,
+      yaw,
+      fixtureCoordinates.x,
+      fixtureCoordinates.y
+    );
+    if (display.x < 0 || display.y < 0 ||
+        display.x >= dimensions.width || display.y >= dimensions.height) return;
     const key = `${display.x},${display.y}`;
-    if (!cells.has(key)) cells.set(key, { actors: [], terrain: [] });
-    cells.get(key)[record.category === "actor" ? "actors" : "terrain"].push(record);
+    if (!cells.has(key)) cells.set(key, { actors: [], fixtures: [], terrain: [] });
+    if (record.fixture) cells.get(key).fixtures.push(record);
+    else cells.get(key)[record.category === "actor" ? "actors" : "terrain"].push(record);
   });
   cells.forEach((cell) => {
     cell.terrain.sort((left, right) => left.bottom - right.bottom || left.top - right.top || left.index - right.index);
     cell.actors.sort((left, right) => left.bottom - right.bottom || left.index - right.index);
+    cell.fixtures.sort((left, right) =>
+      fixtureDrawPriority(left.fixture) - fixtureDrawPriority(right.fixture) || left.index - right.index);
   });
   return cells;
 }
@@ -297,14 +498,64 @@ function blankCanvas(width, height) {
   return Array.from({ length: height }, () => Array.from({ length: width }, () => EMPTY_PIXEL));
 }
 
-function drawRect(canvas, left, top, width, height, pixel, onlyBlank = false) {
+function drawRect(canvas, left, top, width, height, pixel, onlyBlank = false, canDraw = null) {
   if (width <= 0 || height <= 0) return;
   for (let y = top; y < top + height; y += 1) {
     for (let x = left; x < left + width; x += 1) {
-      if (!canvas[y]?.[x] || (onlyBlank && canvas[y][x].glyph !== " ")) continue;
+      if (!canvas[y]?.[x] || (onlyBlank && canvas[y][x].glyph !== " ") ||
+          (canDraw && !canDraw(x, y))) continue;
       canvas[y][x] = pixel;
     }
   }
+}
+
+function fixtureFacePixel(record, yaw, side = false) {
+  const pair = glyphForObject(record.object, record.definition, yaw);
+  return {
+    color: observationColor(record.object, record.definition),
+    glyph: record.fixture === "button" ? pair.top : side ? pair.side : pair.top,
+    name: record.object.blockId
+  };
+}
+
+function drawTopFixture(canvas, left, top, rows, record, yaw, canDraw = null) {
+  const pixel = fixtureFacePixel(record, yaw);
+  if (record.fixture === "lift") {
+    drawRect(canvas, left, top, ASCII_TILE_SIZE, rows, pixel, false, canDraw);
+    return;
+  }
+  const width = Math.min(2, ASCII_TILE_SIZE);
+  const height = Math.min(2, rows);
+  drawRect(
+    canvas,
+    left + Math.floor((ASCII_TILE_SIZE - width) / 2),
+    top + Math.floor((rows - height) / 2),
+    width,
+    height,
+    pixel,
+    false,
+    canDraw
+  );
+}
+
+function drawSideFixture(canvas, left, top, rows, record, yaw, canDraw = null) {
+  const pixel = fixtureFacePixel(record, yaw, true);
+  if (record.fixture === "lift") {
+    drawRect(canvas, left, top, ASCII_TILE_SIZE, rows, pixel, false, canDraw);
+    return;
+  }
+  const width = Math.min(2, ASCII_TILE_SIZE);
+  const height = Math.min(2, rows);
+  drawRect(
+    canvas,
+    left + Math.floor((ASCII_TILE_SIZE - width) / 2),
+    top + Math.floor((rows - height) / 2),
+    width,
+    height,
+    pixel,
+    false,
+    canDraw
+  );
 }
 
 function trimPixelCanvas(canvas) {
@@ -323,17 +574,49 @@ function trimPixelCanvas(canvas) {
   return canvas.slice(top, bottom + 1).map((row) => row.slice(left, right + 1));
 }
 
-function expandedTopPixels(cells) {
-  return cells.flatMap((row) => Array.from({ length: ASCII_TILE_SIZE }, () =>
-    row.flatMap((cell) => Array.from({ length: ASCII_TILE_SIZE }, () => cell))));
+function topPixels(room, yaw, layers) {
+  const dimensions = displayDimensions(room, yaw);
+  const canvas = blankCanvas(
+    dimensions.width * ASCII_TILE_SIZE,
+    dimensions.height * ASCII_TILE_SIZE
+  );
+  for (let displayY = 0; displayY < dimensions.height; displayY += 1) {
+    for (let displayX = 0; displayX < dimensions.width; displayX += 1) {
+      const world = worldCoordinatesForDisplay(room, yaw, displayX, displayY);
+      const layer = layers.get(`${world.x},${world.y}`);
+      if (!layer) continue;
+      const left = displayX * ASCII_TILE_SIZE;
+      const top = displayY * ASCII_TILE_SIZE;
+      if (layer.base) {
+        const pair = glyphForObject(layer.base.object, layer.base.definition, yaw);
+        drawRect(canvas, left, top, ASCII_TILE_SIZE, ASCII_TILE_SIZE, {
+          color: observationColor(layer.base.object, layer.base.definition),
+          glyph: pair.top,
+          name: layer.base.object.blockId
+        });
+      }
+      layer.fixtures.forEach((fixture) =>
+        drawTopFixture(canvas, left, top, ASCII_TILE_SIZE, fixture, yaw));
+    }
+  }
+  return canvas;
 }
 
 function highestTerrain(cell) {
   return Math.max(-Infinity, ...(cell?.terrain || []).map((record) => record.top));
 }
 
+function highestNonFixture(cell) {
+  return Math.max(
+    -Infinity,
+    ...(cell?.terrain || []).map((record) => record.top),
+    ...(cell?.actors || []).map((record) => record.top)
+  );
+}
+
 function sceneVerticalBounds(scene) {
-  const records = [...scene.values()].flatMap((cell) => [...cell.terrain, ...cell.actors]);
+  const records = [...scene.values()].flatMap((cell) =>
+    [...cell.terrain, ...cell.actors, ...cell.fixtures]);
   return {
     bottom: Math.min(0, ...records.flatMap((record) => [record.bottom, record.top])),
     top: Math.max(0, ...records.flatMap((record) => [record.bottom, record.top]))
@@ -418,6 +701,37 @@ function layeredPixels(room, definitions, yaw, pitch, catalog) {
           drawRect(canvas, screenX, topY + topRows, ASCII_TILE_SIZE, sideRows, record.side);
         }
       });
+
+      for (let displayX = 0; displayX < dimensions.width; displayX += 1) {
+        const cell = scene.get(`${displayX},${displayY}`);
+        if (!cell) continue;
+        const screenX = displayX * ASCII_TILE_SIZE;
+        const frontHeight = highestTerrain(scene.get(`${displayX},${displayY + 1}`));
+        cell.fixtures.forEach((record) => {
+          if (record.orientation === "top" && record.bottom === level &&
+              highestNonFixture(cell) <= record.bottom) {
+            drawTopFixture(
+              canvas,
+              screenX,
+              baseY - record.bottom * sideRows,
+              topRows,
+              record,
+              yaw
+            );
+          } else if (record.screenOrientation === "down" && record.bottom === level &&
+              frontHeight < level + 1) {
+            const exposedBottom = Math.max(level, frontHeight);
+            drawSideFixture(
+              canvas,
+              screenX,
+              baseY - (level + 1) * sideRows + topRows,
+              Math.max(1, (level + 1 - exposedBottom) * sideRows),
+              record,
+              yaw
+            );
+          }
+        });
+      }
     }
   }
   return trimPixelCanvas(canvas);
@@ -436,6 +750,8 @@ function sidePixels(room, definitions, yaw, catalog) {
       const cell = scene.get(`${displayX},${displayY}`);
       if (!cell) continue;
       const screenX = displayX * ASCII_TILE_SIZE;
+      const previouslyOccupied = canvas.map((row) =>
+        row.slice(screenX, screenX + ASCII_TILE_SIZE).map((pixel) => pixel.glyph !== " "));
       cell.terrain.forEach((record) => {
         if (record.surfaceOnly) return;
         const rows = record.top > record.bottom
@@ -458,6 +774,18 @@ function sidePixels(room, definitions, yaw, catalog) {
           true
         );
       });
+      cell.fixtures.forEach((record) => {
+        if (record.screenOrientation !== "down") return;
+        drawSideFixture(
+          canvas,
+          screenX,
+          baseline - (record.bottom + 1) * ASCII_TILE_SIZE,
+          ASCII_TILE_SIZE,
+          record,
+          yaw,
+          (x, y) => !previouslyOccupied[y]?.[x - screenX]
+        );
+      });
     }
   }
   return trimPixelCanvas(canvas);
@@ -473,19 +801,21 @@ function remapPixels(pixels, mapping) {
 
 export async function renderAsciiFrameV1(room, definitions, options = {}) {
   const blocks = definitionMap(definitions);
+  const renderRoom = { ...room, objects: renderableObjects(room, blocks) };
   const yaw = normalizeAsciiYaw(options.yaw);
   const pitch = normalizeAsciiPitch(options.pitch);
   const catalog = options.catalog || glyphCatalogForRoom(room);
   const mapping = options.hideNames ? await hiddenAsciiGlyphMap(options.hideNamesSeed || "1") : null;
-  const dimensions = displayDimensions(room, yaw);
-  const topObjects = topObjectsByCell(room, blocks);
+  const dimensions = displayDimensions(renderRoom, yaw);
+  const topLayers = topLayersByCell(renderRoom, blocks);
   const cells = [];
 
   for (let displayY = 0; displayY < dimensions.height; displayY += 1) {
     const row = [];
     for (let displayX = 0; displayX < dimensions.width; displayX += 1) {
-      const world = worldCoordinatesForDisplay(room, yaw, displayX, displayY);
-      const visible = topObjects.get(`${world.x},${world.y}`);
+      const world = worldCoordinatesForDisplay(renderRoom, yaw, displayX, displayY);
+      const layer = topLayers.get(`${world.x},${world.y}`);
+      const visible = layer?.fixtures.at(-1) || layer?.base;
       if (!visible) {
         row.push({ glyph: TERRAIN_GLYPHS.empty.top, color: "#050608", name: "empty" });
         continue;
@@ -501,10 +831,10 @@ export async function renderAsciiFrameV1(room, definitions, options = {}) {
   }
 
   const canonicalPixels = pitch === 0
-    ? expandedTopPixels(cells)
+    ? topPixels(renderRoom, yaw, topLayers)
     : pitch === ASCII_MAX_PITCH
-      ? sidePixels(room, blocks, yaw, catalog)
-      : layeredPixels(room, blocks, yaw, pitch, catalog);
+      ? sidePixels(renderRoom, blocks, yaw, catalog)
+      : layeredPixels(renderRoom, blocks, yaw, pitch, catalog);
   const pixels = remapPixels(canonicalPixels, mapping);
   const renderedCells = remapPixels(cells, mapping);
   const rows = pixels.map((row) => row.map((pixel) => pixel.glyph).join(""));

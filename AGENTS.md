@@ -83,6 +83,33 @@ Do not describe the whole applications as one-to-one merely because the engine
 hashes match. State precisely whether parity refers to C++ source, WASM, adapter
 serialization, command/tick playback, input, or rendering.
 
+## ASCII overlap and face-fixture contract
+
+The ASCII renderer resolves ordinary objects by exact `(x, y, z)` occupancy.
+When multiple ordinary objects occupy one voxel, render only the deterministic
+highest-priority object. A full occupant such as the player, a clone, a crate,
+or a weightless body hides a button, gem, or other face fixture at that voxel.
+Do not use source-array order as a visibility rule.
+
+Buttons and lowered lifts are face fixtures rather than full cubes:
+
+- an exposed Orange Button is light orange (`#ffb347`) and occupies a centered
+  2x2 region of the 4x4 ASCII face;
+- fixtures sharing a voxel remain independent when their orientations identify
+  different faces; render each only when its mounted face is visible;
+- a full occupant in the fixture's logical voxel hides every fixture there;
+- a lowered lift renders on its mounted top or side face, while a raised lift
+  remains a full cube; and
+- a button can render over a lowered lift on the same face.
+
+Objects marked `engineHidden`, hidden Orange Button states, and invisible
+Orange Wall volumes never render. When an Orange Wall retracts completely under
+a floor surface or into another solid, omit it so the covering surface is
+exposed. Coincident visible Orange Wall records resolve deterministically.
+
+Gate and puncher face-fixture behavior is intentionally pending. Do not extend
+this contract to them until the user says their engine behavior is implemented.
+
 ## Scope and Git safety
 
 When asked to "sync the engine," the expected scope is the local rebuild,
