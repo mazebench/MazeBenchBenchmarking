@@ -66,7 +66,7 @@ export class PlaySessionV1 {
   }
 
   move(direction) {
-    if (!this.state || this.queue.length >= 8 || this.isSolved || this.playerCount < 1) return;
+    if (!this.state || this.queue.length >= 8 || this.playerCount < 1) return;
     this.queue.push(direction);
     return this.drain();
   }
@@ -79,12 +79,6 @@ export class PlaySessionV1 {
     return this.state ? countActiveRoleV1(this.state, this.definitions, "player") : 0;
   }
 
-  get isSolved() {
-    return Boolean(this.initialState) &&
-      countActiveRoleV1(this.initialState, this.definitions, "goal") > 0 &&
-      this.gemCount === 0;
-  }
-
   publish(extra = {}) {
     this.onChange({
       busy: this.running,
@@ -92,7 +86,6 @@ export class PlaySessionV1 {
       moves: this.moves,
       playerActive: this.playerCount > 0,
       queued: this.queue.length,
-      solved: this.isSolved,
       canUndo: this.history.length > 0,
       ...extra
     });
@@ -124,7 +117,7 @@ export class PlaySessionV1 {
         this.state = simulation.final;
         this.moves += 1;
         this.publish({ cycle: simulation.cycle });
-        if (this.isSolved || this.playerCount < 1) this.queue.length = 0;
+        if (this.playerCount < 1) this.queue.length = 0;
       }
     } catch (error) {
       this.queue.length = 0;

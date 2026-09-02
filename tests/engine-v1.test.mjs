@@ -117,3 +117,33 @@ test("play v1 undo restores the prior engine state and reset clears history", as
   assert.equal(changes.at(-1).reset, true);
   assert.equal(session.undo(), false);
 });
+
+test("play v1 continues accepting movement after the final gem is collected", async () => {
+  const { engine } = await loadEngine();
+  const room = {
+    width: 3,
+    height: 4,
+    objects: [
+      { x: 1, y: 3, z: 0, blockId: "player" },
+      { x: 1, y: 3, z: 0, blockId: "floor" },
+      { x: 1, y: 2, z: 0, blockId: "floor" },
+      { x: 1, y: 2, z: 0, blockId: "gem" },
+      { x: 1, y: 1, z: 0, blockId: "floor" }
+    ]
+  };
+  const changes = [];
+  const session = new PlaySessionV1(engine, blocks, {
+    frameDelay: 0,
+    onChange: (summary) => changes.push(summary)
+  });
+  session.open(room);
+
+  await session.move("up");
+  assert.equal(session.gemCount, 0);
+  assert.equal(session.state.objects[0].y, 2);
+  await session.move("up");
+  assert.equal(session.moves, 2);
+  assert.equal(session.state.objects[0].y, 1);
+  assert.equal(changes.at(-1).playerActive, true);
+  assert.equal("solved" in changes.at(-1), false);
+});

@@ -127,13 +127,12 @@ function updateSession(summary) {
   elements.moveCount.textContent = String(summary.moves);
   elements.gemCount.textContent = String(summary.gems);
   elements.directionButtons.forEach((button) => {
-    button.disabled = summary.solved || !summary.playerActive;
+    button.disabled = !summary.playerActive;
   });
   elements.undo.disabled = !summary.canUndo;
   if (summary.error) elements.state.textContent = summary.error;
   else if (summary.undone) elements.state.textContent = "Undid the last command.";
   else if (summary.reset) elements.state.textContent = "Room reset.";
-  else if (summary.solved) elements.state.textContent = "All gems collected.";
   else if (!summary.playerActive) elements.state.textContent = "Player fell out of the room.";
   else if (summary.cycle) elements.state.textContent = "Cycle detected; command rolled back.";
   else if (summary.busy) elements.state.textContent = summary.queued ? `Running · ${summary.queued} queued` : "Running command…";
