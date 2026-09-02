@@ -4,7 +4,10 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  cellObjectSelectionKey,
+  eraseOneObjectAtCell,
   objectPaintsInsideClickedBody,
+  objectIsSurface,
   placeObjectInCell
 } from "../render/v1/cell-objects-v2.mjs";
 import {
@@ -24,6 +27,7 @@ import {
   CAMERA_TILT_MAX_SPEED,
   CAMERA_YAW_DURATION_MS,
   CAMERA_ZOOM_DURATION_MS,
+  clampCameraPitch,
   easeInOutQuad,
   easeToward,
   yawTransitionAt,
@@ -33,6 +37,7 @@ import {
   voxelPieceDefinition,
   voxelRenderSource
 } from "../render/v1/voxel-scene-v2.mjs";
+import { slopeGeometry } from "../render/v1/special-piece-renderers.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const definitions = new Map(V2_BLOCK_CATALOG.map((block) => [block.id, block]));
@@ -62,6 +67,12 @@ test("camera quarter turns ease smoothly and finish on the exact cardinal angle"
     complete: true,
     distance: 25
   });
+});
+
+test("editor camera pitch can orbit below while other views stay above", () => {
+  assert.ok(clampCameraPitch(-0.8, true) < 0);
+  assert.ok(clampCameraPitch(-0.8, false) > 0);
+  assert.ok(clampCameraPitch(-Math.PI, true) > -Math.PI / 2);
 });
 
 test("v2 rooms preserve stacked, overlapping, and oriented objects", () => {
@@ -133,6 +144,47 @@ test("shareable face objects coexist with solid objects at one coordinate", () =
   assert.equal(puncherResult.changed, true);
   assert.deepEqual(puncherResult.objects, [floor, button, puncher]);
   assert.equal(objectPaintsInsideClickedBody(definitions.get("puncher")), true);
+});
+
+test("floor surfaces survive solid placement and can be replaced independently", () => {
+  const floor = { x: 2, y: 2, z: 0, blockId: "floor" };
+  const block = { x: 2, y: 2, z: 0, blockId: "weightless-box", genericId: 4, groupId: 4 };
+  assert.equal(objectIsSurface(definitions.get("floor")), true);
+  assert.equal(objectIsSurface(definitions.get("weightless-box")), false);
+
+  const placed = placeObjectInCell([floor], block, definitions);
+  assert.deepEqual(placed.objects, [floor, block]);
+
+  const ice = { x: 2, y: 2, z: 0, blockId: "ice-floor" };
+  const resurfaced = placeObjectInCell(placed.objects, ice, definitions);
+  assert.deepEqual(resurfaced.objects, [block, ice]);
+
+  const erased = eraseOneObjectAtCell(
+    placed.objects,
+    { x: 2, y: 2, z: 0 },
+    cellObjectSelectionKey(block)
+  );
+  assert.deepEqual(erased.objects, [floor]);
+});
+
+test("every directional slope is a closed five-surface wedge", () => {
+  for (const direction of ["right", "left", "up", "down"]) {
+    const geometry = slopeGeometry(direction);
+    const positions = geometry.getAttribute("position");
+    const normals = geometry.getAttribute("normal");
+    assert.equal(positions.count, 24, `${direction} slope should contain eight triangles`);
+    const uniqueNormals = new Set();
+    for (let index = 0; index < normals.count; index += 1) {
+      uniqueNormals.add([
+        normals.getX(index),
+        normals.getY(index),
+        normals.getZ(index)
+      ].map((value) => Math.round(value * 1000)).join(","));
+    }
+    assert.equal(uniqueNormals.size, 5, `${direction} slope should expose ramp, end, sides, and underside`);
+    assert.equal(geometry.boundingBox.min.y, 0);
+    assert.equal(geometry.boundingBox.max.y, 1);
+  }
 });
 
 test("the generated main world contains 256 valid v2 rooms", async () => {

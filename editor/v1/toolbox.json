@@ -7,7 +7,7 @@
     },
     "__erase_top__": {
       "name": "Erase",
-      "description": "Tap cells to clear them. You can also clear floor tiles to reveal the abyss."
+      "description": "Click an object to erase only that object. A floor remains unless you click the floor itself."
     },
     ".": {
       "name": "Floor",

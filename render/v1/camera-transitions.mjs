@@ -6,6 +6,13 @@ export const CAMERA_TILT_ACCEL = Math.PI * 3.4;
 export const CAMERA_TILT_DECEL = Math.PI * 4.2;
 export const CAMERA_YAW_DURATION_MS = 400;
 export const CAMERA_ZOOM_DURATION_MS = 320;
+export const CAMERA_MIN_ABOVE_PITCH = 0.18;
+export const CAMERA_MAX_PITCH = 1.48;
+
+export function clampCameraPitch(pitch, allowUnder = false) {
+  const minimum = allowUnder ? -CAMERA_MAX_PITCH : CAMERA_MIN_ABOVE_PITCH;
+  return Math.max(minimum, Math.min(CAMERA_MAX_PITCH, pitch));
+}
 
 export function easeInOutQuad(progress) {
   const value = Math.max(0, Math.min(1, progress));

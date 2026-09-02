@@ -4,6 +4,10 @@ export function objectCanShareCell(block) {
   return block?.roleId === "orange-wall" || block?.occupancy !== "solid";
 }
 
+export function objectIsSurface(block) {
+  return ["floor", "exit"].includes(block?.visual?.kind);
+}
+
 export function objectPaintsInsideClickedBody(block) {
   return block?.visual?.kind !== "lift" && objectCanShareCell(block);
 }
@@ -38,14 +42,20 @@ export function placeObjectInCell(objects, placement, definitions) {
     return { changed: false, objects: objects.map((object) => ({ ...object })) };
   }
   const block = definitions.get(placement.blockId);
+  const placementSurface = objectIsSurface(block);
   const placementShareable = objectCanShareCell(block);
-  const kept = placementShareable
+  const kept = placementSurface
+    ? objects.filter((object) =>
+        cellCoordinateKey(object) !== coordinate ||
+        !objectIsSurface(definitions.get(object.blockId)))
+    : placementShareable
     ? block?.roleId === "orange-wall"
       ? objects.filter((object) =>
           cellCoordinateKey(object) !== coordinate || object.blockId !== placement.blockId)
       : objects
     : objects.filter((object) =>
         cellCoordinateKey(object) !== coordinate ||
+        objectIsSurface(definitions.get(object.blockId)) ||
         objectCanShareCell(definitions.get(object.blockId)));
   return {
     changed: true,

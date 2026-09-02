@@ -7,7 +7,7 @@ import { cachedGeometry } from "./polycube-mesh.mjs";
 const textureCache = new Map();
 const materialCache = new Map();
 const planeGeometry = () => cachedGeometry("generic-number-plane", () =>
-  new THREE.PlaneGeometry(0.48, 0.48));
+  new THREE.PlaneGeometry(0.76, 0.76));
 
 function numericLabel(value) {
   if (Number.isInteger(value) && value >= 0) return String(value);
@@ -33,19 +33,12 @@ function textureFor(label) {
   canvas.height = 128;
   const context = canvas.getContext("2d");
   context.clearRect(0, 0, 128, 128);
-  context.fillStyle = "rgba(247, 242, 231, .88)";
-  context.beginPath();
-  context.roundRect(14, 14, 100, 100, 17);
-  context.fill();
-  context.strokeStyle = "rgba(0, 0, 0, .72)";
-  context.lineWidth = 7;
-  context.stroke();
   const length = String(label).length;
-  context.font = `900 ${length <= 2 ? 72 : length <= 4 ? 54 : 40}px ui-monospace, monospace`;
+  context.font = `900 ${length <= 2 ? 112 : length <= 4 ? 82 : 62}px ui-monospace, monospace`;
   context.textAlign = "center";
   context.textBaseline = "middle";
-  context.fillStyle = "#080a0d";
-  context.fillText(String(label), 64, 68, 88);
+  context.fillStyle = "#000000";
+  context.fillText(String(label), 64, 68, 120);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
@@ -77,6 +70,68 @@ function addFace(group, label, position, rotation) {
   group.add(mesh);
 }
 
+function rotatedSlopeVector(direction, vector) {
+  const { x, y, z } = vector;
+  if (direction === "left") return new THREE.Vector3(-x, y, -z);
+  if (direction === "up") return new THREE.Vector3(z, y, -x);
+  if (direction === "down") return new THREE.Vector3(-z, y, x);
+  return new THREE.Vector3(x, y, z);
+}
+
+function addSlopeFace(group, label, origin, direction, center, right, up, scale = 1) {
+  const faceCenter = rotatedSlopeVector(direction, center).add(origin);
+  const faceRight = rotatedSlopeVector(direction, right).normalize();
+  const faceUp = rotatedSlopeVector(direction, up).normalize();
+  const normal = faceRight.clone().cross(faceUp).normalize();
+  const matrix = new THREE.Matrix4().makeBasis(faceRight, faceUp, normal);
+  const mesh = new THREE.Mesh(planeGeometry(), materialFor(label));
+  mesh.position.copy(faceCenter);
+  mesh.quaternion.setFromRotationMatrix(matrix);
+  mesh.scale.setScalar(scale);
+  mesh.renderOrder = 16;
+  group.add(mesh);
+}
+
+function addSlopeNumberFaces(group, label, x, bottom, z, direction) {
+  const origin = new THREE.Vector3(x, bottom, z);
+  const rootHalf = Math.SQRT1_2;
+  addSlopeFace(
+    group, label, origin, direction,
+    new THREE.Vector3(0, 0.5 + 0.006, 0),
+    new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(rootHalf, rootHalf, 0),
+    0.9
+  );
+  addSlopeFace(
+    group, label, origin, direction,
+    new THREE.Vector3(0.506, 0.5, 0),
+    new THREE.Vector3(0, 0, -1),
+    new THREE.Vector3(0, 1, 0),
+    0.9
+  );
+  addSlopeFace(
+    group, label, origin, direction,
+    new THREE.Vector3(0.12, 0.34, 0.506),
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(0, 1, 0),
+    0.66
+  );
+  addSlopeFace(
+    group, label, origin, direction,
+    new THREE.Vector3(0.12, 0.34, -0.506),
+    new THREE.Vector3(-1, 0, 0),
+    new THREE.Vector3(0, 1, 0),
+    0.66
+  );
+  addSlopeFace(
+    group, label, origin, direction,
+    new THREE.Vector3(0, -0.006, 0),
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(0, 0, 1),
+    0.9
+  );
+}
+
 export function addGenericNumberFaces(group, record, dimensions) {
   const label = record.label ?? genericNumberLabel(record.object || record.source, record.block);
   if (label === null || label === undefined) return;
@@ -84,6 +139,13 @@ export function addGenericNumberFaces(group, record, dimensions) {
   const z = record.z - dimensions.totalHeight / 2 + 0.5;
   const bottom = record.bottom ?? record.definition?.bottom ?? 0;
   const top = record.top ?? record.definition?.top ?? bottom + 1;
+  const isSlope = record.definition?.kind === "slope" ||
+    record.block?.visual?.kind === "slope" || record.source?.shape === "slope";
+  if (isSlope) {
+    const direction = record.object?.orientation || record.source?.direction || "right";
+    addSlopeNumberFaces(group, label, x, bottom, z, direction);
+    return;
+  }
   const y = bottom + Math.max(0.24, Math.min(0.58, (top - bottom) / 2));
   const offset = 0.506;
   addFace(group, label, new THREE.Vector3(x, y, z + offset), new THREE.Euler(0, 0, 0));
@@ -91,5 +153,5 @@ export function addGenericNumberFaces(group, record, dimensions) {
   addFace(group, label, new THREE.Vector3(x + offset, y, z), new THREE.Euler(0, Math.PI / 2, 0));
   addFace(group, label, new THREE.Vector3(x - offset, y, z), new THREE.Euler(0, -Math.PI / 2, 0));
   addFace(group, label, new THREE.Vector3(x, top + 0.006, z), new THREE.Euler(-Math.PI / 2, 0, 0));
+  addFace(group, label, new THREE.Vector3(x, bottom - 0.006, z), new THREE.Euler(Math.PI / 2, 0, 0));
 }
-

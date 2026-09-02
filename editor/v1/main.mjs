@@ -44,6 +44,7 @@ const elements = {
   cellValue: document.getElementById("cell-value"),
   applyCell: document.getElementById("apply-cell"),
   resetView: document.getElementById("reset-view"),
+  eraser: document.getElementById("eraser"),
   undo: document.getElementById("undo"),
   save: document.getElementById("save"),
   status: document.getElementById("status"),
@@ -258,6 +259,9 @@ function setTool(token) {
   elements.toolbox.querySelectorAll(".tool").forEach((button) => {
     button.classList.toggle("is-current", button.dataset.token === canonicalGenericToolToken(token));
   });
+  const erasing = token === "__erase_top__";
+  elements.eraser.classList.toggle("is-current", erasing);
+  elements.eraser.setAttribute("aria-pressed", String(erasing));
   updatePlacementPreview();
 }
 
@@ -334,6 +338,7 @@ function buildToolbox() {
     button.type = "button";
     button.className = "tool";
     button.dataset.token = token;
+    if (token === "__erase_top__") button.classList.add("eraser-tool");
     const generic = genericToolDescriptor(token);
     if (generic) button.dataset.genericFamily = generic.family;
     const displayToken = generic
@@ -348,7 +353,7 @@ function buildToolbox() {
     canvas.height = 96;
     canvas.setAttribute("aria-hidden", "true");
     const label = document.createElement("span");
-    label.textContent = token === "__erase_top__" ? "×" : generic ? String(selectedGenericIds[generic.family]) : token;
+    label.textContent = token === "__erase_top__" ? "ERASE" : generic ? String(selectedGenericIds[generic.family]) : token;
     button.append(canvas, label);
     button.addEventListener("click", () => generic ? openGenericPrompt(token) : setTool(token));
     fragment.append(button);
@@ -513,6 +518,7 @@ async function replaySolution() {
 }
 
 elements.resetView.addEventListener("click", () => renderer?.resetView());
+elements.eraser.addEventListener("click", () => setTool("__erase_top__"));
 elements.save.addEventListener("click", saveRoom);
 elements.genericForm.addEventListener("submit", (event) => {
   event.preventDefault();

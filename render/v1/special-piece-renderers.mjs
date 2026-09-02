@@ -30,42 +30,32 @@ function addCuboid(content, record, dimensions) {
   });
 }
 
-// Direct normalized port of MazeBenchEngine's iceSlopeGeometry().
-function slopeGeometry(direction) {
+// Closed wedge with outward winding on every face. Each direction is a rigid
+// Y-axis rotation of the same right-facing source wedge, so no camera angle
+// can expose an accidentally back-facing or omitted side.
+export function slopeGeometry(direction) {
   const normalized = ["left", "up", "down"].includes(direction) ? direction : "right";
   return cachedGeometry(`source-slope:${normalized}`, () => {
     const x0 = -0.5, x1 = 0.5, z0 = -0.5, z1 = 0.5, y0 = 0, y1 = 1;
     const positions = [];
-    // The source coordinates describe the closed wedge with inward winding.
-    // Reverse every triangle so our opaque, front-sided material shows the
-    // colored ramp face from above instead of culling it as transparent.
-    const tri = (a, b, c) => positions.push(...a, ...c, ...b);
+    const rotate = ([x, y, z]) => {
+      if (normalized === "left") return [-x, y, -z];
+      if (normalized === "up") return [z, y, -x];
+      if (normalized === "down") return [-z, y, x];
+      return [x, y, z];
+    };
+    const tri = (a, b, c) => positions.push(...rotate(a), ...rotate(b), ...rotate(c));
     const quad = (a, b, c, d) => { tri(a, b, c); tri(a, c, d); };
-    if (normalized === "right") {
-      quad([x0,y0,z0],[x1,y1,z0],[x1,y1,z1],[x0,y0,z1]);
-      quad([x1,y0,z0],[x1,y0,z1],[x1,y1,z1],[x1,y1,z0]);
-      tri([x0,y0,z0],[x1,y0,z0],[x1,y1,z0]);
-      tri([x0,y0,z1],[x1,y1,z1],[x1,y0,z1]);
-    } else if (normalized === "left") {
-      quad([x1,y0,z0],[x0,y1,z0],[x0,y1,z1],[x1,y0,z1]);
-      quad([x0,y0,z1],[x0,y0,z0],[x0,y1,z0],[x0,y1,z1]);
-      tri([x1,y0,z0],[x0,y1,z0],[x0,y0,z0]);
-      tri([x1,y0,z1],[x0,y0,z1],[x0,y1,z1]);
-    } else if (normalized === "down") {
-      quad([x0,y0,z0],[x0,y1,z1],[x1,y1,z1],[x1,y0,z0]);
-      quad([x1,y0,z1],[x0,y0,z1],[x0,y1,z1],[x1,y1,z1]);
-      tri([x0,y0,z0],[x0,y0,z1],[x0,y1,z1]);
-      tri([x1,y0,z0],[x1,y1,z1],[x1,y0,z1]);
-    } else {
-      quad([x0,y0,z1],[x0,y1,z0],[x1,y1,z0],[x1,y0,z1]);
-      quad([x0,y0,z0],[x1,y0,z0],[x1,y1,z0],[x0,y1,z0]);
-      tri([x0,y0,z1],[x0,y1,z0],[x0,y0,z0]);
-      tri([x1,y0,z1],[x1,y0,z0],[x1,y1,z0]);
-    }
-    quad([x0,y0,z1],[x1,y0,z1],[x1,y0,z0],[x0,y0,z0]);
+    quad([x0,y0,z0],[x0,y0,z1],[x1,y1,z1],[x1,y1,z0]); // ramp
+    quad([x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1]); // high end
+    tri([x0,y0,z0],[x1,y1,z0],[x1,y0,z0]); // near triangular side
+    tri([x0,y0,z1],[x1,y0,z1],[x1,y1,z1]); // far triangular side
+    quad([x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1]); // underside
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
     return geometry;
   });
 }

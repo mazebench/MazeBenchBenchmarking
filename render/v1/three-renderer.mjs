@@ -31,6 +31,7 @@ import {
   CAMERA_TILT_ACCEL,
   CAMERA_TILT_DECEL,
   CAMERA_TILT_MAX_SPEED,
+  clampCameraPitch,
   easeToward,
   yawTransitionAt,
   zoomTransitionAt
@@ -40,8 +41,6 @@ import { addGenericNumberFaces } from "./generic-labels.mjs";
 const CARDINAL_STEP = Math.PI * 0.5;
 const DEFAULT_HEADING = 0;
 const DEFAULT_PITCH = 0.72;
-const MIN_PITCH = 0.18;
-const MAX_PITCH = 1.48;
 const DRAG_HEADING_THRESHOLD = 48;
 const HEADING_DIRECTIONS = Object.freeze([
   { near: "down", far: "up" },
@@ -147,7 +146,7 @@ export class ThreeMazeRendererV1 {
             ? -DRAG_HEADING_THRESHOLD
             : DRAG_HEADING_THRESHOLD;
         }
-        this.pitch = Math.max(MIN_PITCH, Math.min(MAX_PITCH, this.pitch + dy * 0.004));
+        this.pitch = this.clampPitch(this.pitch + dy * 0.004);
         return this.render();
       }
       this.onInspect?.(this.hitTest(event));
@@ -219,6 +218,10 @@ export class ThreeMazeRendererV1 {
     if (direction || motion.tiltVelocity) this.scheduleCameraFrame();
   }
 
+  clampPitch(pitch) {
+    return clampCameraPitch(pitch, this.mode === "editor");
+  }
+
   scheduleCameraFrame() {
     if (!this.cameraMotion.frameId) {
       this.cameraMotion.frameId = requestAnimationFrame(this.runCameraFrame);
@@ -262,10 +265,7 @@ export class ThreeMazeRendererV1 {
       motion.tiltVelocity = easeToward(motion.tiltVelocity, targetVelocity, rate * deltaSeconds);
       if (!motion.tiltDirection && Math.abs(motion.tiltVelocity) < 0.002) motion.tiltVelocity = 0;
       const previousPitch = this.pitch;
-      this.pitch = Math.max(
-        MIN_PITCH,
-        Math.min(MAX_PITCH, previousPitch + motion.tiltVelocity * deltaSeconds)
-      );
+      this.pitch = this.clampPitch(previousPitch + motion.tiltVelocity * deltaSeconds);
       if (this.pitch === previousPitch && !motion.tiltDirection) motion.tiltVelocity = 0;
       if (motion.tiltDirection || motion.tiltVelocity) continueLoop = true;
     }
