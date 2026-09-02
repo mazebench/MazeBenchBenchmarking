@@ -3,6 +3,12 @@
 
 const DIRECTION_INDEX = Object.freeze({ up: 0, right: 1, down: 2, left: 3 });
 const SIDE_ORIENTATION_INDEX = Object.freeze({ top: 0, north: 1, east: 2, south: 3, west: 4, bottom: 5 });
+const BASE_LAYER_BLOCKS = new Set(["floor", "ice-floor", "exit"]);
+
+export function editorPaintLayer(blockId, proposedLayer, strokeLayer = null) {
+  if (BASE_LAYER_BLOCKS.has(blockId)) return 0;
+  return Number.isInteger(strokeLayer) ? strokeLayer : proposedLayer;
+}
 
 export function resolveEditorPaintTargetV2(
   target,

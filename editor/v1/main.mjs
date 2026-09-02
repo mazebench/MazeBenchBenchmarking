@@ -10,6 +10,7 @@ import {
 import { renderToolboxPreviews } from "./toolbox-previews.mjs";
 import { isDirectionalTool, parserToolTokens, portraitToken } from "./directional-tools.mjs";
 import {
+  editorPaintLayer,
   resolveEditorPaintTargetV2,
   rotateVoxelObject,
   voxelPlacementForTool
@@ -75,6 +76,7 @@ let undoStack = [];
 let savedObjects = null;
 let dirty = false;
 let hoverHit = null;
+let paintStrokeLayer = null;
 const solvers = new EditorSolversV1();
 let solverBusy = false;
 let replayGeneration = 0;
@@ -163,7 +165,7 @@ function inspect(hit) {
   updatePlacementPreview(hit);
 }
 
-function placementFromHit(hit) {
+function placementFromHit(hit, strokeLayer = null) {
   if (!hit || currentTool === "__erase_top__") return null;
   const preview = voxelPlacementForTool(currentTool, { x: 0, y: 0, z: 0 }, hit, renderer.cameraDirections());
   if (!preview) return null;
@@ -171,7 +173,7 @@ function placementFromHit(hit) {
   const coordinate = resolveEditorPaintTargetV2(hit, {
     selectedCanShare: objectPaintsInsideClickedBody(selectedBlock)
   });
-  if (["floor", "ice-floor", "exit"].includes(preview.blockId)) coordinate.z = 0;
+  coordinate.z = editorPaintLayer(preview.blockId, coordinate.z, strokeLayer);
   if (coordinate.x < 0 || coordinate.y < 0 || coordinate.x >= currentRoom.width || coordinate.y >= currentRoom.height) {
     return null;
   }
@@ -198,7 +200,10 @@ function updatePlacementPreview(hit = hoverHit) {
 
 function paint(hit, gesture) {
   const erase = currentTool === "__erase_top__";
-  if (gesture.start) pushUndo();
+  if (gesture.start) {
+    paintStrokeLayer = null;
+    pushUndo();
+  }
 
   if (erase) {
     const coordinate = resolveEditorPaintTargetV2(hit, { erase: true });
@@ -211,11 +216,12 @@ function paint(hit, gesture) {
     return;
   }
 
-  const placement = placementFromHit(hit);
+  const placement = placementFromHit(hit, paintStrokeLayer);
   if (!placement) {
     setStatus("That object cannot be placed on this face or outside the room.", true);
     return;
   }
+  if (paintStrokeLayer === null) paintStrokeLayer = placement.z;
   if (placement.blockId === "player") {
     currentRoom.objects = currentRoom.objects.filter((object) => object.blockId !== "player");
   }

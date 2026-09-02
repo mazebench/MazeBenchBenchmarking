@@ -11,6 +11,7 @@ import {
   placeObjectInCell
 } from "../render/v1/cell-objects-v2.mjs";
 import {
+  editorPaintLayer,
   resolveEditorPaintTargetV2,
   voxelPlacementForTool
 } from "../editor/v1/face-placement-v2.mjs";
@@ -279,6 +280,14 @@ test("side-face placement uses the adjacent 3D cell and records the face orienta
   const puncher = voxelPlacementForTool("pr", coordinate, hit, { near: "down", far: "up" });
   assert.equal(puncher.orientation, "east");
   assert.equal(puncher.variantId, 2);
+});
+
+test("editor paint drags stay on their starting layer and base floors stay on zero", () => {
+  assert.equal(editorPaintLayer("wall", 3, null), 3);
+  assert.equal(editorPaintLayer("wall", 4, 2), 2);
+  assert.equal(editorPaintLayer("weightless-box", 1, 0), 0);
+  assert.equal(editorPaintLayer("floor", 7, 4), 0);
+  assert.equal(editorPaintLayer("ice-floor", 7, 4), 0);
 });
 
 test("punchers point out from horizontal, top, and bottom highlighted faces", () => {
