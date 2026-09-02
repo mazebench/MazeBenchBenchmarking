@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="The lightweight Three.js editor for the MazeBench main world.">
+    <title>MazeBench — Editor v1</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="editor-topbar">
+      <nav><a href="../../">← World</a></nav>
+      <div class="editor-title">
+        <strong>MazeBench Editor</strong>
+        <span>v1 · Three.js · no physics</span>
+      </div>
+      <div class="editor-actions">
+        <button id="reset-view" type="button">Reset view</button>
+        <button id="undo" type="button" disabled>Undo</button>
+        <button id="save" class="primary" type="button">Saved</button>
+      </div>
+    </header>
+
+    <main class="editor-layout">
+      <section id="stage" class="editor-stage" aria-label="Three-dimensional level editor">
+        <canvas id="editor-canvas"></canvas>
+        <div id="loading" class="loading">Loading editor…</div>
+        <div class="camera-help">Drag with right mouse or Alt + drag to orbit · wheel to zoom</div>
+      </section>
+
+      <aside class="editor-sidebar">
+        <section class="panel room-panel">
+          <div class="panel-heading">
+            <div><span>Room</span><strong id="room-name">—</strong></div>
+            <select id="room-select" aria-label="Choose room"></select>
+          </div>
+          <div id="room-grid" class="room-grid" aria-label="World room grid"></div>
+          <dl class="stats">
+            <div><dt>File</dt><dd id="file-name">—</dd></div>
+            <div><dt>Gems</dt><dd id="gem-count">0</dd></div>
+          </dl>
+        </section>
+
+        <section class="panel tools-panel">
+          <div class="panel-heading"><div><span>Toolbox</span><strong id="tool-name">Floor</strong></div></div>
+          <p id="tool-description" class="description">Plain ground.</p>
+          <div id="toolbox" class="toolbox" aria-label="MazeBench tools"></div>
+        </section>
+
+        <section class="panel cell-panel">
+          <div class="panel-heading"><div><span>Selected cell</span><strong id="cell-position">—</strong></div></div>
+          <label class="raw-field">
+            <span>Raw layered value</span>
+            <input id="cell-value" type="text" spellcheck="false" disabled>
+          </label>
+          <button id="apply-cell" type="button" disabled>Apply raw value</button>
+        </section>
+
+        <section class="panel transform-panel">
+          <div class="panel-heading"><div><span>Transform</span><strong>Whole room</strong></div></div>
+          <div class="transform-grid">
+            <button data-transform="left" type="button">↶ Rotate</button>
+            <button data-transform="right" type="button">↷ Rotate</button>
+            <button data-transform="horizontal" type="button">↔ Flip</button>
+            <button data-transform="vertical" type="button">↕ Flip</button>
+          </div>
+        </section>
+
+        <p id="status" class="status" role="status" aria-live="polite">Ready.</p>
+      </aside>
+    </main>
+
+    <script type="module" src="./main.mjs"></script>
+  </body>
+</html>
+

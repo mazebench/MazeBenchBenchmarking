@@ -1,0 +1,302 @@
+:root {
+  color-scheme: dark;
+  --background: #090a0c;
+  --panel: #111317;
+  --panel-raised: #171a1f;
+  --line: #2b3037;
+  --text: #f3eadb;
+  --muted: #8f969f;
+  --accent: #6cd7ff;
+  --map-background: #050608;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  display: grid;
+  grid-template-rows: 56px minmax(0, 1fr) 58px;
+  background: var(--background);
+  color: var(--text);
+}
+
+button {
+  font: inherit;
+}
+
+.topbar,
+.inspector {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+}
+
+.topbar {
+  gap: 20px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 215px;
+}
+
+.identity > div {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.identity strong {
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.identity span,
+.runtime-meta,
+.hint {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.world-mark {
+  width: 20px;
+  height: 20px;
+  border: 1px solid #d6bd94;
+  background:
+    linear-gradient(90deg, transparent 45%, #23262c 45% 55%, transparent 55%),
+    linear-gradient(transparent 45%, #23262c 45% 55%, transparent 55%),
+    #d6bd94;
+  box-shadow: inset 0 0 0 3px #111317;
+}
+
+.runtime-meta {
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+  margin-right: auto;
+  white-space: nowrap;
+}
+
+.version {
+  color: var(--accent);
+}
+
+#status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.map-controls button,
+.editor-link {
+  min-width: 34px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-raised);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.editor-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.map-controls button:hover,
+.map-controls button:focus-visible,
+.editor-link:hover,
+.editor-link:focus-visible {
+  border-color: #56606c;
+  outline: none;
+}
+
+.map-controls button:active {
+  background: #20242a;
+}
+
+.viewport {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background-color: var(--map-background);
+  background-image:
+    linear-gradient(#11151a 1px, transparent 1px),
+    linear-gradient(90deg, #11151a 1px, transparent 1px);
+  background-size: 24px 24px;
+  scrollbar-color: #343b44 var(--panel);
+}
+
+.viewport:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.viewport.is-panning,
+.viewport.is-panning canvas {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.stage {
+  width: 100%;
+  min-width: 100%;
+  height: 100%;
+  min-height: 100%;
+  padding: 0;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--map-background);
+  cursor: grab;
+  touch-action: none;
+}
+
+.loading-card {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel-raised);
+  color: var(--text);
+  font-size: 12px;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 10px 40px #000a;
+}
+
+.loading-indicator {
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  animation: blink 800ms steps(2, end) infinite;
+}
+
+.viewport:not(.is-loading) .loading-card {
+  display: none;
+}
+
+.inspector {
+  gap: 22px;
+  padding: 0 16px;
+  border-top: 1px solid var(--line);
+}
+
+.inspector-field {
+  display: grid;
+  gap: 3px;
+  min-width: 70px;
+}
+
+.inspector-field > span {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.inspector-field output {
+  overflow: hidden;
+  max-width: 290px;
+  color: var(--text);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspector-room output {
+  color: var(--accent);
+}
+
+.hint {
+  margin: 0 0 0 auto;
+  white-space: nowrap;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.2;
+  }
+}
+
+@media (max-width: 720px) {
+  body {
+    grid-template-rows: 52px minmax(0, 1fr) 76px;
+  }
+
+  .topbar {
+    gap: 8px;
+    padding: 0 10px;
+  }
+
+  .identity {
+    min-width: 0;
+    margin-right: auto;
+  }
+
+  .identity > div {
+    display: grid;
+    gap: 1px;
+  }
+
+  .runtime-meta {
+    display: none;
+  }
+
+  .stage {
+    padding: 12px;
+  }
+
+  .inspector {
+    display: grid;
+    grid-template-columns: 60px minmax(0, 1fr) 70px;
+    gap: 10px;
+    padding: 9px 10px;
+  }
+
+  .inspector-file output {
+    max-width: 100%;
+  }
+
+  .hint {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-indicator {
+    animation: none;
+  }
+}

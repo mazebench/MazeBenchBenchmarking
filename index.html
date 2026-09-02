@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="A dependency-free canvas map of the complete MazeBench main world."
+    >
+    <title>MazeBench — Main World Map</title>
+    <link rel="stylesheet" href="./render/v1/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="identity">
+        <span class="world-mark" aria-hidden="true"></span>
+        <div>
+          <strong>MazeBench</strong>
+          <span>Main World</span>
+        </div>
+      </div>
+
+      <div class="runtime-meta" aria-live="polite">
+        <span class="version">Renderer v1</span>
+        <output id="status">Loading world map…</output>
+      </div>
+
+      <nav class="map-controls" aria-label="Map zoom">
+        <a id="editor-link" class="editor-link" href="./editor/v1/">Editor v1</a>
+        <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+        <button id="fit-map" type="button">Fit</button>
+        <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+      </nav>
+    </header>
+
+    <main
+      id="viewport"
+      class="viewport is-loading"
+      tabindex="0"
+      aria-label="Complete 16 by 16 MazeBench world map. Use arrow keys to move between rooms."
+    >
+      <div id="stage" class="stage">
+        <canvas id="world" aria-label="Three-dimensional MazeBench main world"></canvas>
+      </div>
+      <div id="loading" class="loading-card" role="status">
+        <span class="loading-indicator" aria-hidden="true"></span>
+        <span>Reading 256 rooms</span>
+      </div>
+      <noscript>This map needs JavaScript to read and draw the level text files.</noscript>
+    </main>
+
+    <footer class="inspector" aria-live="polite">
+      <div class="inspector-field inspector-room">
+        <span>Room</span>
+        <output id="room-value">—</output>
+      </div>
+      <div class="inspector-field inspector-file">
+        <span>Source</span>
+        <output id="file-value">Point at a room</output>
+      </div>
+      <div class="inspector-field inspector-cell">
+        <span>Cell</span>
+        <output id="cell-value">—</output>
+      </div>
+      <p class="hint">Drag to orbit · wheel to zoom · double-click a room to focus</p>
+    </footer>
+
+    <script type="module" src="./render/v1/main.mjs"></script>
+  </body>
+</html>
