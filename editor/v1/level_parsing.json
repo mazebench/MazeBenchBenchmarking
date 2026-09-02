@@ -70,21 +70,8 @@
    "token": "p"
   },
   "clone": {
-   "tokens": [
-    {
-     "token": "c0",
-     "label": "Clone 0"
-    },
-    {
-     "token": "c1",
-     "label": "Clone 1"
-    },
-    {
-     "token": "c2",
-     "label": "Clone 2"
-    }
-   ],
-   "label": "Clone"
+   "token": "c0",
+   "label": "Clone N"
   },
   "gem": {
    "token": "G",
@@ -149,12 +136,27 @@
    "token": "f"
   },
   "weightless_box": {
+   "token": "M0",
+   "label": "Block N"
+  },
+  "weightless_slope": {
+   "label": "Block Ice Slope N",
+   "type": "weightless_slope",
    "tokens": [
-    "M0",
-    "M1",
-    "M2",
-    "M3",
-    "M4"
+    { "token": "SrM0", "direction": "right" },
+    { "token": "SlM0", "direction": "left" },
+    { "token": "SuM0", "direction": "up" },
+    { "token": "SdM0", "direction": "down" }
+   ]
+  },
+  "clone_slope": {
+   "label": "Clone Ice Slope N",
+   "type": "clone_slope",
+   "tokens": [
+    { "token": "Src0", "direction": "right" },
+    { "token": "Slc0", "direction": "left" },
+    { "token": "Suc0", "direction": "up" },
+    { "token": "Sdc0", "direction": "down" }
    ]
   },
   "tree_1": {

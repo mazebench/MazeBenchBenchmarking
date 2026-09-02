@@ -13,6 +13,7 @@ import {
   disposeGeneratedChildren
 } from "./polycube-mesh.mjs";
 import { addSpecialPiece } from "./special-piece-renderers.mjs";
+import { addGenericNumberFaces, genericNumberLabel } from "./generic-labels.mjs";
 import {
   voxelPieceDefinition,
   voxelRenderSource
@@ -91,6 +92,18 @@ export function renderPlacementPreview(group, object, block, dimensions) {
     addGemAsset(group, record, dimensions);
   } else {
     addSpecialPiece(group, record, dimensions);
+  }
+  const label = genericNumberLabel(object, block);
+  if (label !== null) {
+    addGenericNumberFaces(group, {
+      block,
+      bottom: definition.bottom,
+      label,
+      object,
+      top: definition.top,
+      x: object.x,
+      z: object.y
+    }, dimensions);
   }
   makeTranslucent(group);
 }

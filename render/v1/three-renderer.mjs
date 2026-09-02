@@ -35,6 +35,7 @@ import {
   yawTransitionAt,
   zoomTransitionAt
 } from "./camera-transitions.mjs";
+import { addGenericNumberFaces } from "./generic-labels.mjs";
 
 const CARDINAL_STEP = Math.PI * 0.5;
 const DEFAULT_HEADING = 0;
@@ -366,6 +367,7 @@ export class ThreeMazeRendererV1 {
     const specialPieces = [];
     const terrainAssets = [];
     const gems = [];
+    const genericLabels = [];
     const modelUrls = new Set();
     const editorGridCells = [];
     const cellMetadata = [];
@@ -477,6 +479,7 @@ export class ThreeMazeRendererV1 {
       editorGridCells,
       floorGroups,
       gems,
+      genericLabels,
       modelUrls,
       occupied,
       specialPieces,
@@ -607,6 +610,9 @@ export class ThreeMazeRendererV1 {
     data.terrainAssets.forEach((record) => addTerrainAsset(this.content, record, dimensions));
     data.gems.forEach((record) => addGemAsset(this.content, record, dimensions));
     data.specialPieces.forEach((record) => addSpecialPiece(this.content, record, dimensions));
+    if (this.mode !== "world") {
+      data.genericLabels?.forEach((record) => addGenericNumberFaces(this.content, record, dimensions));
+    }
     this.addEditorGrid(data.editorGridCells);
     if (data.pickRecords) this.addEditorVoxelPickMesh(data.pickRecords);
     else this.addEditorPickMesh(data.cellMetadata);

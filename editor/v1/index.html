@@ -83,6 +83,23 @@
       </aside>
     </main>
 
+    <div id="generic-dialog" class="generic-dialog" hidden>
+      <form id="generic-form" class="generic-card" role="dialog" aria-modal="true" aria-labelledby="generic-title" aria-describedby="generic-message">
+        <span class="generic-eyebrow">Generic numbered family</span>
+        <h2 id="generic-title">Choose object ID</h2>
+        <p id="generic-message">Pieces with the same number move as one object.</p>
+        <label class="generic-field">
+          <span>ID (0 or more)</span>
+          <input id="generic-id" inputmode="numeric" autocomplete="off" value="0">
+        </label>
+        <small id="generic-error" class="generic-error" role="alert"></small>
+        <div class="generic-actions">
+          <button id="generic-cancel" type="button">Cancel</button>
+          <button class="primary" type="submit">Select</button>
+        </div>
+      </form>
+    </div>
+
     <script type="module" src="./main.mjs"></script>
   </body>
 </html>

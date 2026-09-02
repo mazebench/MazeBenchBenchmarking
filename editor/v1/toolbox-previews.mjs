@@ -18,6 +18,10 @@ import {
   disposeGeneratedChildren
 } from "../../render/v1/polycube-mesh.mjs";
 import { addSpecialPiece } from "../../render/v1/special-piece-renderers.mjs";
+import {
+  addGenericNumberFaces,
+  genericNumberLabel
+} from "../../render/v1/generic-labels.mjs";
 import { cellForTool, parseCellState } from "../../render/v1/world-renderer.mjs";
 
 const PREVIEW_SIZE = 96;
@@ -67,13 +71,22 @@ function addActor(content, actor) {
   const record = recordFor(actor, definition);
   if (definition.kind === "cube") {
     addCuboid(content, definition);
-    return;
-  }
-  if (definition.kind === "gem_asset") {
+  } else if (definition.kind === "gem_asset") {
     addGemAsset(content, record, DIMENSIONS);
-    return;
+  } else {
+    addSpecialPiece(content, record, DIMENSIONS);
   }
-  addSpecialPiece(content, record, DIMENSIONS);
+  const label = genericNumberLabel(actor);
+  if (label !== null) {
+    addGenericNumberFaces(content, {
+      bottom: definition.bottom,
+      label,
+      source: actor,
+      top: definition.top,
+      x: 0,
+      z: 0
+    }, DIMENSIONS);
+  }
 }
 
 function buildPreview(content, token) {

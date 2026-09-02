@@ -96,6 +96,7 @@ export function collectVoxelSceneV2(renderer) {
   const specialPieces = [];
   const terrainAssets = [];
   const gems = [];
+  const genericLabels = [];
   const modelUrls = new Set();
   const editorGridCells = [];
   const pickRecords = [];
@@ -139,6 +140,18 @@ export function collectVoxelSceneV2(renderer) {
         height: block.visual?.height || 1,
         surfaceFloor: definition.kind === "floor"
       });
+      if ((block.roleId === "weightless-pushable" || block.roleId === "clone") &&
+          Number.isInteger(object.groupId ?? object.genericId)) {
+        genericLabels.push({
+          block,
+          bottom: definition.bottom,
+          label: String(object.groupId ?? object.genericId),
+          object,
+          top: definition.top,
+          x,
+          z: y
+        });
+      }
 
       if (definition.kind === "floor") {
         const key = `v2-floor:${block.id}:${definition.color}`;
@@ -198,6 +211,7 @@ export function collectVoxelSceneV2(renderer) {
     editorGridCells,
     floorGroups,
     gems,
+    genericLabels,
     modelUrls,
     occupied,
     pickRecords,

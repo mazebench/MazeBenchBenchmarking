@@ -20,6 +20,13 @@ import {
   replayEngineSolutionV1,
   solverPathLabelV1
 } from "./solvers.mjs";
+import {
+  MAX_GENERIC_ID,
+  canonicalGenericToolToken,
+  concreteGenericToolToken,
+  genericToolDescriptionKey,
+  genericToolDescriptor
+} from "./generic-tools.mjs";
 
 const elements = {
   stage: document.getElementById("stage"),
@@ -46,7 +53,14 @@ const elements = {
   cancelSolve: document.getElementById("cancel-solve"),
   replaySolution: document.getElementById("replay-solution"),
   solverResult: document.getElementById("solver-result"),
-  solverPath: document.getElementById("solver-path")
+  solverPath: document.getElementById("solver-path"),
+  genericDialog: document.getElementById("generic-dialog"),
+  genericForm: document.getElementById("generic-form"),
+  genericTitle: document.getElementById("generic-title"),
+  genericMessage: document.getElementById("generic-message"),
+  genericId: document.getElementById("generic-id"),
+  genericError: document.getElementById("generic-error"),
+  genericCancel: document.getElementById("generic-cancel")
 };
 
 let world;
@@ -64,6 +78,9 @@ const solvers = new EditorSolversV1();
 let solverBusy = false;
 let replayGeneration = 0;
 let lastSolution = null;
+let genericPrompt = null;
+const selectedGenericIds = { block: 0, clone: 0 };
+let toolboxPreviewEntries = [];
 
 const cloneObjects = (objects) => objects.map((object) => ({ ...object }));
 const countBlock = (objects, blockId) => objects.filter((object) => object.blockId === blockId).length;
@@ -222,11 +239,14 @@ function parserLabel(token) {
 }
 
 function toolName(token) {
+  const generic = genericToolDescriptor(token);
+  if (generic) return generic.name;
   return toolboxCatalog.tools?.[token]?.name || parserLabel(token) || token;
 }
 
 function toolDescription(token) {
-  if (toolboxCatalog.tools?.[token]?.description) return toolboxCatalog.tools[token].description;
+  const descriptionKey = genericToolDescriptionKey(token);
+  if (toolboxCatalog.tools?.[descriptionKey]?.description) return toolboxCatalog.tools[descriptionKey].description;
   const baseToken = token.replace(/^S[rlud]/, "Sr");
   return toolboxCatalog.tools?.[baseToken]?.description || `Place the MazeBench ${token} object.`;
 }
@@ -236,9 +256,72 @@ function setTool(token) {
   elements.toolName.textContent = toolName(token);
   elements.toolDescription.textContent = toolDescription(token);
   elements.toolbox.querySelectorAll(".tool").forEach((button) => {
-    button.classList.toggle("is-current", button.dataset.token === token);
+    button.classList.toggle("is-current", button.dataset.token === canonicalGenericToolToken(token));
   });
   updatePlacementPreview();
+}
+
+function concreteTokenForButton(button) {
+  const descriptor = genericToolDescriptor(button.dataset.token);
+  return descriptor
+    ? concreteGenericToolToken(button.dataset.token, selectedGenericIds[descriptor.family])
+    : button.dataset.token;
+}
+
+function refreshGenericFamily(family, { previews = true } = {}) {
+  const entries = [];
+  elements.toolbox.querySelectorAll(`.tool[data-generic-family="${family}"]`).forEach((button) => {
+    const token = concreteTokenForButton(button);
+    const descriptor = genericToolDescriptor(token);
+    button.querySelector("span").textContent = String(descriptor.id);
+    button.title = `${descriptor.name} — choose a numeric ID, then paint`;
+    button.setAttribute("aria-label", `${descriptor.name}; choose numeric ID`);
+    const preview = toolboxPreviewEntries.find((entry) => entry.button === button);
+    if (preview) entries.push({ ...preview, token });
+  });
+  if (previews && entries.length) {
+    renderToolboxPreviews(entries).catch((error) =>
+      console.warn("Generic toolbox previews could not be refreshed.", error));
+  }
+}
+
+function closeGenericPrompt() {
+  genericPrompt = null;
+  elements.genericDialog.hidden = true;
+  elements.genericError.textContent = "";
+}
+
+function openGenericPrompt(token) {
+  const descriptor = genericToolDescriptor(token);
+  if (!descriptor) return setTool(token);
+  genericPrompt = { token: descriptor.canonical, descriptor };
+  elements.genericTitle.textContent = `Choose ${descriptor.familyName} ID`;
+  elements.genericMessage.textContent = descriptor.slope
+    ? `This slope and every ${descriptor.familyName.toLowerCase()} piece with the same number move as one object.`
+    : `Every ${descriptor.familyName.toLowerCase()} cube and slope with this number moves as one object.`;
+  elements.genericId.value = String(selectedGenericIds[descriptor.family]);
+  elements.genericError.textContent = "";
+  elements.genericDialog.hidden = false;
+  requestAnimationFrame(() => {
+    elements.genericId.focus();
+    elements.genericId.select();
+  });
+}
+
+function confirmGenericPrompt() {
+  if (!genericPrompt) return;
+  const id = Number(elements.genericId.value.trim());
+  if (!Number.isInteger(id) || id < 0 || id > MAX_GENERIC_ID) {
+    elements.genericError.textContent = `Enter a whole number from 0 to ${MAX_GENERIC_ID.toLocaleString()}.`;
+    return;
+  }
+  const { descriptor, token } = genericPrompt;
+  selectedGenericIds[descriptor.family] = id;
+  closeGenericPrompt();
+  const concrete = concreteGenericToolToken(token, id);
+  setTool(concrete);
+  refreshGenericFamily(descriptor.family);
+  setStatus(`${toolName(concrete)} selected. Pieces with ID ${id} join the same object.`);
 }
 
 function buildToolbox() {
@@ -251,22 +334,32 @@ function buildToolbox() {
     button.type = "button";
     button.className = "tool";
     button.dataset.token = token;
+    const generic = genericToolDescriptor(token);
+    if (generic) button.dataset.genericFamily = generic.family;
+    const displayToken = generic
+      ? concreteGenericToolToken(token, selectedGenericIds[generic.family])
+      : token;
     const directionHint = isDirectionalTool(parser, token) ? " — faces camera when placed" : "";
-    button.title = `${toolName(token)} — ${token}${directionHint}`;
-    button.setAttribute("aria-label", `${toolName(token)}${directionHint}`);
+    button.title = `${toolName(displayToken)} — ${displayToken}${directionHint}`;
+    button.setAttribute("aria-label", `${toolName(displayToken)}${generic ? "; choose numeric ID" : directionHint}`);
     button.style.setProperty("--tool-color", visual?.color || "#050608");
     const canvas = document.createElement("canvas");
     canvas.width = 96;
     canvas.height = 96;
     canvas.setAttribute("aria-hidden", "true");
     const label = document.createElement("span");
-    label.textContent = token === "__erase_top__" ? "×" : token;
+    label.textContent = token === "__erase_top__" ? "×" : generic ? String(selectedGenericIds[generic.family]) : token;
     button.append(canvas, label);
-    button.addEventListener("click", () => setTool(token));
+    button.addEventListener("click", () => generic ? openGenericPrompt(token) : setTool(token));
     fragment.append(button);
-    if (token !== "__erase_top__") previews.push({ button, canvas, token: portraitToken(parser, token) });
+    if (token !== "__erase_top__") previews.push({
+      button,
+      canvas,
+      token: generic ? displayToken : portraitToken(parser, token)
+    });
   });
   elements.toolbox.replaceChildren(fragment);
+  toolboxPreviewEntries = previews;
   setTool(currentTool);
   renderToolboxPreviews(previews).catch((error) => console.warn("Toolbox previews could not be rendered.", error));
 }
@@ -421,6 +514,19 @@ async function replaySolution() {
 
 elements.resetView.addEventListener("click", () => renderer?.resetView());
 elements.save.addEventListener("click", saveRoom);
+elements.genericForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  confirmGenericPrompt();
+});
+elements.genericId.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  confirmGenericPrompt();
+});
+elements.genericCancel.addEventListener("click", closeGenericPrompt);
+elements.genericDialog.addEventListener("pointerdown", (event) => {
+  if (event.target === elements.genericDialog) closeGenericPrompt();
+});
 elements.quickSolve.addEventListener("click", () => runSolver(EDITOR_SOLVER_PRESETS_V1.quick));
 elements.exactSolve.addEventListener("click", () => runSolver(EDITOR_SOLVER_PRESETS_V1.exact));
 elements.cancelSolve.addEventListener("click", () => {
@@ -471,6 +577,11 @@ window.addEventListener("beforeunload", (event) => {
   event.returnValue = "";
 });
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && genericPrompt) {
+    event.preventDefault();
+    closeGenericPrompt();
+    return;
+  }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
     event.preventDefault();
     saveRoom();

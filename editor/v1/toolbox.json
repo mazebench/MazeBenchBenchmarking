@@ -50,7 +50,7 @@
       "demo": { "layout": [". . .", ". $ .", ". . ."], "moves": "RL" }
     },
     "c0": {
-      "name": "Clone 0",
+      "name": "Clone N",
       "description": "Clones copy the player's moves. Clones with the same id are connected",
       "demo": { "layout": ["p . .", ". . .", "$ . ."], "moves": "RRLL" }
     },
@@ -105,7 +105,7 @@
       "demo": { "layout": ["p $ . . + . ."], "moves": "RRRRRRLLLL" }
     },
     "M0": {
-      "name": "Box 0",
+      "name": "Block N",
       "description": "A weightless box that can be pushed by anything. All boxes with the same id are connected and move together. They cannot be pushed out of a room.",
       "demo": { "layout": [". . . . $ . . + + +", "p . $ $ $ . . + + +", ". . . . $ . . + + +"], "moves": "RRRRRR" }
     },
