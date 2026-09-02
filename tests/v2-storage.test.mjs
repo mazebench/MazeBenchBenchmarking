@@ -27,6 +27,10 @@ import {
   easeToward,
   yawTransitionAt
 } from "../render/v1/camera-transitions.mjs";
+import {
+  voxelPieceDefinition,
+  voxelRenderSource
+} from "../render/v1/voxel-scene-v2.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const definitions = new Map(V2_BLOCK_CATALOG.map((block) => [block.id, block]));
@@ -87,6 +91,23 @@ test("side-face placement uses the adjacent 3D cell and records the face orienta
   const lift = voxelPlacementForTool("L", coordinate, hit, { near: "down", far: "up" });
   assert.equal(lift.orientation, "east");
   assert.equal(lift.stateId, 1);
+});
+
+test("placement previews use the real oriented button and slope definitions", () => {
+  const button = definitions.get("orange-button");
+  const buttonObject = { x: 6, y: 6, z: 2, blockId: button.id, orientation: "east" };
+  assert.deepEqual(voxelPieceDefinition(buttonObject, button), {
+    kind: "orange_button",
+    bottom: 2,
+    top: 3,
+    color: button.color,
+    orientation: "east"
+  });
+
+  const slope = definitions.get("ice-slope");
+  const slopeObject = { x: 4, y: 5, z: 3, blockId: slope.id, orientation: "up" };
+  assert.equal(voxelPieceDefinition(slopeObject, slope).kind, "slope");
+  assert.equal(voxelRenderSource(slopeObject, slope).direction, "up");
 });
 
 test("shareable face objects coexist with solid objects at one coordinate", () => {

@@ -149,6 +149,9 @@ export class ThreeMazeRendererV1 {
       }
       this.onInspect?.(this.hitTest(event));
     });
+    this.canvas.addEventListener("pointerleave", () => {
+      if (!this.painting && !this.pointer) this.onInspect?.(null);
+    });
     const finishPointer = (event) => {
       if (this.painting) {
         this.painting = false;
@@ -286,6 +289,7 @@ export class ThreeMazeRendererV1 {
 
   setWorld(world, options = {}) {
     clearPlacementPreview(this.placementPreview);
+    this.canvas.dataset.placementPreview = "";
     this.world = world;
     this.totalWidth = this.mode === "editor" ? world.roomWidth : world.columns.length * world.roomWidth;
     this.totalHeight = this.mode === "editor" ? world.roomHeight : world.rows.length * world.roomHeight;
@@ -323,6 +327,7 @@ export class ThreeMazeRendererV1 {
 
   setPlacementPreview(object) {
     const block = object ? this.world.blockDefinitions?.get(object.blockId) : null;
+    this.canvas.dataset.placementPreview = object ? JSON.stringify(object) : "";
     renderPlacementPreview(this.placementPreview, object, block, {
       totalWidth: this.totalWidth,
       totalHeight: this.totalHeight
@@ -331,6 +336,7 @@ export class ThreeMazeRendererV1 {
   }
 
   clearPlacementPreview() {
+    this.canvas.dataset.placementPreview = "";
     clearPlacementPreview(this.placementPreview);
     this.render();
   }

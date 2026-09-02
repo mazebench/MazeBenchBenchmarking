@@ -46,6 +46,7 @@ let selectedCell = null;
 let undoStack = [];
 let savedObjects = null;
 let dirty = false;
+let hoverHit = null;
 
 const cloneObjects = (objects) => objects.map((object) => ({ ...object }));
 const countBlock = (objects, blockId) => objects.filter((object) => object.blockId === blockId).length;
@@ -78,22 +79,63 @@ function pushUndo() {
   elements.undo.disabled = false;
 }
 
-function inspectCoordinate(coordinate) {
+function inspectCoordinate(coordinate, { select = true } = {}) {
   selectedCell = { ...coordinate };
   elements.cellPosition.textContent = coordinateLabel(coordinate);
   elements.cellValue.disabled = false;
   elements.applyCell.disabled = false;
   elements.cellValue.value = JSON.stringify(objectsAtCell(currentRoom.objects, coordinate), null, 2);
-  renderer.selectCell(renderer.world.rooms[0], coordinate.x, coordinate.y, coordinate.z);
+  if (select) renderer.selectCell(renderer.world.rooms[0], coordinate.x, coordinate.y, coordinate.z);
+  else renderer.selectCell(null);
 }
 
 function inspect(hit) {
-  if (!hit) return;
-  inspectCoordinate({
+  hoverHit = hit;
+  if (!hit) {
+    renderer.clearPlacementPreview();
+    renderer.selectCell(null);
+    return;
+  }
+  const coordinate = {
     x: hit.sourceX ?? hit.cellX,
     y: hit.sourceY ?? hit.cellY,
     z: hit.sourceZ ?? 0
+  };
+  inspectCoordinate(coordinate, { select: currentTool === "__erase_top__" });
+  updatePlacementPreview(hit);
+}
+
+function placementFromHit(hit) {
+  if (!hit || currentTool === "__erase_top__") return null;
+  const preview = voxelPlacementForTool(currentTool, { x: 0, y: 0, z: 0 }, hit, renderer.cameraDirections());
+  if (!preview) return null;
+  const selectedBlock = world.blockDefinitions.get(preview.blockId);
+  const coordinate = resolveEditorPaintTargetV2(hit, {
+    selectedCanShare: objectPaintsInsideClickedBody(selectedBlock)
   });
+  if (["floor", "ice-floor", "exit"].includes(preview.blockId)) coordinate.z = 0;
+  if (coordinate.x < 0 || coordinate.y < 0 || coordinate.x >= currentRoom.width || coordinate.y >= currentRoom.height) {
+    return null;
+  }
+  return voxelPlacementForTool(currentTool, coordinate, hit, renderer.cameraDirections());
+}
+
+function updatePlacementPreview(hit = hoverHit) {
+  if (!renderer) return;
+  if (!hit || currentTool === "__erase_top__") {
+    renderer.setPlacementPreview(null);
+    if (hit && currentTool === "__erase_top__") {
+      renderer.selectCell(
+        renderer.world.rooms[0],
+        hit.sourceX ?? hit.cellX,
+        hit.sourceY ?? hit.cellY,
+        hit.sourceZ ?? 0
+      );
+    }
+    return;
+  }
+  renderer.selectCell(null);
+  renderer.setPlacementPreview(placementFromHit(hit));
 }
 
 function paint(hit, gesture) {
@@ -111,23 +153,9 @@ function paint(hit, gesture) {
     return;
   }
 
-  const preview = voxelPlacementForTool(currentTool, { x: 0, y: 0, z: 0 }, hit, renderer.cameraDirections());
-  if (!preview) {
-    setStatus("That object cannot be mounted on this face.", true);
-    return;
-  }
-  const selectedBlock = world.blockDefinitions.get(preview.blockId);
-  const coordinate = resolveEditorPaintTargetV2(hit, {
-    selectedCanShare: objectPaintsInsideClickedBody(selectedBlock)
-  });
-  if (["floor", "ice-floor", "exit"].includes(preview.blockId)) coordinate.z = 0;
-  if (coordinate.x < 0 || coordinate.y < 0 || coordinate.x >= currentRoom.width || coordinate.y >= currentRoom.height) {
-    setStatus("That face points outside this room.", true);
-    return;
-  }
-  const placement = voxelPlacementForTool(currentTool, coordinate, hit, renderer.cameraDirections());
+  const placement = placementFromHit(hit);
   if (!placement) {
-    setStatus("That object cannot be mounted on this face.", true);
+    setStatus("That object cannot be placed on this face or outside the room.", true);
     return;
   }
   if (placement.blockId === "player") {
@@ -170,6 +198,7 @@ function setTool(token) {
   elements.toolbox.querySelectorAll(".tool").forEach((button) => {
     button.classList.toggle("is-current", button.dataset.token === token);
   });
+  updatePlacementPreview();
 }
 
 function buildToolbox() {
@@ -251,6 +280,7 @@ function switchRoom(room) {
   undoStack = [];
   dirty = false;
   selectedCell = null;
+  hoverHit = null;
   elements.undo.disabled = true;
   elements.cellValue.disabled = true;
   elements.applyCell.disabled = true;
@@ -343,6 +373,9 @@ window.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
     elements.undo.click();
+  }
+  if (!event.repeat && ["a", "d"].includes(event.key.toLowerCase())) {
+    setTimeout(() => updatePlacementPreview(), 410);
   }
 });
 
