@@ -28,6 +28,12 @@ const PITCH_STEP = THREE.MathUtils.degToRad(6);
 const MIN_PITCH = 0.18;
 const MAX_PITCH = 1.48;
 const DRAG_HEADING_THRESHOLD = 48;
+const HEADING_DIRECTIONS = Object.freeze([
+  { near: "down", far: "up" },
+  { near: "right", far: "left" },
+  { near: "up", far: "down" },
+  { near: "left", far: "right" }
+]);
 
 function isEditableTarget(target) {
   return target instanceof HTMLElement
@@ -150,6 +156,10 @@ export class ThreeMazeRendererV1 {
   tiltCamera(amount) {
     this.pitch = Math.max(MIN_PITCH, Math.min(MAX_PITCH, this.pitch + amount));
     this.render();
+  }
+
+  cameraDirections() {
+    return HEADING_DIRECTIONS[this.heading];
   }
 
   paintAt(event, start) {

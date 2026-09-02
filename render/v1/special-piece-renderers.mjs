@@ -36,7 +36,10 @@ function slopeGeometry(direction) {
   return cachedGeometry(`source-slope:${normalized}`, () => {
     const x0 = -0.5, x1 = 0.5, z0 = -0.5, z1 = 0.5, y0 = 0, y1 = 1;
     const positions = [];
-    const tri = (a, b, c) => positions.push(...a, ...b, ...c);
+    // The source coordinates describe the closed wedge with inward winding.
+    // Reverse every triangle so our opaque, front-sided material shows the
+    // colored ramp face from above instead of culling it as transparent.
+    const tri = (a, b, c) => positions.push(...a, ...c, ...b);
     const quad = (a, b, c, d) => { tri(a, b, c); tri(a, c, d); };
     if (normalized === "right") {
       quad([x0,y0,z0],[x1,y1,z0],[x1,y1,z1],[x0,y0,z1]);

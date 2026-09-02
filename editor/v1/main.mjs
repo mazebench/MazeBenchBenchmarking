@@ -6,6 +6,12 @@ import {
   serializeLevel
 } from "../../render/v1/world-renderer.mjs";
 import { renderToolboxPreviews } from "./toolbox-previews.mjs";
+import {
+  cameraFacingToken,
+  isDirectionalTool,
+  parserToolTokens,
+  portraitToken
+} from "./directional-tools.mjs";
 
 const elements = {
   stage: document.getElementById("stage"),
@@ -98,21 +104,15 @@ function removePlayer() {
 function paint(hit, gesture) {
   if (gesture.start) pushUndo();
   if (currentTool === "p") removePlayer();
-  currentRoom.cells[hit.cellY][hit.cellX] = cellForTool(currentTool);
+  const paintToken = cameraFacingToken(parser, currentTool, renderer.cameraDirections());
+  currentRoom.cells[hit.cellY][hit.cellX] = cellForTool(paintToken);
   renderer.setRoom(currentRoom, { preserveCamera: true });
   inspect({ ...hit, room: renderer.world.rooms[0], cell: currentRoom.cells[hit.cellY][hit.cellX] });
   markDirty(`Painted ${toolName(currentTool)} at ${hit.cellX}, ${hit.cellY}.`);
 }
 
 function parserTools() {
-  const result = ["__erase_top__"];
-  Object.values(parser.objects || {}).forEach((definition) => {
-    if (typeof definition.token === "string") result.push(definition.token);
-    if (Array.isArray(definition.tokens)) {
-      definition.tokens.forEach((entry) => result.push(typeof entry === "string" ? entry : entry.token));
-    }
-  });
-  return [...new Set(result.filter(Boolean))];
+  return parserToolTokens(parser);
 }
 
 function parserLabel(token) {
@@ -156,8 +156,9 @@ function buildToolbox() {
     button.type = "button";
     button.className = "tool";
     button.dataset.token = token;
-    button.title = `${toolName(token)} — ${token}`;
-    button.setAttribute("aria-label", `${toolName(token)} — ${token}`);
+    const directionHint = isDirectionalTool(parser, token) ? " — faces camera when placed" : "";
+    button.title = `${toolName(token)} — ${token}${directionHint}`;
+    button.setAttribute("aria-label", `${toolName(token)}${directionHint}`);
     button.style.setProperty("--tool-color", visual?.color || "#050608");
     const canvas = document.createElement("canvas");
     canvas.width = 96;
@@ -168,7 +169,9 @@ function buildToolbox() {
     button.append(canvas, label);
     button.addEventListener("click", () => setTool(token));
     fragment.append(button);
-    if (token !== "__erase_top__") previews.push({ button, canvas, token });
+    if (token !== "__erase_top__") {
+      previews.push({ button, canvas, token: portraitToken(parser, token) });
+    }
   });
   elements.toolbox.replaceChildren(fragment);
   setTool(currentTool);

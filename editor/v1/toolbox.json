@@ -96,7 +96,7 @@
     },
     "pr": {
       "name": "Puncher",
-      "description": "Punches whatever stops in front of it, launching the target away as far as possible.",
+      "description": "Punches whatever stops in front of it, launching the target away as far as possible. It faces the camera when placed.",
       "demo": { "layout": [".+# $ . . p .+#"], "moves": "LLLLLL" }
     },
     "f": {
