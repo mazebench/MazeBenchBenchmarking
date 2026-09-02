@@ -1,17 +1,19 @@
 import { ThreeMazeRendererV1 } from "../../render/v1/three-renderer.mjs";
+import { cellForTool, describeCell } from "../../render/v1/world-renderer.mjs";
+import { encodeVoxelRoom, loadMainWorldV2 } from "../../render/v1/voxel-world-v2.mjs";
 import {
-  cellForTool,
-  describeCell,
-  loadMainWorld,
-  serializeLevel
-} from "../../render/v1/world-renderer.mjs";
+  eraseOneObjectAtCell,
+  objectPaintsInsideClickedBody,
+  objectsAtCell,
+  placeObjectInCell
+} from "../../render/v1/cell-objects-v2.mjs";
 import { renderToolboxPreviews } from "./toolbox-previews.mjs";
+import { isDirectionalTool, parserToolTokens, portraitToken } from "./directional-tools.mjs";
 import {
-  cameraFacingToken,
-  isDirectionalTool,
-  parserToolTokens,
-  portraitToken
-} from "./directional-tools.mjs";
+  resolveEditorPaintTargetV2,
+  rotateVoxelObject,
+  voxelPlacementForTool
+} from "./face-placement-v2.mjs";
 
 const elements = {
   stage: document.getElementById("stage"),
@@ -42,77 +44,101 @@ let currentRoom;
 let currentTool = ".";
 let selectedCell = null;
 let undoStack = [];
-let savedCells = null;
+let savedObjects = null;
 let dirty = false;
 
-const cloneCells = (cells) => cells.map((row) => row.slice());
+const cloneObjects = (objects) => objects.map((object) => ({ ...object }));
+const countBlock = (objects, blockId) => objects.filter((object) => object.blockId === blockId).length;
+const coordinateLabel = ({ x, y, z }) => `${x}, ${y}, ${z}`;
 
 function setStatus(message, error = false) {
   elements.status.textContent = message;
   elements.status.classList.toggle("is-error", error);
 }
 
-function countToken(cells, expected) {
-  let count = 0;
-  cells.forEach((row) => row.forEach((cell) => {
-    String(cell).split("+").forEach((token) => {
-      if (token.trim() === expected) count += 1;
-    });
-  }));
-  return count;
-}
-
 function markDirty(message = "Unsaved changes.") {
   dirty = true;
   elements.save.textContent = "Save";
   elements.save.classList.add("primary");
-  elements.gemCount.textContent = String(countToken(currentRoom.cells, "G"));
+  elements.gemCount.textContent = String(countBlock(currentRoom.objects, "gem"));
   setStatus(message);
 }
 
 function markSaved() {
   dirty = false;
-  savedCells = cloneCells(currentRoom.cells);
+  savedObjects = cloneObjects(currentRoom.objects);
   elements.save.textContent = "Saved";
   elements.save.classList.remove("primary");
   setStatus(`Saved ${currentRoom.fileName}.`);
 }
 
 function pushUndo() {
-  undoStack.push(cloneCells(currentRoom.cells));
+  undoStack.push(cloneObjects(currentRoom.objects));
   if (undoStack.length > 50) undoStack.shift();
   elements.undo.disabled = false;
 }
 
-function inspect(hit) {
-  if (!hit) return;
-  selectedCell = { x: hit.cellX, y: hit.cellY };
-  elements.cellPosition.textContent = `${hit.cellX}, ${hit.cellY}`;
+function inspectCoordinate(coordinate) {
+  selectedCell = { ...coordinate };
+  elements.cellPosition.textContent = coordinateLabel(coordinate);
   elements.cellValue.disabled = false;
   elements.applyCell.disabled = false;
-  elements.cellValue.value = currentRoom.cells[hit.cellY]?.[hit.cellX] ?? "";
-  renderer.selectCell(renderer.world.rooms[0], hit.cellX, hit.cellY);
+  elements.cellValue.value = JSON.stringify(objectsAtCell(currentRoom.objects, coordinate), null, 2);
+  renderer.selectCell(renderer.world.rooms[0], coordinate.x, coordinate.y, coordinate.z);
 }
 
-function removePlayer() {
-  currentRoom.cells = currentRoom.cells.map((row) => row.map((cell) => {
-    const tokens = String(cell).split("+").map((token) => token.trim() === "p" ? "" : token);
-    return tokens.join("+") || "+";
-  }));
+function inspect(hit) {
+  if (!hit) return;
+  inspectCoordinate({
+    x: hit.sourceX ?? hit.cellX,
+    y: hit.sourceY ?? hit.cellY,
+    z: hit.sourceZ ?? 0
+  });
 }
 
 function paint(hit, gesture) {
+  const erase = currentTool === "__erase_top__";
   if (gesture.start) pushUndo();
-  if (currentTool === "p") removePlayer();
-  const paintToken = cameraFacingToken(parser, currentTool, renderer.cameraDirections());
-  currentRoom.cells[hit.cellY][hit.cellX] = cellForTool(paintToken);
-  renderer.setRoom(currentRoom, { preserveCamera: true });
-  inspect({ ...hit, room: renderer.world.rooms[0], cell: currentRoom.cells[hit.cellY][hit.cellX] });
-  markDirty(`Painted ${toolName(currentTool)} at ${hit.cellX}, ${hit.cellY}.`);
-}
 
-function parserTools() {
-  return parserToolTokens(parser);
+  if (erase) {
+    const coordinate = resolveEditorPaintTargetV2(hit, { erase: true });
+    const result = eraseOneObjectAtCell(currentRoom.objects, coordinate, hit.selectionKey);
+    if (!result.changed) return;
+    currentRoom.objects = result.objects;
+    renderer.setRoom(currentRoom, { preserveCamera: true });
+    inspectCoordinate(coordinate);
+    markDirty(`Erased ${result.removed.blockId} at ${coordinateLabel(coordinate)}.`);
+    return;
+  }
+
+  const preview = voxelPlacementForTool(currentTool, { x: 0, y: 0, z: 0 }, hit, renderer.cameraDirections());
+  if (!preview) {
+    setStatus("That object cannot be mounted on this face.", true);
+    return;
+  }
+  const selectedBlock = world.blockDefinitions.get(preview.blockId);
+  const coordinate = resolveEditorPaintTargetV2(hit, {
+    selectedCanShare: objectPaintsInsideClickedBody(selectedBlock)
+  });
+  if (["floor", "ice-floor", "exit"].includes(preview.blockId)) coordinate.z = 0;
+  if (coordinate.x < 0 || coordinate.y < 0 || coordinate.x >= currentRoom.width || coordinate.y >= currentRoom.height) {
+    setStatus("That face points outside this room.", true);
+    return;
+  }
+  const placement = voxelPlacementForTool(currentTool, coordinate, hit, renderer.cameraDirections());
+  if (!placement) {
+    setStatus("That object cannot be mounted on this face.", true);
+    return;
+  }
+  if (placement.blockId === "player") {
+    currentRoom.objects = currentRoom.objects.filter((object) => object.blockId !== "player");
+  }
+  const result = placeObjectInCell(currentRoom.objects, placement, world.blockDefinitions);
+  if (!result.changed) return;
+  currentRoom.objects = result.objects;
+  renderer.setRoom(currentRoom, { preserveCamera: true });
+  inspectCoordinate(placement);
+  markDirty(`Placed ${toolName(currentTool)} at ${coordinateLabel(placement)}.`);
 }
 
 function parserLabel(token) {
@@ -134,7 +160,7 @@ function toolName(token) {
 function toolDescription(token) {
   if (toolboxCatalog.tools?.[token]?.description) return toolboxCatalog.tools[token].description;
   const baseToken = token.replace(/^S[rlud]/, "Sr");
-  return toolboxCatalog.tools?.[baseToken]?.description || `Paint the raw MazeBench token ${token}.`;
+  return toolboxCatalog.tools?.[baseToken]?.description || `Place the MazeBench ${token} object.`;
 }
 
 function setTool(token) {
@@ -149,7 +175,7 @@ function setTool(token) {
 function buildToolbox() {
   const fragment = document.createDocumentFragment();
   const previews = [];
-  parserTools().forEach((token) => {
+  parserToolTokens(parser).forEach((token) => {
     const button = document.createElement("button");
     const descriptor = describeCell(cellForTool(token));
     const visual = descriptor.actor || descriptor.terrain;
@@ -169,15 +195,11 @@ function buildToolbox() {
     button.append(canvas, label);
     button.addEventListener("click", () => setTool(token));
     fragment.append(button);
-    if (token !== "__erase_top__") {
-      previews.push({ button, canvas, token: portraitToken(parser, token) });
-    }
+    if (token !== "__erase_top__") previews.push({ button, canvas, token: portraitToken(parser, token) });
   });
   elements.toolbox.replaceChildren(fragment);
   setTool(currentTool);
-  renderToolboxPreviews(previews).catch((error) => {
-    console.warn("Toolbox previews could not be rendered.", error);
-  });
+  renderToolboxPreviews(previews).catch((error) => console.warn("Toolbox previews could not be rendered.", error));
 }
 
 function buildRoomControls() {
@@ -207,7 +229,7 @@ function updateRoomChrome() {
   elements.roomName.textContent = label;
   elements.fileName.textContent = currentRoom.fileName;
   elements.fileName.title = currentRoom.fileName;
-  elements.gemCount.textContent = String(countToken(currentRoom.cells, "G"));
+  elements.gemCount.textContent = String(countBlock(currentRoom.objects, "gem"));
   elements.roomSelect.value = currentRoom.fileName;
   elements.roomGrid.querySelectorAll("button").forEach((button) => {
     button.classList.toggle("is-current", button.dataset.file === currentRoom.fileName);
@@ -223,9 +245,9 @@ function switchRoom(room) {
     elements.roomSelect.value = currentRoom.fileName;
     return;
   }
-  if (dirty) currentRoom.cells = cloneCells(savedCells);
+  if (dirty) currentRoom.objects = cloneObjects(savedObjects);
   currentRoom = room;
-  savedCells = cloneCells(room.cells);
+  savedObjects = cloneObjects(room.objects);
   undoStack = [];
   dirty = false;
   selectedCell = null;
@@ -237,40 +259,18 @@ function switchRoom(room) {
   updateRoomChrome();
   elements.save.textContent = "Saved";
   elements.save.classList.remove("primary");
-  setStatus(`Editing room ${room.position.join("×")}.`);
-}
-
-function remapDirectionalCell(cell, transform) {
-  const maps = {
-    right: { u: "r", r: "d", d: "l", l: "u" },
-    left: { u: "l", l: "d", d: "r", r: "u" },
-    horizontal: { u: "u", d: "d", l: "r", r: "l" },
-    vertical: { u: "d", d: "u", l: "l", r: "r" }
-  };
-  return String(cell).split("+").map((token) => {
-    const slope = token.match(/^S([rlud])(.*)$/);
-    if (slope) return `S${maps[transform][slope[1]]}${slope[2]}`;
-    const puncher = token.match(/^p([rlud])$/);
-    if (puncher) return `p${maps[transform][puncher[1]]}`;
-    return token;
-  }).join("+");
+  setStatus(`Editing v2 room ${room.position.join("×")}.`);
 }
 
 function transformRoom(transform) {
   pushUndo();
-  const source = currentRoom.cells;
-  let transformed;
-  if (transform === "right") {
-    transformed = source[0].map((_, x) => source.map((row) => row[x]).reverse());
-  } else if (transform === "left") {
-    transformed = source[0].map((_, x) => source.map((row) => row[row.length - 1 - x]));
-  } else if (transform === "horizontal") {
-    transformed = source.map((row) => row.slice().reverse());
-  } else {
-    transformed = source.slice().reverse().map((row) => row.slice());
-  }
-  currentRoom.cells = transformed.map((row) => row.map((cell) => remapDirectionalCell(cell, transform)));
+  currentRoom.objects = currentRoom.objects.map((object) =>
+    rotateVoxelObject(object, transform, currentRoom.width, currentRoom.height));
   renderer.setRoom(currentRoom, { preserveCamera: true });
+  selectedCell = null;
+  elements.cellValue.disabled = true;
+  elements.applyCell.disabled = true;
+  elements.cellPosition.textContent = "—";
   markDirty(`${transform} transform applied.`);
 }
 
@@ -278,10 +278,10 @@ async function saveRoom() {
   elements.save.disabled = true;
   setStatus(`Saving ${currentRoom.fileName}…`);
   try {
-    const response = await fetch(`/api/levels/${encodeURIComponent(currentRoom.fileName)}`, {
+    const response = await fetch(`/api/v2/levels/${encodeURIComponent(currentRoom.fileName)}`, {
       method: "PUT",
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-      body: serializeLevel(currentRoom.cells, currentRoom.trailingNewline)
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify(encodeVoxelRoom(currentRoom))
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Save failed.");
@@ -298,18 +298,34 @@ elements.save.addEventListener("click", saveRoom);
 elements.undo.addEventListener("click", () => {
   const previous = undoStack.pop();
   if (!previous) return;
-  currentRoom.cells = previous;
+  currentRoom.objects = previous;
   renderer.setRoom(currentRoom, { preserveCamera: true });
   elements.undo.disabled = undoStack.length === 0;
   markDirty("Undid the last edit.");
 });
 elements.applyCell.addEventListener("click", () => {
   if (!selectedCell) return;
-  pushUndo();
-  currentRoom.cells[selectedCell.y][selectedCell.x] = elements.cellValue.value || "+";
-  renderer.setRoom(currentRoom, { preserveCamera: true });
-  renderer.selectCell(renderer.world.rooms[0], selectedCell.x, selectedCell.y);
-  markDirty(`Applied raw value at ${selectedCell.x}, ${selectedCell.y}.`);
+  try {
+    const parsed = JSON.parse(elements.cellValue.value || "[]");
+    const entries = Array.isArray(parsed) ? parsed : [parsed];
+    const replacements = entries.map((entry) => {
+      if (!entry || typeof entry !== "object" || !world.blockDefinitions.has(entry.blockId)) {
+        throw new Error("Every 3D object needs a known blockId.");
+      }
+      return { ...entry, ...selectedCell };
+    });
+    pushUndo();
+    const selectedKey = coordinateLabel(selectedCell);
+    currentRoom.objects = [
+      ...currentRoom.objects.filter((object) => coordinateLabel(object) !== selectedKey),
+      ...replacements
+    ];
+    renderer.setRoom(currentRoom, { preserveCamera: true });
+    inspectCoordinate(selectedCell);
+    markDirty(`Applied ${replacements.length} object${replacements.length === 1 ? "" : "s"} at ${coordinateLabel(selectedCell)}.`);
+  } catch (error) {
+    setStatus(error.message || "Invalid object JSON.", true);
+  }
 });
 document.querySelectorAll("[data-transform]").forEach((button) => {
   button.addEventListener("click", () => transformRoom(button.dataset.transform));
@@ -332,8 +348,8 @@ window.addEventListener("keydown", (event) => {
 
 try {
   [world, parser, toolboxCatalog] = await Promise.all([
-    loadMainWorld((complete, total) => {
-      if (complete % 32 === 0 || complete === total) elements.loading.textContent = `Loading ${complete}/${total}`;
+    loadMainWorldV2((complete, total) => {
+      if (complete % 32 === 0 || complete === total) elements.loading.textContent = `Loading v2 ${complete}/${total}`;
     }),
     fetch("./level_parsing.json").then((response) => response.json()),
     fetch("./toolbox.json").then((response) => response.json())
@@ -342,12 +358,13 @@ try {
   buildRoomControls();
   const requested = new URL(location.href).searchParams.get("room")?.toUpperCase();
   currentRoom = world.rooms.find((room) => room.position.join("X") === requested) || world.rooms[0];
-  savedCells = cloneCells(currentRoom.cells);
+  savedObjects = cloneObjects(currentRoom.objects);
   renderer = new ThreeMazeRendererV1(elements.canvas, {
+    ...world,
     columns: [currentRoom.position[0]],
     rows: [currentRoom.position[1]],
-    roomWidth: currentRoom.cells[0].length,
-    roomHeight: currentRoom.cells.length,
+    roomWidth: currentRoom.width,
+    roomHeight: currentRoom.height,
     rooms: [{ ...currentRoom, columnIndex: 0, rowIndex: 0 }]
   }, {
     mode: "editor",
@@ -358,7 +375,7 @@ try {
   new ResizeObserver(() => renderer.resize()).observe(elements.stage);
   updateRoomChrome();
   elements.stage.classList.add("is-ready");
-  setStatus(`Editing room ${currentRoom.position.join("×")}.`);
+  setStatus(`Editing v2 room ${currentRoom.position.join("×")}.`);
 } catch (error) {
   elements.loading.textContent = error.message || "Could not load editor.";
   setStatus("Editor failed to load.", true);

@@ -107,13 +107,98 @@ function addOrangeButton(content, record, dimensions) {
     1,
     false
   ));
+  const orientation = record.definition.orientation || record.source.orientation || "top";
+  const position = new THREE.Vector3(
+    center.x,
+    record.definition.bottom + ORANGE_BUTTON_HEIGHT / 2,
+    center.z
+  );
+  const rotation = new THREE.Euler();
+  if (orientation === "bottom") {
+    position.y = record.definition.bottom + 1 - ORANGE_BUTTON_HEIGHT / 2;
+    rotation.x = Math.PI;
+  } else if (orientation === "north") {
+    position.y = record.definition.bottom + 0.5;
+    position.z += 0.5 - ORANGE_BUTTON_HEIGHT / 2;
+    rotation.x = -Math.PI / 2;
+  } else if (orientation === "east") {
+    position.x -= 0.5 - ORANGE_BUTTON_HEIGHT / 2;
+    position.y = record.definition.bottom + 0.5;
+    rotation.z = -Math.PI / 2;
+  } else if (orientation === "south") {
+    position.y = record.definition.bottom + 0.5;
+    position.z -= 0.5 - ORANGE_BUTTON_HEIGHT / 2;
+    rotation.x = Math.PI / 2;
+  } else if (orientation === "west") {
+    position.x += 0.5 - ORANGE_BUTTON_HEIGHT / 2;
+    position.y = record.definition.bottom + 0.5;
+    rotation.z = Math.PI / 2;
+  }
+  addOutlinedMesh(content, geometry, record.definition.color, { position, rotation }, 24);
+}
+
+function sideLiftTriangleGeometry(raised) {
+  return cachedGeometry(`side-lift-triangle:${raised ? "up" : "down"}`, () => {
+    const pointY = raised ? 0.22 : -0.22;
+    const baseY = raised ? -0.16 : 0.16;
+    const points = raised
+      ? [0,pointY,0, 0.17,baseY,0, -0.17,baseY,0]
+      : [0,pointY,0, -0.17,baseY,0, 0.17,baseY,0];
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
+    geometry.computeVertexNormals();
+    return geometry;
+  });
+}
+
+function addSideLift(content, record, dimensions) {
+  const center = centerFor(record, dimensions);
+  const orientation = record.definition.orientation;
+  const extension = record.definition.raised ? 1 : 4 / 64;
+  let width = 1;
+  let depth = 1;
+  let x = center.x;
+  let z = center.z;
+  if (orientation === "north") {
+    depth = extension;
+    z += (1 - extension) / 2;
+  } else if (orientation === "east") {
+    width = extension;
+    x -= (1 - extension) / 2;
+  } else if (orientation === "south") {
+    depth = extension;
+    z -= (1 - extension) / 2;
+  } else {
+    width = extension;
+    x += (1 - extension) / 2;
+  }
+  const geometry = cachedGeometry(`side-lift:${width}:${depth}`, () =>
+    new THREE.BoxGeometry(width, 1, depth));
   addOutlinedMesh(content, geometry, record.definition.color, {
-    position: new THREE.Vector3(
-      center.x,
-      record.definition.bottom + ORANGE_BUTTON_HEIGHT / 2,
-      center.z
-    )
-  }, 24);
+    position: new THREE.Vector3(x, record.definition.bottom + 0.5, z)
+  });
+
+  const marker = new THREE.Mesh(
+    sideLiftTriangleGeometry(record.definition.raised),
+    new THREE.MeshBasicMaterial({ color: "#050608", side: THREE.DoubleSide })
+  );
+  marker.userData.transientMaterial = true;
+  marker.position.set(center.x, record.definition.bottom + 0.5, center.z);
+  const bias = 0.012;
+  const surfaceDistance = extension - 0.5;
+  if (orientation === "north") {
+    marker.position.z -= surfaceDistance + bias;
+    marker.rotation.y = Math.PI;
+  } else if (orientation === "east") {
+    marker.position.x += surfaceDistance + bias;
+    marker.rotation.y = Math.PI / 2;
+  } else if (orientation === "south") {
+    marker.position.z += surfaceDistance + bias;
+  } else {
+    marker.position.x -= surfaceDistance + bias;
+    marker.rotation.y = -Math.PI / 2;
+  }
+  content.add(marker);
 }
 
 function directionVector(direction) {
@@ -175,6 +260,9 @@ export function addSpecialPiece(content, record, dimensions) {
     case "raised_lift":
       addCuboid(content, record, dimensions);
       addLiftTriangle(content, record, dimensions);
+      break;
+    case "side_lift":
+      addSideLift(content, record, dimensions);
       break;
     case "orange_button":
       addOrangeButton(content, record, dimensions);

@@ -350,7 +350,7 @@ async function loadInBatches(entries, load, onProgress) {
 }
 
 export async function loadMainWorld(onProgress) {
-  const manifestUrl = new URL("../../level-data/main-world/world_map.json", import.meta.url);
+  const manifestUrl = new URL("../../level-data/v1/main-world/world_map.json", import.meta.url);
   const manifestResponse = await fetch(manifestUrl);
   if (!manifestResponse.ok) throw new Error("Could not load the main-world map.");
 

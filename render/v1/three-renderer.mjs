@@ -20,6 +20,9 @@ import {
 } from "./polycube-mesh.mjs";
 import { addSpecialPiece } from "./special-piece-renderers.mjs";
 import { MAZE_COLORS, parseCellState } from "./world-renderer.mjs";
+import { cellObjectSelectionKey } from "./cell-objects-v2.mjs";
+import { collectVoxelSceneV2 } from "./voxel-scene-v2.mjs";
+import { V2_WORLD_FORMAT } from "./voxel-world-v2.mjs";
 
 const CARDINAL_STEP = Math.PI * 0.5;
 const DEFAULT_HEADING = 0;
@@ -165,7 +168,9 @@ export class ThreeMazeRendererV1 {
   paintAt(event, start) {
     const hit = this.hitTest(event);
     if (!hit) return;
-    const key = `${hit.room.fileName}:${hit.cellX}:${hit.cellY}`;
+    const key = this.world.storageFormat === V2_WORLD_FORMAT
+      ? `${hit.room.fileName}:${hit.sourceX}:${hit.sourceY}:${hit.sourceZ}:${hit.face}`
+      : `${hit.room.fileName}:${hit.cellX}:${hit.cellY}`;
     if (key === this.lastPaintKey) return;
     this.lastPaintKey = key;
     this.onPaint?.(hit, { start });
@@ -182,11 +187,17 @@ export class ThreeMazeRendererV1 {
   }
 
   setRoom(room, options = {}) {
+    const previousWorld = this.world;
     this.setWorld({
+      storageFormat: previousWorld?.storageFormat,
+      schemaVersion: previousWorld?.schemaVersion,
+      coordinateSystem: previousWorld?.coordinateSystem,
+      blocks: previousWorld?.blocks,
+      blockDefinitions: previousWorld?.blockDefinitions,
       columns: [room.position[0]],
       rows: [room.position[1]],
-      roomWidth: room.cells[0]?.length || 16,
-      roomHeight: room.cells.length || 16,
+      roomWidth: room.width || room.cells?.[0]?.length || 16,
+      roomHeight: room.height || room.cells?.length || 16,
       rooms: [{ ...room, columnIndex: 0, rowIndex: 0 }]
     }, options);
   }
@@ -202,6 +213,7 @@ export class ThreeMazeRendererV1 {
   }
 
   collectScene() {
+    if (this.world.storageFormat === V2_WORLD_FORMAT) return collectVoxelSceneV2(this);
     const floorGroups = new Map();
     const cubeGroups = new Map();
     const occupied = new Set();
@@ -409,6 +421,36 @@ export class ThreeMazeRendererV1 {
     this.pickMeshes.push(mesh);
   }
 
+  addEditorVoxelPickMesh(records) {
+    if (this.mode !== "editor" || !records?.length) return;
+    const geometry = cachedGeometry("editor-v2-pick-box", () => new THREE.BoxGeometry(1, 1, 1));
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      colorWrite: false,
+      depthWrite: false,
+      opacity: 0,
+      transparent: true
+    });
+    const mesh = new THREE.InstancedMesh(geometry, material, records.length);
+    mesh.userData.transientMaterial = true;
+    const dummy = new THREE.Object3D();
+    records.forEach((record, index) => {
+      const height = Math.max(0.04, record.top - record.bottom);
+      dummy.position.set(
+        record.globalX - this.totalWidth / 2 + 0.5,
+        record.bottom + height / 2,
+        record.globalY - this.totalHeight / 2 + 0.5
+      );
+      dummy.scale.set(1, height, 1);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(index, dummy.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.userData.voxelInstances = records;
+    this.content.add(mesh);
+    this.pickMeshes.push(mesh);
+  }
+
   rebuild() {
     disposeGeneratedChildren(this.content);
     this.pickMeshes = [];
@@ -420,7 +462,8 @@ export class ThreeMazeRendererV1 {
     data.gems.forEach((record) => addGemAsset(this.content, record, dimensions));
     data.specialPieces.forEach((record) => addSpecialPiece(this.content, record, dimensions));
     this.addEditorGrid(data.editorGridCells);
-    this.addEditorPickMesh(data.cellMetadata);
+    if (data.pickRecords) this.addEditorVoxelPickMesh(data.pickRecords);
+    else this.addEditorPickMesh(data.cellMetadata);
     this.render();
     return data.modelUrls;
   }
@@ -497,6 +540,8 @@ export class ThreeMazeRendererV1 {
     if (this.mode === "editor") {
       const intersections = this.raycaster.intersectObjects(this.pickMeshes, false);
       const intersection = intersections.find((entry) => Number.isInteger(entry.instanceId));
+      const voxelRecord = intersection?.object?.userData?.voxelInstances?.[intersection.instanceId];
+      if (voxelRecord) return this.voxelHit(voxelRecord, intersection);
       const metadata = intersection?.object?.userData?.instances?.[intersection.instanceId];
       if (metadata) return metadata;
     }
@@ -512,15 +557,70 @@ export class ThreeMazeRendererV1 {
     if (!room) return null;
     const cellX = globalX % this.world.roomWidth;
     const cellY = globalY % this.world.roomHeight;
+    if (this.world.storageFormat === V2_WORLD_FORMAT) {
+      return {
+        room,
+        kind: "ground",
+        cellX,
+        cellY,
+        sourceX: cellX,
+        sourceY: cellY,
+        sourceZ: 0,
+        paintX: cellX,
+        paintY: cellY,
+        paintZ: 0,
+        dx: 0,
+        dy: 0,
+        dz: 1,
+        face: "top"
+      };
+    }
     return { room, cellX, cellY, cell: room.cells[cellY]?.[cellX] ?? "" };
+  }
+
+  voxelHit(record, intersection) {
+    const normal = intersection.face?.normal || new THREE.Vector3(0, 1, 0);
+    const dx = Math.round(normal.x);
+    const dy = Math.round(normal.z);
+    const dz = Math.round(normal.y);
+    const object = record.object;
+    const objectTopLayer = object.z + Math.max(1, record.height) - 1;
+    let sourceZ = object.z;
+    let paintZ = object.z;
+    if (dz > 0) {
+      sourceZ = objectTopLayer;
+      paintZ = record.surfaceFloor ? object.z : objectTopLayer + 1;
+    } else if (dz < 0) {
+      paintZ = object.z - 1;
+    } else {
+      sourceZ = Math.max(object.z, Math.min(objectTopLayer, Math.floor(intersection.point.y)));
+      paintZ = sourceZ;
+    }
+    return {
+      room: record.room,
+      object,
+      block: record.block,
+      kind: record.block.category || "terrain",
+      sourceX: object.x,
+      sourceY: object.y,
+      sourceZ,
+      paintX: object.x + dx,
+      paintY: object.y + dy,
+      paintZ,
+      dx,
+      dy,
+      dz,
+      face: dz > 0 ? "top" : dz < 0 ? "bottom-face" : "side-face",
+      selectionKey: cellObjectSelectionKey(object)
+    };
   }
 
   selectRoom(room) {
     this.setSelection(room ? { room } : null);
   }
 
-  selectCell(room, cellX, cellY) {
-    this.setSelection({ room, cellX, cellY });
+  selectCell(room, cellX, cellY, cellZ) {
+    this.setSelection({ room, cellX, cellY, cellZ });
   }
 
   setSelection(selection) {
@@ -536,7 +636,8 @@ export class ThreeMazeRendererV1 {
     const depth = isCell ? 1 : this.world.roomHeight;
     const baseX = selection.room.columnIndex * this.world.roomWidth - this.totalWidth / 2;
     const baseZ = selection.room.rowIndex * this.world.roomHeight - this.totalHeight / 2;
-    const geometry = new THREE.BoxGeometry(width, 0.04, depth);
+    const isVoxel = isCell && Number.isInteger(selection.cellZ);
+    const geometry = new THREE.BoxGeometry(width, isVoxel ? 1.02 : 0.04, depth);
     const selectionMaterial = new THREE.MeshBasicMaterial({ color: MAZE_COLORS.gem, wireframe: true });
     this.selection = new THREE.Mesh(geometry, selectionMaterial);
     const globalX = selection.room.columnIndex * this.world.roomWidth + (selection.cellX || 0);
@@ -544,7 +645,7 @@ export class ThreeMazeRendererV1 {
     const top = isCell ? Math.max(0.02, this.cellTops.get(`${globalX},${globalZ}`) ?? 0.02) : 0.02;
     this.selection.position.set(
       baseX + (isCell ? selection.cellX + 0.5 : width / 2),
-      top + 0.025,
+      isVoxel ? selection.cellZ + 0.5 : top + 0.025,
       baseZ + (isCell ? selection.cellY + 0.5 : depth / 2)
     );
     this.scene.add(this.selection);

@@ -1,5 +1,6 @@
-import { RENDERER_VERSION, loadMainWorld } from "./world-renderer.mjs";
+import { RENDERER_VERSION } from "./world-renderer.mjs";
 import { ThreeMazeRendererV1 } from "./three-renderer.mjs";
+import { loadMainWorldV2 } from "./voxel-world-v2.mjs";
 
 const elements = {
   canvas: document.getElementById("world"),
@@ -23,7 +24,10 @@ function inspect(hit) {
   elements.room.textContent = `${hit.room.position[0]}×${hit.room.position[1]}`;
   elements.file.textContent = hit.room.fileName;
   elements.file.title = hit.room.fileName;
-  elements.cell.textContent = `${hit.cellX},${hit.cellY}  ${hit.cell || "air"}`;
+  const cellX = hit.sourceX ?? hit.cellX;
+  const cellY = hit.sourceY ?? hit.cellY;
+  const objects = hit.room.objects?.filter((object) => object.x === cellX && object.y === cellY) || [];
+  elements.cell.textContent = `${cellX},${cellY}  ${objects.length ? objects.map((object) => object.blockId).join(" + ") : "air"}`;
 }
 
 function select(hit) {
@@ -41,9 +45,9 @@ elements.fit.addEventListener("click", () => renderer?.resetView());
 elements.canvas.addEventListener("dblclick", () => renderer?.focusRoom(selectedRoom));
 
 try {
-  const world = await loadMainWorld((complete, total) => {
+  const world = await loadMainWorldV2((complete, total) => {
     if (complete === total || complete % 16 === 0) {
-      elements.loading.lastElementChild.textContent = `Reading rooms ${complete}/${total}`;
+      elements.loading.lastElementChild.textContent = `Reading v2 rooms ${complete}/${total}`;
       elements.status.textContent = `Loading ${complete}/${total}`;
     }
   });
@@ -54,8 +58,8 @@ try {
   });
   new ResizeObserver(() => renderer.resize()).observe(elements.viewport);
   elements.viewport.classList.remove("is-loading");
-  const cellCount = world.columns.length * world.roomWidth * world.rows.length * world.roomHeight;
-  elements.status.textContent = `${world.rooms.length} rooms · ${cellCount.toLocaleString()} cells · Three.js`;
+  const objectCount = world.rooms.reduce((total, room) => total + room.objects.length, 0);
+  elements.status.textContent = `${world.rooms.length} rooms · ${objectCount.toLocaleString()} 3D objects · Three.js`;
   document.title = `MazeBench — Main World · Three.js renderer v${RENDERER_VERSION}`;
 } catch (error) {
   elements.loading.lastElementChild.textContent = error.message || "Could not render the world.";

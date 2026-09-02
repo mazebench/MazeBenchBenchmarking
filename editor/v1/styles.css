@@ -13,15 +13,15 @@
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; overflow: hidden; }
 body { background: var(--bg); color: var(--text); }
-button, input, select { font: inherit; }
-button, select, input {
+button, input, select, textarea { font: inherit; }
+button, select, input, textarea {
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--raised);
   color: var(--text);
 }
 button { cursor: pointer; }
-button:hover, button:focus-visible, select:focus-visible, input:focus-visible {
+button:hover, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
   border-color: #65717e;
   outline: none;
 }
@@ -104,7 +104,7 @@ button:disabled { cursor: default; opacity: 0.42; }
 .tool.is-current { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan); }
 
 .raw-field { display: grid; gap: 5px; }
-.raw-field input { width: 100%; height: 31px; padding: 0 8px; font-size: 10px; }
+.raw-field textarea { width: 100%; min-height: 90px; padding: 7px 8px; resize: vertical; font-size: 9px; line-height: 1.35; }
 .cell-panel > button { width: 100%; height: 29px; margin-top: 7px; font-size: 9px; }
 .transform-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .transform-grid button { height: 30px; font-size: 9px; }
