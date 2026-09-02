@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="MazeBench play mode powered by the copied engine v1 WebAssembly core.">
+    <title>MazeBench — Play v1</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="play-topbar">
+      <nav><a href="../../">← World</a></nav>
+      <div class="play-title">
+        <strong>MazeBench Play</strong>
+        <span>play v1 · engine v1 · renderer v1</span>
+      </div>
+      <div class="play-actions">
+        <a id="editor-link" href="../../editor/v1/">Editor v1</a>
+        <button id="reset" type="button">Reset room</button>
+      </div>
+    </header>
+
+    <main class="play-layout">
+      <section id="stage" class="play-stage" aria-label="Three-dimensional MazeBench play mode">
+        <canvas id="play-canvas"></canvas>
+        <div id="loading" class="loading">Loading engine v1…</div>
+        <div class="camera-help">Arrow keys move · A/D rotate · W/S tilt · Q/E zoom</div>
+      </section>
+
+      <aside class="play-sidebar">
+        <section class="panel">
+          <div class="panel-heading">
+            <div><span>Room</span><strong id="room-name">—</strong></div>
+            <select id="room-select" aria-label="Choose room"></select>
+          </div>
+          <div id="room-grid" class="room-grid" aria-label="World room grid"></div>
+          <dl class="stats">
+            <div><dt>File</dt><dd id="file-name">—</dd></div>
+            <div><dt>Moves</dt><dd id="move-count">0</dd></div>
+            <div><dt>Gems</dt><dd id="gem-count">0</dd></div>
+          </dl>
+        </section>
+
+        <section class="panel controls-panel">
+          <div class="panel-heading"><div><span>Command</span><strong>World directions</strong></div></div>
+          <div class="dpad" aria-label="Movement controls">
+            <button data-direction="up" class="up" type="button" aria-label="Move up">↑</button>
+            <button data-direction="left" class="left" type="button" aria-label="Move left">←</button>
+            <button data-direction="down" class="down" type="button" aria-label="Move down">↓</button>
+            <button data-direction="right" class="right" type="button" aria-label="Move right">→</button>
+          </div>
+          <p id="play-state" class="play-state" role="status" aria-live="polite">Loading…</p>
+        </section>
+
+        <section class="panel engine-panel">
+          <div class="panel-heading"><div><span>Runtime</span><strong>Copied C++ core</strong></div></div>
+          <p>Every input runs through engine v1. Ice continuation, falling, riders, polycubes, lifts, orange mechanisms, collection, and cycle rollback use its per-tick WebAssembly trace.</p>
+        </section>
+      </aside>
+    </main>
+
+    <script type="module" src="./main.mjs"></script>
+  </body>
+</html>
+

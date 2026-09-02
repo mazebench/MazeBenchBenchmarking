@@ -14,6 +14,12 @@ import {
   rotateVoxelObject,
   voxelPlacementForTool
 } from "./face-placement-v2.mjs";
+import {
+  EDITOR_SOLVER_PRESETS_V1,
+  EditorSolversV1,
+  replayEngineSolutionV1,
+  solverPathLabelV1
+} from "./solvers.mjs";
 
 const elements = {
   stage: document.getElementById("stage"),
@@ -33,7 +39,14 @@ const elements = {
   resetView: document.getElementById("reset-view"),
   undo: document.getElementById("undo"),
   save: document.getElementById("save"),
-  status: document.getElementById("status")
+  status: document.getElementById("status"),
+  playLink: document.getElementById("play-link"),
+  quickSolve: document.getElementById("quick-solve"),
+  exactSolve: document.getElementById("exact-solve"),
+  cancelSolve: document.getElementById("cancel-solve"),
+  replaySolution: document.getElementById("replay-solution"),
+  solverResult: document.getElementById("solver-result"),
+  solverPath: document.getElementById("solver-path")
 };
 
 let world;
@@ -47,6 +60,10 @@ let undoStack = [];
 let savedObjects = null;
 let dirty = false;
 let hoverHit = null;
+const solvers = new EditorSolversV1();
+let solverBusy = false;
+let replayGeneration = 0;
+let lastSolution = null;
 
 const cloneObjects = (objects) => objects.map((object) => ({ ...object }));
 const countBlock = (objects, blockId) => objects.filter((object) => object.blockId === blockId).length;
@@ -57,7 +74,30 @@ function setStatus(message, error = false) {
   elements.status.classList.toggle("is-error", error);
 }
 
+function invalidateSolution({ cancel = true } = {}) {
+  replayGeneration += 1;
+  if (cancel) solvers.cancel();
+  solverBusy = false;
+  lastSolution = null;
+  elements.quickSolve.disabled = false;
+  elements.exactSolve.disabled = false;
+  elements.cancelSolve.disabled = true;
+  elements.replaySolution.disabled = true;
+  elements.solverResult.textContent = "Room changed; run a solver again.";
+  elements.solverPath.textContent = "";
+}
+
+function setSolverBusy(busy, label = "") {
+  solverBusy = busy;
+  elements.quickSolve.disabled = busy;
+  elements.exactSolve.disabled = busy;
+  elements.cancelSolve.disabled = !busy;
+  elements.replaySolution.disabled = busy || !lastSolution?.solution?.length;
+  if (label) elements.solverResult.textContent = label;
+}
+
 function markDirty(message = "Unsaved changes.") {
+  invalidateSolution();
   dirty = true;
   elements.save.textContent = "Save";
   elements.save.classList.add("primary");
@@ -260,6 +300,7 @@ function updateRoomChrome() {
   elements.fileName.title = currentRoom.fileName;
   elements.gemCount.textContent = String(countBlock(currentRoom.objects, "gem"));
   elements.roomSelect.value = currentRoom.fileName;
+  elements.playLink.href = `../../play/v1/?room=${currentRoom.position.join("x")}`;
   elements.roomGrid.querySelectorAll("button").forEach((button) => {
     button.classList.toggle("is-current", button.dataset.file === currentRoom.fileName);
   });
@@ -276,6 +317,7 @@ function switchRoom(room) {
   }
   if (dirty) currentRoom.objects = cloneObjects(savedObjects);
   currentRoom = room;
+  invalidateSolution();
   savedObjects = cloneObjects(room.objects);
   undoStack = [];
   dirty = false;
@@ -323,8 +365,71 @@ async function saveRoom() {
   }
 }
 
+async function runSolver(preset) {
+  if (solverBusy) return;
+  lastSolution = null;
+  elements.solverPath.textContent = "";
+  setSolverBusy(true, `${preset.label} C++ search is running…`);
+  setStatus(`Running engine v1 ${preset.label.toLowerCase()} solver…`);
+  try {
+    const result = await solvers.solve(currentRoom, world.blocks, preset);
+    lastSolution = result.solution.length ? result : null;
+    const elapsed = result.elapsedMs < 1000
+      ? `${result.elapsedMs.toFixed(0)} ms`
+      : `${(result.elapsedMs / 1000).toFixed(2)} s`;
+    const proof = result.proven ? "proven shortest" : result.status === "solved-unproven" ? "route found, not proven" : result.status;
+    elements.solverResult.textContent = `${proof} · ${result.moves} moves · ${result.expanded.toLocaleString()} global states · ${elapsed}`;
+    elements.solverPath.textContent = solverPathLabelV1(result.solution);
+    setStatus(result.solution.length
+      ? `Engine v1 found a ${result.moves}-move ${result.proven ? "optimal " : ""}route.`
+      : `Engine v1 search finished: ${result.status}.`, !result.solution.length);
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      elements.solverResult.textContent = error?.message || "Solver failed.";
+      setStatus(error?.message || "Solver failed.", true);
+    }
+  } finally {
+    setSolverBusy(false);
+  }
+}
+
+async function replaySolution() {
+  if (solverBusy || !lastSolution?.solution?.length) return;
+  const generation = ++replayGeneration;
+  setSolverBusy(true, `Replaying ${lastSolution.solution.length} engine commands…`);
+  try {
+    await replayEngineSolutionV1(
+      currentRoom,
+      world.blocks,
+      lastSolution.solution,
+      (room) => renderer.setRoom(room, { preserveCamera: true }),
+      { isCancelled: () => generation !== replayGeneration }
+    );
+    if (generation === replayGeneration) {
+      setStatus("Solution replay complete; the authored room is unchanged.");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  } catch (error) {
+    setStatus(error?.message || "Replay failed.", true);
+  } finally {
+    if (generation === replayGeneration) {
+      renderer.setRoom(currentRoom, { preserveCamera: true });
+      setSolverBusy(false);
+    }
+  }
+}
+
 elements.resetView.addEventListener("click", () => renderer?.resetView());
 elements.save.addEventListener("click", saveRoom);
+elements.quickSolve.addEventListener("click", () => runSolver(EDITOR_SOLVER_PRESETS_V1.quick));
+elements.exactSolve.addEventListener("click", () => runSolver(EDITOR_SOLVER_PRESETS_V1.exact));
+elements.cancelSolve.addEventListener("click", () => {
+  replayGeneration += 1;
+  if (solvers.cancel()) setStatus("Solver cancelled.");
+  if (renderer && currentRoom) renderer.setRoom(currentRoom, { preserveCamera: true });
+  setSolverBusy(false);
+});
+elements.replaySolution.addEventListener("click", replaySolution);
 elements.undo.addEventListener("click", () => {
   const previous = undoStack.pop();
   if (!previous) return;

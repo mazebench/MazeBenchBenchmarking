@@ -9,10 +9,10 @@
   </head>
   <body>
     <header class="editor-topbar">
-      <nav><a href="../../">← World</a></nav>
+      <nav><a href="../../">← World</a> · <a id="play-link" href="../../play/v1/">Play v1</a></nav>
       <div class="editor-title">
         <strong>MazeBench Editor</strong>
-        <span>v1 · Three.js · no physics</span>
+        <span>editor v1 · renderer v1 · engine v1 solvers</span>
       </div>
       <div class="editor-actions">
         <button id="reset-view" type="button">Reset view</button>
@@ -45,6 +45,19 @@
           <div class="panel-heading"><div><span>Toolbox</span><strong id="tool-name">Floor</strong></div></div>
           <p id="tool-description" class="description">Plain ground.</p>
           <div id="toolbox" class="toolbox" aria-label="MazeBench tools"></div>
+        </section>
+
+        <section class="panel solver-panel">
+          <div class="panel-heading"><div><span>Engine v1 solvers</span><strong>Collect every gem</strong></div></div>
+          <p class="description">Both presets run the copied C++ engine's generalized shortest-command search in a worker.</p>
+          <div class="solver-actions">
+            <button id="quick-solve" type="button">Quick · 12k</button>
+            <button id="exact-solve" type="button">Exact · 180k</button>
+            <button id="cancel-solve" type="button" disabled>Cancel</button>
+            <button id="replay-solution" type="button" disabled>Replay</button>
+          </div>
+          <output id="solver-result" class="solver-result">No solution run yet.</output>
+          <div id="solver-path" class="solver-path" aria-label="Solver path"></div>
         </section>
 
         <section class="panel cell-panel">

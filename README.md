@@ -1,6 +1,6 @@
-# MazeBench world map — renderer v1
+# MazeBench benchmarking — renderer, engine, play, and editor v1
 
-A deliberately tiny site that renders the complete MazeBench main world as one Three.js scene and includes a versioned 3D editor.
+A deliberately small localhost site that renders the complete MazeBench main world, plays rooms through the copied C++ engine, and includes a versioned 3D editor with engine-backed solvers.
 
 ## What is here
 
@@ -14,11 +14,15 @@ A deliberately tiny site that renders the complete MazeBench main world as one T
 - `render/v1/special-piece-renderers.mjs` — non-asset special geometry and lift triangles
 - `render/v1/asset-renderers.mjs` — authored GLB loading plus the exact gem-shaped fallback
 - `render/v1/three-renderer.mjs` — the version 1 scene and input controller
-- `editor/v1/` — the version 1 room editor with face-mounted objects, camera-facing directional tools, and static 3D toolbox previews
+- `engine/v1/core/` — unchanged copied C++ engine source, headers, tests, and benchmarks from MazeBenchEngineUnitTest
+- `engine/v1/voxel_physics.wasm` — the exact copied UnitTest release engine; physics and exact search live here
+- `engine/v1/engine.mjs` — the small storage-v2/browser ABI boundary
+- `play/v1/` — play mode v1, driven by the engine's resumable per-tick command trace
+- `editor/v1/` — editor v1 with face-mounted objects, 3D toolbox previews, and quick/exact engine-v1 gem solvers
 - `scripts/migrate-v1-to-v2.mjs` — deterministic v1 text to v2 object migration
 - `index.html` — the single page entry point
 
-There is no physics engine, game loop, build step, package manager, or framework in this repository. The only vendored runtime is the source repository's exact Three.js version (`0.184.0`); the small GLB bundle contains only renderer assets referenced by the level parser.
+There is no framework, package manager, or build step in this repository. The vendored runtimes are the source repository's exact Three.js version (`0.184.0`) and the UnitTest repository's byte-identical 395 KB engine-v1 WebAssembly build. The C++ engine is not rewritten in JavaScript.
 
 ## Run it
 
@@ -30,7 +34,9 @@ node server.mjs
 
 Then open <http://localhost:8080>.
 
-The small local server also provides the editor's narrowly scoped save endpoint. The active editor writes only the 256 JSON rooms listed in the v2 manifest, validates their object data, and keeps every room exactly 16×16. The v1 text save route remains available only for compatibility.
+The small local server also provides the editor's narrowly scoped save endpoint and serves WebAssembly with its required MIME type. The active editor writes only the 256 JSON rooms listed in the v2 manifest, validates their object data, and keeps every room exactly 16×16. The v1 text save route remains available only for compatibility.
+
+Open play mode at <http://localhost:8080/play/v1/> or the editor at <http://localhost:8080/editor/v1/>.
 
 ## Level storage versions
 
@@ -47,7 +53,7 @@ node scripts/migrate-v1-to-v2.mjs
 
 ## Source
 
-The level data, authored GLB assets, parser/color conventions, and connected-component mesh/edge behavior used by renderer v1 come from [`mazebench/MazeBenchEngine`](https://github.com/mazebench/MazeBenchEngine), branch `several-fixes`, commit `bac6efc9aef6cbf0812c4a57dccb1ad67a15c9ea`. The v2 compact object format, occupancy rules, and face-normal placement behavior are minimal ports from the local `MazeBenchEngineUnitTest` repository; none of its React, WASM, game, or physics code is included.
+The level data, authored GLB assets, parser/color conventions, and connected-component mesh/edge behavior used by renderer v1 come from [`mazebench/MazeBenchEngine`](https://github.com/mazebench/MazeBenchEngine), branch `several-fixes`, commit `bac6efc9aef6cbf0812c4a57dccb1ad67a15c9ea`. The v2 compact object format, occupancy rules, face-normal placement behavior, unchanged C++ engine, and exact solver come from the local `MazeBenchEngineUnitTest` repository at commit `54a0c6f6d6cf0cbe651c58bdbce1da09b365e484`. Its React application and dashboard are intentionally excluded.
 
 Only the 256 files referenced by the main world's 16×16 `world_map.json` are included. The source repository's `old/` and `other/` level fixtures are intentionally excluded.
 
