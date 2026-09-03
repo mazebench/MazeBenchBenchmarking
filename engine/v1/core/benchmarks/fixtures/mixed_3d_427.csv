@@ -3,7 +3,7 @@
 # fixture=mixed_3d_427
 # width=8
 # height=8
-# expected_moves=427
+# expected_moves=435
 # expected_voxels=110
 x,y,z,role,generic_id
 0,0,0,floor,-1

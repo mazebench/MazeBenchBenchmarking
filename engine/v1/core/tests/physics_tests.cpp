@@ -104,6 +104,22 @@ void TestPlayerIceSlide() {
         "player should cross the Ice strip and stop on normal floor");
 }
 
+void TestApproachingIceFromWallDoesNotStartSlidingEarly() {
+  voxelbench::Voxel voxels[] = {
+      {2, 5, 2, Role("player"), -1},
+      {2, 5, 1, Role("solid"), -1},
+      {2, 4, 1, Role("solid"), -1},
+      {2, 3, 1, Role("ice"), -1},
+      {2, 2, 1, Role("ice"), -1},
+      {2, 1, 1, Role("ice"), -1},
+      {2, 0, 1, Role("solid"), -1},
+  };
+  Check(voxelbench::simulate_turn(voxels, 7, 6, 6, 0) == 0,
+        "approaching Ice across a wall top should run");
+  Check(voxels[0].y == 4 && voxels[0].z == 2,
+        "the command should stop before the player actually enters Ice");
+}
+
 void TestPushableIceSlide() {
   voxelbench::Voxel voxels[] = {
       {2, 4, 1, Role("player"), -1},
@@ -2100,6 +2116,7 @@ int main() {
   TestSimplePush();
   TestPlayerGateRisesWhenPlayerApproaches();
   TestPlayerIceSlide();
+  TestApproachingIceFromWallDoesNotStartSlidingEarly();
   TestPushableIceSlide();
   TestPlayerAndPushedBodySlideTogetherOnIce();
   TestIceStopsAtObstacle();
@@ -2186,6 +2203,6 @@ int main() {
     std::cerr << failures << " C++ physics test(s) failed\n";
     return EXIT_FAILURE;
   }
-  std::cout << "all 85 C++ physics/search tests passed\n";
+  std::cout << "all 86 C++ physics/search tests passed\n";
   return EXIT_SUCCESS;
 }

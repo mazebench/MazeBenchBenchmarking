@@ -62,9 +62,14 @@ export class PlaySessionV1 {
     this.generation += 1;
     const previous = this.history.pop();
     this.state = cloneState(previous.state);
+    this.initialState = cloneState(previous.initialState);
     this.moves = previous.moves;
     this.queue.length = 0;
     this.running = false;
+    if (previous.room !== this.room) {
+      this.room = previous.room;
+      this.onRoomChange(this.room);
+    }
     this.publish({ undone: true });
     this.onFrame(this.state, this.room);
     return true;
@@ -113,7 +118,12 @@ export class PlaySessionV1 {
     try {
       while (this.queue.length && runGeneration === this.generation) {
         const direction = this.queue.shift();
-        this.history.push({ state: cloneState(this.state), moves: this.moves });
+        this.history.push({
+          state: cloneState(this.state),
+          initialState: cloneState(this.initialState),
+          moves: this.moves,
+          room: this.room
+        });
         if (this.history.length > 256) this.history.shift();
         this.publish();
         const commandRoom = this.room;
@@ -148,7 +158,6 @@ export class PlaySessionV1 {
         }
         if (finalRoom !== commandRoom) {
           this.initialState = cloneState(simulation.final);
-          this.history.length = 0;
         }
         this.moves += 1;
         this.publish({ cycle: simulation.cycle });

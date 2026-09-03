@@ -1843,19 +1843,6 @@ TickResult step_tick(
     }
     return store_and_finish(kMotionPlayerIce, true);
   }
-  if (!automatic_ice_motion && !pushed && !downhill_underfoot_push &&
-      player.z != INT32_MIN) {
-    const int32_t run_up_x = player.x + dx;
-    const int32_t run_up_y = player.y + dy;
-    if (IsInsideRoom(run_up_x, run_up_y, width, height) &&
-        FindVoxelAt(voxels, run_up_x, run_up_y, player.z, width, height) < 0) {
-      const int32_t run_up_support = FindVoxelAt(
-          voxels, run_up_x, run_up_y, player.z - 1, width, height);
-      if (run_up_support >= 0 && IsIceRole(voxels[run_up_support].role)) {
-        return store_and_finish(kMotionPlayerIce, true);
-      }
-    }
-  }
   const bool gravity_continues =
       ObjectsNeedGravityTick(voxels, count, width, height, false);
   if (gravity_continues && pushed &&

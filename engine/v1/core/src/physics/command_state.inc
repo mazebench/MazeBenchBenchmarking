@@ -1331,21 +1331,6 @@ int32_t TrySimulatePassiveQuiescentTurn(
     }
     if (automatic_ice_motion) break;
 
-    // A normal first step gets Ice momentum when the next unobstructed cell is
-    // supported by Ice, matching the full kernel's one-cell run-up rule.
-    const int32_t run_up_x = x + dx;
-    const int32_t run_up_y = y + dy;
-    if (IsInsideRoom(run_up_x, run_up_y, width, height)) {
-      const int32_t run_up_target = FindVoxelAt(
-          voxels, run_up_x, run_up_y, z, width, height);
-      const int32_t run_up_support = support_at(run_up_x, run_up_y, z - 1);
-      if ((run_up_target < 0 || run_up_target == player_index) &&
-          run_up_support >= 0 &&
-          IsIceRole(voxels[run_up_support].role)) {
-        automatic_ice_motion = true;
-        continue;
-      }
-    }
     break;
   }
 

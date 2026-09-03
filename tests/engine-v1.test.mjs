@@ -83,7 +83,7 @@ test("play animation timing defaults to 105 ms and zero skips to the final frame
   assert.throws(() => session.setFrameDelay(-1), /non-negative number/);
 });
 
-test("connected play walks across an edge and reloads a room after leaving it", async () => {
+test("connected play reloads rooms normally and undo crosses back with exact state", async () => {
   const { engine } = await loadEngine();
   const roomA = {
     fileName: "a.json",
@@ -129,6 +129,7 @@ test("connected play walks across an edge and reloads a room after leaving it", 
       .map(({ x, y }) => ({ x, y })),
     [{ x: 2, y: 0 }]
   );
+  const stateBeforeTransition = structuredClone(session.state);
 
   await session.move("right");
   assert.equal(session.room, roomB);
@@ -137,14 +138,28 @@ test("connected play walks across an edge and reloads a room after leaving it", 
       .map(({ x, y }) => ({ x, y })),
     [{ x: 0, y: 0 }]
   );
-  assert.equal(session.history.length, 0);
+  assert.equal(session.history.length, 2);
+
+  assert.equal(session.undo(), true);
+  assert.equal(session.room, roomA);
+  assert.deepEqual(
+    session.state.objects.filter((object) => object.blockId === "player")
+      .map(({ x, y }) => ({ x, y })),
+    [{ x: 2, y: 0 }]
+  );
+  assert.deepEqual(session.state, stateBeforeTransition);
+  assert.equal(session.moves, 1);
+  assert.deepEqual(entered, ["b.json", "a.json"]);
+
+  await session.move("right");
+  assert.equal(session.room, roomB);
 
   await session.move("left");
   assert.equal(session.room, roomA);
   assert.equal(session.state.objects.some((object) =>
     object.blockId === "gem" && object.x === 0 && object.y === 1), true);
   assert.equal(session.moves, 3);
-  assert.deepEqual(entered, ["b.json", "a.json"]);
+  assert.deepEqual(entered, ["b.json", "a.json", "b.json", "a.json"]);
 });
 
 test("one Ice command dynamically combines only the rooms reached by a long slide", async () => {

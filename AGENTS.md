@@ -108,7 +108,10 @@ the seam. At completion, retain only the room containing the player and discard
 all rooms that were left. Re-entering a discarded room therefore restores its
 original objects. Connected-world animation frames may name different rooms;
 `PlaySessionV1` must switch its active room before publishing each such frame
-and must clear room-local undo history after a transition.
+and must preserve the room identity, state, and room-scoped reset state in each
+undo snapshot. Undoing a transition switches back to the previous room and
+restores its exact pre-command state; ordinary forward re-entry still starts
+from immutable authored room data.
 
 The C++ engine accepts a rectangle, so an L-shaped temporary region represents
 unvisited holes with synthetic solid boundary columns. These columns must never

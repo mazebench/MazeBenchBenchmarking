@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 
-const EXPECTED_FIXTURE_HASH = 0x2c95c12a3e2c3107n;
+const EXPECTED_FIXTURE_HASH = 0xab2b3428d9df8632n;
 const SAMPLE_COUNT = 5;
 const TARGET_SAMPLE_SECONDS = 0.5;
 const WARMUP_SECONDS = 0.25;

@@ -15,7 +15,7 @@
 
 namespace {
 
-constexpr uint64_t kExpectedFixtureHash = UINT64_C(0x2c95c12a3e2c3107);
+constexpr uint64_t kExpectedFixtureHash = UINT64_C(0xab2b3428d9df8632);
 constexpr int32_t kSampleCount = 5;
 constexpr double kTargetSampleSeconds = 0.50;
 
