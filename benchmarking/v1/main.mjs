@@ -54,8 +54,10 @@ function renderRuns(runs) {
     return;
   }
   for (const run of runs) {
+    const card = document.createElement("article");
+    card.className = `record-card${run.tools_enabled ? " tools" : ""}`;
     const link = document.createElement("a");
-    link.className = `record-card${run.tools_enabled ? " tools" : ""}`;
+    link.className = "record-card-link";
     link.href = recordHref(run);
     const progress = run.action_limit
       ? Math.min(100, (run.action_count || 0) / run.action_limit * 100)
@@ -106,11 +108,25 @@ function renderRuns(runs) {
     footer.className = "record-footer";
     const runId = document.createElement("code");
     runId.textContent = run.id.slice(-13);
-    const open = document.createElement("span");
+    const footerActions = document.createElement("div");
+    footerActions.className = "record-footer-actions";
+    const open = document.createElement("a");
+    open.href = recordHref(run);
     open.textContent = "Open model report →";
-    footer.append(runId, open);
-    link.append(top, model, meta, progressBar, metrics, footer);
-    elements["run-list"].append(link);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "record-delete danger";
+    remove.dataset.deleteRun = run.id;
+    remove.textContent = "Delete";
+    remove.disabled = Boolean(run.runner_active);
+    remove.title = run.runner_active
+      ? "Stop or pause this run before deleting it."
+      : "Permanently delete this run.";
+    footerActions.append(open, remove);
+    footer.append(runId, footerActions);
+    link.append(top, model, meta, progressBar, metrics);
+    card.append(link, footer);
+    elements["run-list"].append(card);
   }
 }
 
@@ -216,6 +232,25 @@ async function poll() {
 elements["launch-form"].addEventListener("submit", launchSingle);
 elements["launch-pair"].addEventListener("click", launchPair);
 elements.refresh.addEventListener("click", () => poll());
+elements["run-list"].addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-delete-run]");
+  if (!button || button.disabled) return;
+  const id = button.dataset.deleteRun;
+  const run = (await api("/api/benchmark/v1/runs")).runs.find((entry) => entry.id === id);
+  if (!run) return poll();
+  const confirmed = window.confirm(
+    `Permanently delete ${run.model} run ${run.id}?\n\nThis removes its record, workspace, replay, and interview chats. This cannot be undone.`
+  );
+  if (!confirmed) return;
+  button.disabled = true;
+  try {
+    await api(`/api/benchmark/v1/runs/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await poll();
+  } catch (error) {
+    button.disabled = false;
+    showError(error);
+  }
+});
 elements.model.addEventListener("change", updateEfforts);
 elements["tools-enabled"].addEventListener("change", () => {
   elements["tools-label"].textContent = elements["tools-enabled"].checked ? "On" : "Off";

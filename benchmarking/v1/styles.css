@@ -34,6 +34,8 @@ button:hover:not(:disabled) { border-color: #46505d; background: #1c2026; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 button.primary { color: #061117; background: var(--cyan); border-color: var(--cyan); }
 button.primary:hover:not(:disabled) { background: #9ae5ff; border-color: #9ae5ff; }
+button.danger { color: #ff9f9f; border-color: #5a2929; background: #261315; }
+button.danger:hover:not(:disabled) { color: #ffd0d0; border-color: #a84b51; background: #38191c; }
 a { color: inherit; text-decoration: none; }
 code { color: var(--muted); font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 h1, h2, h3, p { margin-top: 0; }
@@ -128,11 +130,12 @@ select { min-height: 40px; padding: 0 34px 0 11px; }
   box-shadow: 0 12px 35px rgba(0, 0, 0, .12);
   transition: transform .15s ease, border-color .15s ease, background .15s ease;
 }
+.record-card-link { min-width: 0; display: grid; gap: 12px; color: inherit; }
 .record-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 2px; border-radius: 8px 0 0 8px; background: var(--cyan); opacity: .55; }
 .record-card.tools::before { background: var(--gold); }
 .record-card:hover { transform: translateY(-2px); border-color: #3f4a56; background: linear-gradient(145deg, #15191e 0%, #0e1114 100%); }
-.record-card:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
-.record-card.tools:focus-visible { outline-color: var(--gold); }
+.record-card-link:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+.record-card.tools .record-card-link:focus-visible { outline-color: var(--gold); }
 .record-top, .record-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .condition { padding: 4px 6px; border-radius: 3px; color: var(--cyan); background: var(--cyan-dark); font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; text-transform: uppercase; }
 .tools .condition { color: var(--gold); background: var(--gold-dark); }
@@ -151,8 +154,10 @@ select { min-height: 40px; padding: 0 34px 0 11px; }
 .record-metrics small { display: block; color: var(--muted); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; }
 .record-metrics b { display: block; margin-top: 3px; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; }
 .record-footer { padding-top: 2px; color: var(--muted); font-size: 10px; }
-.record-footer span { color: var(--muted-strong); }
-.record-card:hover .record-footer span { color: var(--text); }
+.record-footer-actions { display: flex; align-items: center; gap: 10px; }
+.record-footer-actions a { color: var(--muted-strong); }
+.record-card:hover .record-footer-actions a { color: var(--text); }
+.record-delete { padding: 4px 7px; font-size: 9px; }
 .records-empty { grid-column: 1 / -1; padding: 42px; border: 1px dashed var(--line); border-radius: 8px; text-align: center; color: var(--muted); }
 .records-empty strong { color: var(--text); font-size: 14px; }
 .records-empty p { margin: 6px 0 0; font-size: 12px; }

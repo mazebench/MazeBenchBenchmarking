@@ -1,7 +1,7 @@
 const ids = [
   "connection-status", "load-error", "error-copy", "run-content", "model-hero",
   "model-monogram", "run-kicker", "run-title", "run-subtitle", "run-id", "run-status",
-  "pause-run", "resume-run", "stop-run", "pair-compare", "stat-actions", "stat-gems", "stat-rooms", "stat-cells",
+  "pause-run", "resume-run", "stop-run", "delete-run", "pair-compare", "stat-actions", "stat-gems", "stat-rooms", "stat-cells",
   "stat-novelty", "stat-blocked", "stat-deaths", "stat-tokens", "board-room", "board-move",
   "board", "frame-first", "frame-previous", "frame-play", "frame-next", "frame-last",
   "frame-scrubber", "frame-position", "frame-source", "replay-speed", "heatmap", "heatmap-count", "novelty-value", "novelty-chart", "progress-value",
@@ -654,6 +654,8 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["resume-run"].disabled = false;
   elements["stop-run"].hidden = terminalGame || run.status === "stopped";
   elements["stop-run"].disabled = false;
+  elements["delete-run"].disabled = activeRun;
+  elements["delete-run"].title = activeRun ? "Stop or pause this run before deleting it." : "Permanently delete this run record.";
   elements["stat-actions"].textContent = `${run.action_count || 0}${run.action_limit ? ` / ${run.action_limit}` : ""}`;
   elements["stat-gems"].textContent = `${run.gems_collected || 0} / ${run.gems_total || 100}`;
   elements["stat-rooms"].textContent = formatNumber(run.rooms_visited || 1);
@@ -762,6 +764,23 @@ elements["resume-run"].addEventListener("click", async () => {
     await refreshAfterMutation();
   } catch (error) {
     elements["resume-run"].disabled = false;
+    elements["connection-status"].textContent = error.message;
+    elements["connection-status"].classList.add("error");
+  }
+});
+
+elements["delete-run"].addEventListener("click", async () => {
+  if (!currentRun || currentRun.runner_active) return;
+  const confirmed = window.confirm(
+    `Permanently delete ${currentRun.model} run ${currentRun.id}?\n\nThis removes its record, workspace, replay, and interview chats. This cannot be undone.`
+  );
+  if (!confirmed) return;
+  elements["delete-run"].disabled = true;
+  try {
+    await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
+    window.location.assign("./");
+  } catch (error) {
+    elements["delete-run"].disabled = false;
     elements["connection-status"].textContent = error.message;
     elements["connection-status"].classList.add("error");
   }

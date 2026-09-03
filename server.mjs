@@ -181,6 +181,10 @@ async function benchmarkApi(request, response, url) {
       sendJson(response, 200, await benchmarkSupervisor.get(decodeURIComponent(runMatch[1])));
       return true;
     }
+    if (request.method === "DELETE" && runMatch) {
+      sendJson(response, 200, await benchmarkSupervisor.delete(decodeURIComponent(runMatch[1])));
+      return true;
+    }
     const stopMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/stop$/);
     if (request.method === "POST" && stopMatch) {
       sendJson(response, 200, await benchmarkSupervisor.stop(decodeURIComponent(stopMatch[1])));

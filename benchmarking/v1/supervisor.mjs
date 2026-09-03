@@ -944,6 +944,30 @@ export class BenchmarkSupervisor {
     return this.get(id);
   }
 
+  async delete(idValue) {
+    const id = safeRunId(idValue);
+    const directory = this.runDirectory(id);
+    const metadata = await readJson(path.join(directory, "run.json"));
+    if (!metadata) throw new Error("Benchmark run not found.");
+    if (this.active.has(id)) {
+      throw new Error("Stop or pause this benchmark before deleting it.");
+    }
+    if (this.displayBackfills.has(id)) {
+      throw new Error("Wait for move-history processing to finish before deleting this benchmark.");
+    }
+    const prefix = `${id}:`;
+    if ([...this.interviewActive.keys()].some((key) => key.startsWith(prefix))) {
+      throw new Error("Wait for the active interview answer to finish before deleting this benchmark.");
+    }
+    for (const [key, timer] of this.interviewRetryTimers) {
+      if (!key.startsWith(prefix)) continue;
+      clearTimeout(timer);
+      this.interviewRetryTimers.delete(key);
+    }
+    await rm(directory, { recursive: true, force: false });
+    return { id, deleted: true };
+  }
+
   async pause(idValue) {
     const id = safeRunId(idValue);
     const directory = this.runDirectory(id);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
@@ -500,6 +500,34 @@ test("legacy runs created with the JavaScript-capable boundary cannot resume", a
   }
 });
 
+test("inactive benchmark runs can be permanently deleted but active runs fail closed", async () => {
+  const recordsRoot = await mkdtemp(path.join(os.tmpdir(), "mazebench-delete-run-"));
+  const id = "run-2026-09-03T15-23-20-021Z-de1e7e";
+  const directory = path.join(recordsRoot, id);
+  await mkdir(path.join(directory, "records"), { recursive: true });
+  await writeFile(path.join(directory, "run.json"), JSON.stringify({ id, status: "stopped" }), "utf8");
+  await writeFile(path.join(directory, "records", "moves.txt"), "left\n", "utf8");
+  const supervisor = new BenchmarkSupervisor(projectRoot, { recordsRoot });
+  supervisor.active.set(id, { child: null });
+  try {
+    await assert.rejects(() => supervisor.delete(id), /Stop or pause/);
+    await access(path.join(directory, "records", "moves.txt"));
+    supervisor.active.delete(id);
+    const retryKey = `${id}:chat-2026-09-03T15-23-20-021Z-abc123`;
+    const retryTimer = setTimeout(() => {}, 60_000);
+    retryTimer.unref?.();
+    supervisor.interviewRetryTimers.set(retryKey, retryTimer);
+    const result = await supervisor.delete(id);
+    assert.deepEqual(result, { id, deleted: true });
+    assert.equal(supervisor.interviewRetryTimers.has(retryKey), false);
+    await assert.rejects(() => access(directory), { code: "ENOENT" });
+  } finally {
+    supervisor.active.delete(id);
+    for (const timer of supervisor.interviewRetryTimers.values()) clearTimeout(timer);
+    await rm(recordsRoot, { recursive: true, force: true });
+  }
+});
+
 test("stopped records recover a missing Codex thread id from their event log", async () => {
   const recordsRoot = await mkdtemp(path.join(os.tmpdir(), "mazebench-thread-recovery-"));
   const id = "run-2026-09-03T15-23-20-021Z-7ad197";
@@ -607,12 +635,13 @@ test("the versioned evaluation prompt retains the supplied prompt bytes", async 
 });
 
 test("the benchmark library links to dedicated model records with colored ASCII rendering", async () => {
-  const [index, main, runPage, runScript, styles] = await Promise.all([
+  const [index, main, runPage, runScript, styles, server] = await Promise.all([
     readFile(path.join(projectRoot, "benchmarking", "v1", "index.html"), "utf8"),
     readFile(path.join(projectRoot, "benchmarking", "v1", "main.mjs"), "utf8"),
     readFile(path.join(projectRoot, "benchmarking", "v1", "run.html"), "utf8"),
     readFile(path.join(projectRoot, "benchmarking", "v1", "run.mjs"), "utf8"),
-    readFile(path.join(projectRoot, "benchmarking", "v1", "styles.css"), "utf8")
+    readFile(path.join(projectRoot, "benchmarking", "v1", "styles.css"), "utf8"),
+    readFile(path.join(projectRoot, "server.mjs"), "utf8")
   ]);
   assert.match(index, /Evaluation library/);
   assert.doesNotMatch(index, /id="board"/);
@@ -628,6 +657,7 @@ test("the benchmark library links to dedicated model records with colored ASCII 
   assert.match(runPage, /id="new-interview"/);
   assert.match(runPage, /id="pause-run"/);
   assert.match(runPage, /id="resume-run"/);
+  assert.match(runPage, /id="delete-run"/);
   assert.match(runPage, /<label for="interview-question">Your question<\/label>/);
   assert.doesNotMatch(runPage, /id="interview-question"[^>]*disabled/);
   assert.match(runScript, /colored_level/);
@@ -641,6 +671,11 @@ test("the benchmark library links to dedicated model records with colored ASCII 
   assert.match(runScript, /refreshAfterMutation/);
   assert.match(runScript, /addEventListener\("input", syncInterviewSendButton\)/);
   assert.match(runScript, /Branch & ask/);
+  assert.match(runScript, /method: "DELETE"/);
+  assert.match(main, /dataset\.deleteRun = run\.id/);
+  assert.match(main, /This cannot be undone/);
+  assert.match(server, /request\.method === "DELETE"/);
+  assert.match(styles, /button\.danger/);
   assert.match(styles, /font-size: clamp\(6px, 1\.05vmin, 12px\)/);
   assert.doesNotMatch(styles, /saturate\(/);
 });
