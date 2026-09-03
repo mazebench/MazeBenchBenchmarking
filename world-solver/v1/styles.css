@@ -9,10 +9,12 @@
   --cyan: #6cd7ff;
   --green: #286e38;
   --yellow: #ffd840;
+  --orange: #ff8b25;
   --red: #ff3423;
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
 body { overflow: hidden; background: var(--bg); color: var(--text); }
 button { border: 1px solid var(--line); border-radius: 4px; background: #171b21; color: var(--text); font: inherit; cursor: pointer; }
@@ -73,9 +75,12 @@ canvas {
 .legend span { display: flex; align-items: center; gap: 6px; }
 .legend i { width: 9px; height: 9px; border: 1px solid #ffffff2b; }
 .room-swatch { background: var(--green); }
+.open-room-swatch { background: linear-gradient(135deg, #524412, var(--yellow)); }
+.searched-room-swatch { background: linear-gradient(135deg, #66310f, var(--orange)); }
 .old-swatch { background: var(--yellow); }
 .recent-swatch { background: linear-gradient(90deg, var(--yellow), var(--red)); }
 .current-swatch { background: var(--red); }
+.exit-swatch { background: var(--cyan); }
 
 aside { display: grid; align-content: start; gap: 9px; overflow: auto; padding: 10px; border-left: 1px solid var(--line); }
 .panel { padding: 11px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); }
@@ -83,6 +88,9 @@ aside { display: grid; align-content: start; gap: 9px; overflow: auto; padding: 
 .intro > span, .stats span { color: var(--muted); font-size: 7px; letter-spacing: .05em; text-transform: uppercase; }
 .intro > strong { color: #80e58a; font-size: 20px; }
 .intro p { margin: 3px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.mode-selector { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
+.mode-selector button { height: 34px; font-size: 9px; }
+.mode-selector button[aria-pressed="true"] { border-color: #44798c; background: #17242a; color: var(--cyan); }
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 13px 9px; }
 .stats div { display: grid; gap: 4px; min-width: 0; }
 .stats strong { overflow: hidden; color: var(--cyan); font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }

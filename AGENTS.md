@@ -129,7 +129,7 @@ be projected into room state or rendered. Do not eagerly combine a complete
 row, column, or world: a room is attached only after the trace expresses intent
 to cross its shared edge.
 
-## Edge Finder and Random World Agent v1
+## Edge Finder and World Solver v1
 
 The canonical engine exposes an exact reachability API through
 `search_edges`, `search_edge_count`, and `search_edge_solution`. It enumerates
@@ -155,12 +155,64 @@ crossings, visit pixels, reached-room bits, gem identity, death rollback, and
 teleports stay in the native batch. Complex Ice/punch/mechanism seams may stop
 the batch and use `ConnectedWorldSessionV1` as the exact fallback.
 
-The UI displays the full 256×256 grid. Reached room backgrounds are green,
+The Random Agent UI displays the full 256×256 grid. Reached room backgrounds are green,
 every visited `(x,y)` pixel (dropping z) is yellow, and the most recent 50
 distinct player positions fade from yellow toward red with the current pixel
 red. It reports live actions/sec, directional actions, reached rooms, unique
 gems, death undos, softlock teleports, and the current room. There is no saved
-route graph, BFS database, invalidation tree, or playback UI in World Solver v1.
+route graph, invalidation tree, or playback UI in World Solver v1.
+
+Exact BFS, DFS Meta, Super A*, and Row A* are the deterministic World Solver modes. They start at H×I and use the
+canonical search engine's compact dynamic-entity representation with a
+project-owned FIFO reachability loop. Ordinary player reachability is collapsed
+into a local BFS for each global board configuration. The UI paints reachable
+player `(x,y)` pixels yellow on the full 256×256 world and boundary exits cyan.
+An open or actively searched room uses the yellow map palette. The same room
+changes atomically to orange when its search completes or its exact frontier is
+exhausted, and its red current-position marker is removed. A closed orange room
+must never receive another red marker unless a future search phase genuinely
+reopens it and first changes its status back to yellow.
+Throughput must report attempted engine commands per second separately from
+local state visits per second.
+
+Exact BFS finishes the current room before dequeuing another reached room. DFS
+Meta instead stops the native room loop when a new boundary entrance is exposed,
+copies only the compact room BFS frontier into page-owned storage, immediately
+searches the new room, and rebuilds/resumes the exact parent frontier during
+backtracking. It must not discard a partial room search, restart it from its
+authored root, or modify the canonical engine to support this orchestration.
+
+Super A* retains the local player BFS but orders global dynamic-board states by
+weighted `f = g + 3h`, where `h` is Manhattan distance to the nearest remaining
+gem or boundary leading to an undiscovered room. Its page-owned global
+portfolio allocates bounded search slices across room-entry jobs, favoring
+shallower jobs and rooms with remaining authored gems without letting one hard
+room monopolize the worker. A new outlet adds its reset neighboring room to the
+portfolio immediately; a collected gem reprioritizes continuation states in the
+same exact room graph. Deduplicate room jobs by first entrance and board states
+by the native compact-state hash. Super A* is a discovery-throughput heuristic,
+not a shortest-route proof.
+
+Row A* is deliberately gem- and exit-agnostic. For each vertical player row it
+actually reaches, it uses weighted A* to cover every unvisited standable `(x,y)`
+surface derived from immutable floor, solid wall, Ice, and Ice-slope geometry;
+an immutable surface covered by another immutable block is not a target. Room
+edges create neighboring-room work only when encountered incidentally. Gems are
+still counted when incidental traversal collects them but never affect the
+heuristic. Floating floors do not trigger a BFS fallback: every position they
+occupy in an encountered dynamic board state extends the Row A* target
+landscape. A room job finishes when all targets on its discovered rows have been
+visited or when its exact compact-state frontier is exhausted. It stays closed
+after exhaustion until a future phase supplies a genuinely new entry state.
+
+When a boundary exit first reaches an undiscovered neighboring room, enqueue
+that room with immutable authored state, remove its authored player, and spawn
+the incoming H×I player at the opposite boundary coordinate and carried engine
+height. Search each room exactly once from that first entrance. Count a gem if
+any explored state in that room collects it. Do not yet revisit rooms, add
+alternate entry roots, run reset-entry generations, propagate mutated board
+state across a seam, or perform back-and-forth closure; the user explicitly
+deferred those phases.
 
 ## ASCII overlap and face-fixture contract
 

@@ -43,6 +43,49 @@ ZIG_GLOBAL_CACHE_DIR="$project_root/.zig-global-cache" \
   -Wl,--export=search_prepare_scene \
   -Wl,--export=search_prepare_quiescent_snapshot \
   -Wl,--export=search_try_passive_quiescent_turn \
+  -Wl,--export=room_bfs_begin \
+  -Wl,--export=room_bfs_run \
+  -Wl,--export=room_bfs_run_until_edge \
+  -Wl,--export=super_astar_begin \
+  -Wl,--export=super_astar_run \
+  -Wl,--export=row_astar_begin \
+  -Wl,--export=row_astar_run \
+  -Wl,--export=row_astar_target_count \
+  -Wl,--export=row_astar_active_targets \
+  -Wl,--export=row_astar_visited_targets \
+  -Wl,--export=row_astar_row_count \
+  -Wl,--export=row_astar_coverage_complete \
+  -Wl,--export=row_astar_target_x \
+  -Wl,--export=row_astar_target_y \
+  -Wl,--export=row_astar_target_z \
+  -Wl,--export=row_astar_target_visited \
+  -Wl,--export=row_astar_row \
+  -Wl,--export=row_astar_restore_reset \
+  -Wl,--export=row_astar_restore_target \
+  -Wl,--export=row_astar_restore_row \
+  -Wl,--export=room_bfs_states \
+  -Wl,--export=room_bfs_state_capacity \
+  -Wl,--export=room_bfs_expanded \
+  -Wl,--export=room_bfs_transitions \
+  -Wl,--export=room_bfs_global_states \
+  -Wl,--export=room_bfs_full_physics_transitions \
+  -Wl,--export=room_bfs_state_words \
+  -Wl,--export=room_bfs_state_buffer \
+  -Wl,--export=room_bfs_head \
+  -Wl,--export=room_bfs_generated \
+  -Wl,--export=room_bfs_transpositions \
+  -Wl,--export=room_bfs_collected_goals_low \
+  -Wl,--export=room_bfs_collected_goals_high \
+  -Wl,--export=room_bfs_restore \
+  -Wl,--export=room_bfs_restore_visited_word \
+  -Wl,--export=room_bfs_restore_edge \
+  -Wl,--export=room_bfs_edge_count \
+  -Wl,--export=room_bfs_edge_cell \
+  -Wl,--export=room_bfs_edge_direction \
+  -Wl,--export=room_bfs_edge_z \
+  -Wl,--export=room_bfs_visited_word \
+  -Wl,--export=room_bfs_latest_cell \
+  -Wl,--export=room_bfs_collected_goals \
   -Wl,--export=random_agent_begin \
   -Wl,--export=random_agent_run \
   -Wl,--export=random_agent_actions \
@@ -81,11 +124,10 @@ ZIG_GLOBAL_CACHE_DIR="$project_root/.zig-global-cache" \
   -Wl,--export=search_solution_step \
   -Wl,--export-memory \
   -Wl,--initial-memory=100663296 \
-  -Wl,--max-memory=100663296 \
+  -Wl,--max-memory=536870912 \
   -o "$output" \
   -I"$project_root/engine/v1/core/include" \
   "$project_root/engine/v1/core/src/physics.cpp" \
-  "$project_root/engine/v1/core/src/search.cpp" \
   "$project_root/world-solver/v1/native/random-agent-wasm.cpp"
 
 echo "Built $output"

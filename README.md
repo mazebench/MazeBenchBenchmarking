@@ -37,11 +37,25 @@ Then open <http://localhost:8080>.
 
 The small local server also provides the editor's narrowly scoped save endpoint and serves WebAssembly with its required MIME type. The active editor writes only the 256 JSON rooms listed in the v2 manifest, validates their object data, and keeps every room exactly 16×16. The v1 text save route remains available only for compatibility.
 
-Open `/world-solver/v1/` for the native batched Random World Agent. It starts in
-H×I, paints visited pixels on the full 256×256 world grid, reports live speed,
-rooms, gems, and death undos, and teleports to a reached room every 10,000 moves
-to escape softlocks. Its accelerator is owned by `world-solver/v1/` and rebuilds
-against the byte-identical imported engine without changing `engine/v1`.
+Open `/world-solver/v1/` for Exact BFS, DFS Meta, Super A*, Row A*, and the
+native batched Random World Agent. Exact BFS finishes each room before opening the
+next one. DFS Meta keeps the same exact room BFS but suspends it as soon as an
+undiscovered-room entrance appears, explores that room first, and later resumes
+the saved parent frontier. Super A* uses weighted `g + 3h` ordering toward the
+nearest remaining gem or undiscovered boundary and fairly time-slices every
+active room search in a global portfolio. All three reset newly reached rooms
+and use their first entrance. Row A* is gem- and exit-agnostic: it targets every
+open immutable floor, wall, Ice, and Ice-slope surface on each reached vertical
+row, while dynamically adding encountered floating-floor positions. A room
+finishes when its reached-row targets are covered or its frontier is exhausted.
+Search-mode rooms are yellow while open and turn orange once searched or
+exhausted; the live red position is never drawn in a closed orange room.
+They report command speed, state visits, rooms, and collectible gems on the full
+256×256 grid. Random Agent paints visits on that same grid, reports live speed,
+rooms, gems, and death undos, and teleports every 10,000 moves to escape
+softlocks. Their accelerator is owned by
+`world-solver/v1/` and rebuilds against the byte-identical imported engine
+without changing `engine/v1`.
 
 Open play mode at <http://localhost:8080/play/v1/> or the editor at <http://localhost:8080/editor/v1/>. In play mode, `M` swaps between the same live engine state in 3D and ASCII. ASCII uses `A`/`D` for its four cardinal headings and `W`/`S` for MazeBench's five views from top-down through side-on.
 
