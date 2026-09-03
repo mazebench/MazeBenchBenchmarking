@@ -2110,6 +2110,48 @@ void TestSearchTracksFilledFloatingFloorState() {
         "search should cross the filled hole and collect the gem");
 }
 
+void TestReachableEdgesWithoutGems() {
+  static voxelbench::PhysicsWorkspace physics_workspace;
+  static voxelbench::SearchWorkspace search_workspace;
+  voxelbench::Voxel voxels[10] = {
+      {1, 1, 1, Role("player"), -1},
+  };
+  int32_t count = 1;
+  for (int32_t y = 0; y < 3; ++y) {
+    for (int32_t x = 0; x < 3; ++x) {
+      voxels[count++] = {x, y, 0, Role("floor"), -1};
+    }
+  }
+  voxelbench::reset_workspace(&physics_workspace);
+  const auto edges = voxelbench::search_reachable_edges(
+      &search_workspace, &physics_workspace, voxels, count, 3, 3, 1000);
+  Check(edges.status == voxelbench::SearchStatus::kSolved && edges.edges == 12,
+        "edge search should exhaustively retain each outward perimeter route without gems");
+  for (int32_t edge = 0; edge < edges.edges; ++edge) {
+    const auto route = voxelbench::search_edge_solution(
+        &search_workspace, &physics_workspace, edge, count, 3, 3);
+    Check(route.status == voxelbench::SearchStatus::kSolved &&
+              route.solution_length >= 2 && route.solution_length == route.moves,
+          "each reachable edge should reconstruct a complete shortest witness");
+  }
+
+  voxelbench::Voxel dynamic_voxels[14] = {
+      {1, 2, 1, Role("player"), -1},
+      {1, 1, 1, Role("pushable"), 0},
+  };
+  count = 2;
+  for (int32_t y = 0; y < 3; ++y) {
+    for (int32_t x = 0; x < 4; ++x) {
+      dynamic_voxels[count++] = {x, y, 0, Role("floor"), -1};
+    }
+  }
+  const auto dynamic_edges = voxelbench::search_reachable_edges(
+      &search_workspace, &physics_workspace, dynamic_voxels, count, 4, 3, 1000);
+  Check(dynamic_edges.status == voxelbench::SearchStatus::kSolved &&
+            dynamic_edges.edges > 14,
+        "coincident edge coordinates with different crate states should remain distinct");
+}
+
 }  // namespace
 
 int main() {
@@ -2199,10 +2241,11 @@ int main() {
   TestCloneDoesNotEnterPlayerCellWhenPlayerPushIsBlocked();
   TestAuthoredFloatingFloorHoversAndSlopeJamReflectsPlayer();
   TestSearchTracksFilledFloatingFloorState();
+  TestReachableEdgesWithoutGems();
   if (failures != 0) {
     std::cerr << failures << " C++ physics test(s) failed\n";
     return EXIT_FAILURE;
   }
-  std::cout << "all 86 C++ physics/search tests passed\n";
+  std::cout << "all 87 C++ physics/search tests passed\n";
   return EXIT_SUCCESS;
 }

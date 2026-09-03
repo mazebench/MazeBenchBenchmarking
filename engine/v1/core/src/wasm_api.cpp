@@ -8,6 +8,7 @@ voxelbench::PhysicsWorkspace g_workspace;
 voxelbench::MotionState g_motion_state;
 voxelbench::SearchWorkspace g_search_workspace;
 voxelbench::SearchResult g_search_result;
+voxelbench::EdgeSearchResult g_edge_search_result;
 uint8_t g_role_buffer[voxelbench::kRoleBufferCapacity];
 bool g_initialized = false;
 
@@ -167,6 +168,53 @@ int32_t search_solve(
       width,
       height,
       maximum_nodes);
+  return static_cast<int32_t>(g_search_result.status);
+}
+
+int32_t search_edges(
+    int32_t count,
+    int32_t width,
+    int32_t height,
+    int32_t maximum_nodes) {
+  EnsureInitialized();
+  g_edge_search_result = voxelbench::search_reachable_edges(
+      &g_search_workspace,
+      &g_workspace,
+      g_voxels,
+      count,
+      width,
+      height,
+      maximum_nodes);
+  g_search_result = {};
+  g_search_result.status = g_edge_search_result.status;
+  g_search_result.expanded = g_edge_search_result.expanded;
+  g_search_result.generated = g_edge_search_result.generated;
+  g_search_result.transpositions = g_edge_search_result.transpositions;
+  g_search_result.local_expanded = g_edge_search_result.local_expanded;
+  g_search_result.command_transitions =
+      g_edge_search_result.command_transitions;
+  g_search_result.full_physics_transitions =
+      g_edge_search_result.full_physics_transitions;
+  return static_cast<int32_t>(g_edge_search_result.status);
+}
+
+int32_t search_edge_count() {
+  return g_edge_search_result.edges;
+}
+
+int32_t search_edge_solution(
+    int32_t index,
+    int32_t count,
+    int32_t width,
+    int32_t height) {
+  EnsureInitialized();
+  g_search_result = voxelbench::search_edge_solution(
+      &g_search_workspace,
+      &g_workspace,
+      index,
+      count,
+      width,
+      height);
   return static_cast<int32_t>(g_search_result.status);
 }
 

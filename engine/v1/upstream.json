@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "7739f646998db02c7a51acd08a6ec46fd32fcdef",
-  "sourceTree": "bb242914e1ff158d1f433e9c518e3a70c7fd59de",
+  "sourceCommit": "742ebf49235cafad37ce7f2732fc180c5acf5250",
+  "sourceTree": "0d003d78b0e0f461f9c0614ff1e3000d881c1003",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "sourcePath": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "3a1fd5ac13354c0888e07b6d8f46928a1dc0c498895f5d67eee0ca038ab36140",
-    "bytes": 446691
+    "sha256": "a86773c977288bc8766fff804a08b4d93af28309dfe0eac0bf2dc4f0d917d5bc",
+    "bytes": 455607
   },
   "files": [
     {
@@ -44,7 +44,7 @@
     {
       "mode": "100644",
       "path": "include/voxelbench/search.hpp",
-      "sha256": "a7e5ab6d0b0dbee9a3f47d932c6e90424c6a520706939c71a56839a69d51800a"
+      "sha256": "a1b386773c75973872d5052aa691235977835e5b78cf22e848b0ed04a0a1db90"
     },
     {
       "mode": "100644",
@@ -114,12 +114,12 @@
     {
       "mode": "100644",
       "path": "src/search.cpp",
-      "sha256": "b67365b8909d262e0864f6af070831cd3152445e7624ffa7d24ef150f15ab3fc"
+      "sha256": "bcc9197a861e6b0f8c7bd26f28834f4ac54559c9c9e18262eca235bf5fb1560d"
     },
     {
       "mode": "100644",
       "path": "src/wasm_api.cpp",
-      "sha256": "f6446d04f2fd651641b6af0806687ba879c13cda9efe362513a2676b4cb24f6b"
+      "sha256": "0934487668d97d006b445db40df4da05004fbb9e12ec454ee46a2238c9ce77d8"
     },
     {
       "mode": "100644",
@@ -129,7 +129,7 @@
     {
       "mode": "100644",
       "path": "tests/physics_tests.cpp",
-      "sha256": "0f85b58ad422ed1f0f9ea8a67e9739a435d8fce97e82358ddd383c2b7d71d31a"
+      "sha256": "1a3d7d2329cb293ef554ab3ea3a16c01b116f1c445b1012691bb66d3fbc87fbc"
     },
     {
       "mode": "100644",
@@ -139,7 +139,7 @@
     {
       "mode": "100644",
       "path": "tests/wasm_api.test.mjs",
-      "sha256": "e4d6f374c8e8d911068a6b3328d466f908ab3f730bafcc252cb3c32b95755c67"
+      "sha256": "3b888f2051bcea490e8a472707f29cd1c6755067cb9b3f2156610efd6ddccaf6"
     }
   ]
 }

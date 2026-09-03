@@ -119,6 +119,35 @@ be projected into room state or rendered. Do not eagerly combine a complete
 row, column, or world: a room is attached only after the trace expresses intent
 to cross its shared edge.
 
+## Edge Finder and world solver v1
+
+The canonical engine exposes an additive exact reachability API through
+`search_edges`, `search_edge_count`, and `search_edge_solution`. It enumerates
+boundary-reachable states without requiring a gem and preserves distinct
+dynamic board states even when the player coordinates coincide. Keep ordinary
+gem solving on `search_solve`; do not fold connected-world topology into C++.
+
+`world-solver/v1/worker.mjs` replays each C++ boundary witness through
+`ConnectedWorldSessionV1`. This replay is authoritative for deciding whether a
+route really crosses a seam, including a multi-room Ice slide or redirected
+punch. Only settled destination states become search nodes. Rooms crossed in
+the middle of one command remain transition hops and dependencies, not places
+where a new command may begin.
+
+Saved analysis lives in ignored `work/world-solver-v1.json`. Nodes retain exact
+room state, collected-gem identity, parent route, and incoming transition.
+Transitions retain their local command witness, every room hop, and every room
+whose authored data was used. Saving a v2 room through the editor must remove
+nodes in that room, transitions depending on that room, and all downstream
+descendants while leaving unrelated branches reusable. A surviving upstream
+node whose outgoing route was removed must be marked for re-search.
+
+World-solver markers are semantic: opaque green is the authored start,
+transparent blue is a reachable exit, and transparent green is an entered
+room state. Coincident markers must not be collapsed when their exact board
+states differ. Circular transitions may point to an existing node but remain
+reviewable as transitions.
+
 ## ASCII overlap and face-fixture contract
 
 The ASCII renderer resolves ordinary objects by exact `(x, y, z)` occupancy.

@@ -182,6 +182,69 @@ export class MazeBenchEngineV1 {
       solution
     };
   }
+
+  findEdges(stateOrRoom, definitions, options = {}) {
+    const state = createEngineStateV1(stateOrRoom);
+    if (state.objects.length > this.exports.search_voxel_capacity()) {
+      throw new Error(`engine/v1 search supports at most ${this.exports.search_voxel_capacity()} objects.`);
+    }
+    if (countActiveRoleV1(state, definitions, "player") < 1) {
+      throw new Error("Place a player before finding room edges.");
+    }
+    this.writeState(state, definitions);
+    const capacity = this.exports.search_node_capacity();
+    const maximumNodes = Math.max(1, Math.min(
+      capacity,
+      Math.floor(Number(options.maximumNodes) || capacity)
+    ));
+    const startedAt = performance.now();
+    const statusCode = this.exports.search_edges(
+      state.objects.length,
+      state.width,
+      state.height,
+      maximumNodes
+    );
+    const edgeCount = this.exports.search_edge_count();
+    const metrics = {
+      expanded: this.exports.search_expanded(),
+      generated: this.exports.search_generated(),
+      transpositions: this.exports.search_transpositions(),
+      localExpanded: this.exports.search_local_expanded(),
+      commandTransitions: this.exports.search_command_transitions(),
+      fullPhysicsTransitions: this.exports.search_full_physics_transitions()
+    };
+    const maximumEdges = Math.max(0, Math.min(
+      edgeCount,
+      Math.floor(Number(options.maximumEdges) || edgeCount)
+    ));
+    const edges = [];
+    for (let index = 0; index < maximumEdges; index += 1) {
+      if (this.exports.search_edge_solution(
+        index,
+        state.objects.length,
+        state.width,
+        state.height
+      ) !== 1) {
+        throw new Error(`engine/v1 could not reconstruct edge ${index}.`);
+      }
+      const solution = [];
+      for (let step = 0; step < this.exports.search_solution_length(); step += 1) {
+        solution.push(ENGINE_V1_DIRECTIONS[this.exports.search_solution_step(step)]);
+      }
+      edges.push({ index, moves: solution.length, solution });
+    }
+    return {
+      status: SEARCH_STATUSES[statusCode] || "invalid",
+      statusCode,
+      proven: statusCode === 1,
+      maximumNodes,
+      elapsedMs: performance.now() - startedAt,
+      edgeCount,
+      truncatedEdges: edgeCount - edges.length,
+      edges,
+      ...metrics
+    };
+  }
 }
 
 export async function instantiateMazeBenchEngineV1(source) {

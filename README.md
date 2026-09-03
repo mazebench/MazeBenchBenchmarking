@@ -37,6 +37,10 @@ Then open <http://localhost:8080>.
 
 The small local server also provides the editor's narrowly scoped save endpoint and serves WebAssembly with its required MIME type. The active editor writes only the 256 JSON rooms listed in the v2 manifest, validates their object data, and keeps every room exactly 16×16. The v1 text save route remains available only for compatibility.
 
+Open `/world-solver/v1/` for the connected-world Edge Finder. It saves its
+incremental route graph under the ignored `work/` directory; editing a room
+invalidates only routes that use that room and their downstream descendants.
+
 Open play mode at <http://localhost:8080/play/v1/> or the editor at <http://localhost:8080/editor/v1/>. In play mode, `M` swaps between the same live engine state in 3D and ASCII. ASCII uses `A`/`D` for its four cardinal headings and `W`/`S` for MazeBench's five views from top-down through side-on.
 
 ## Level storage versions

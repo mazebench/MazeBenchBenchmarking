@@ -78,6 +78,12 @@ struct SearchNode {
   uint8_t direction;
 };
 
+struct SearchEdge {
+  uint32_t parent;
+  int16_t player_coordinates[3];
+  uint8_t direction;
+};
+
 struct SearchData {
   SearchNode nodes[kSearchNodeCapacity];
   // A search with E moving entities packs node N at N * E. This retains the
@@ -120,6 +126,10 @@ struct SearchData {
   bool root_is_quiescent;
   int32_t reconstruct_nodes[kSearchSolutionCapacity];
   uint8_t reconstruct_directions[kLocalStateCapacity];
+  SearchEdge edges[kSearchEdgeCapacity];
+  int32_t edge_count;
+  int32_t search_width;
+  int32_t search_height;
 };
 
 static_assert(sizeof(SearchData) <= kSearchWorkspaceBytes);
@@ -641,8 +651,9 @@ bool AddGeneralNode(
     int32_t maximum_nodes,
     int32_t* node_count,
     bool* limit_reached,
-    SearchResult* result) {
-  ++result->generated;
+    int32_t* generated,
+    int32_t* transpositions) {
+  ++*generated;
   const uint64_t hash = HashState(
       data->candidate,
       data->entity_count,
@@ -657,7 +668,7 @@ bool AddGeneralNode(
       data->candidate_lift_states,
       data->candidate_orange_depth);
   if (existing >= 0) {
-    ++result->transpositions;
+    ++*transpositions;
     SearchNode& node = data->nodes[existing];
     if (cost < node.cost && data->closed[existing] == 0) {
       node.parent = static_cast<uint32_t>(parent);
@@ -930,6 +941,36 @@ bool ReconstructGeneralSolution(
   return result->moves == data->nodes[node].cost;
 }
 
+void RecordBoundaryEdges(
+    SearchData* data,
+    int32_t parent,
+    const int16_t player_coordinates[3],
+    int32_t width,
+    int32_t height,
+    bool* limit_reached) {
+  const int32_t x = DecodeCoordinate(player_coordinates[0]);
+  const int32_t y = DecodeCoordinate(player_coordinates[1]);
+  const bool boundary[4] = {
+      y == 0,
+      x == width - 1,
+      y == height - 1,
+      x == 0,
+  };
+  for (int32_t direction = 0; direction < 4; ++direction) {
+    if (!boundary[direction]) continue;
+    if (data->edge_count >= kSearchEdgeCapacity) {
+      *limit_reached = true;
+      continue;
+    }
+    SearchEdge& edge = data->edges[data->edge_count++];
+    edge.parent = static_cast<uint32_t>(parent);
+    edge.player_coordinates[0] = player_coordinates[0];
+    edge.player_coordinates[1] = player_coordinates[1];
+    edge.player_coordinates[2] = player_coordinates[2];
+    edge.direction = static_cast<uint8_t>(direction);
+  }
+}
+
 SearchResult SearchGeneralized(
     SearchData* data,
     PhysicsWorkspace* physics_workspace,
@@ -937,7 +978,8 @@ SearchResult SearchGeneralized(
     int32_t width,
     int32_t height,
     int32_t maximum_nodes,
-    int32_t node_count) {
+    int32_t node_count,
+    bool collect_edges) {
   SearchResult result{};
   data->heap_size = 0;
   data->heap_positions[0] = -1;
@@ -949,7 +991,7 @@ SearchResult SearchGeneralized(
     if (data->closed[head] != 0) continue;
     data->closed[head] = 1;
     const SearchNode& parent = data->nodes[head];
-    if (NodeIsGoal(data, parent)) {
+    if (!collect_edges && NodeIsGoal(data, parent)) {
       result.status = limit_reached
           ? SearchStatus::kSolvedUnproven
           : SearchStatus::kSolved;
@@ -971,6 +1013,16 @@ SearchResult SearchGeneralized(
     bool passive_snapshot_valid = false;
     for (int32_t local_head = 0; local_head < local_count; ++local_head) {
       ++result.local_expanded;
+      if (collect_edges && static_cast<uint32_t>(parent.cost) +
+              data->local_distances[local_head] < kSearchSolutionCapacity) {
+        RecordBoundaryEdges(
+            data,
+            head,
+            data->local_coordinates[local_head],
+            width,
+            height,
+            &limit_reached);
+      }
       const uint64_t source_key =
           LocalCoordinateKey(data->local_coordinates[local_head]);
       for (int32_t direction = 0; direction < 4; ++direction) {
@@ -1052,30 +1104,35 @@ SearchResult SearchGeneralized(
             maximum_nodes,
             &node_count,
             &limit_reached,
-            &result);
+            &result.generated,
+            &result.transpositions);
       }
     }
   }
-  result.status = limit_reached ? SearchStatus::kLimitHit : SearchStatus::kUnsolved;
+  result.status = limit_reached
+      ? SearchStatus::kLimitHit
+      : (collect_edges ? SearchStatus::kSolved : SearchStatus::kUnsolved);
   return result;
 }
 
-}  // namespace
-
-SearchResult search_shortest(
+bool InitializeSearch(
     SearchWorkspace* search_workspace,
     PhysicsWorkspace* physics_workspace,
     const Voxel* voxels,
     int32_t count,
     int32_t width,
     int32_t height,
-    int32_t maximum_nodes) {
+    int32_t* maximum_nodes,
+    bool require_goals) {
   if (search_workspace == nullptr || physics_workspace == nullptr ||
       voxels == nullptr || count <= 0 || count > kSearchVoxelCapacity ||
-      width <= 0 || height <= 0 || maximum_nodes <= 0) {
-    return InvalidResult();
+      width <= 0 || height <= 0 || maximum_nodes == nullptr ||
+      *maximum_nodes <= 0) {
+    return false;
   }
-  if (maximum_nodes > kSearchNodeCapacity) maximum_nodes = kSearchNodeCapacity;
+  if (*maximum_nodes > kSearchNodeCapacity) {
+    *maximum_nodes = kSearchNodeCapacity;
+  }
 
   SearchData* data = Data(search_workspace);
   if (!search_workspace->initialized) {
@@ -1090,6 +1147,9 @@ SearchResult search_shortest(
     search_workspace->initialized = true;
   }
   data->count = count;
+  data->search_width = width;
+  data->search_height = height;
+  data->edge_count = 0;
   data->dynamic_voxel_count = 0;
   data->entity_count = 0;
   data->player_index = -1;
@@ -1116,9 +1176,7 @@ SearchResult search_shortest(
       }
     }
     if (entity < 0) {
-      if (data->entity_count >= kSearchDynamicEntityCapacity) {
-        return InvalidResult();
-      }
+      if (data->entity_count >= kSearchDynamicEntityCapacity) return false;
       entity = data->entity_count++;
       data->entity_anchors[entity] = target;
       data->entity_roles[entity] = family_role;
@@ -1129,11 +1187,9 @@ SearchResult search_shortest(
     data->base_offsets[target][0] = voxels[source].x - anchor.x;
     data->base_offsets[target][1] = voxels[source].y - anchor.y;
     data->base_offsets[target][2] = voxels[source].z - anchor.z;
-    if (voxels[source].role == kPlayerRole) {
-      if (data->player_index < 0) {
-        data->player_index = target;
-        data->player_entity = entity;
-      }
+    if (voxels[source].role == kPlayerRole && data->player_index < 0) {
+      data->player_index = target;
+      data->player_entity = entity;
     }
   }
   // Orange-wall anchors and player gates never translate, but their mechanism
@@ -1154,7 +1210,7 @@ SearchResult search_shortest(
     const int32_t target = static_count++;
     data->scene[target] = voxels[source];
     if (voxels[source].role == kGoalRole) {
-      if (data->goal_count >= kSearchGoalCapacity) return InvalidResult();
+      if (data->goal_count >= kSearchGoalCapacity) return false;
       const int32_t goal = data->goal_count++;
       data->goal_indices[goal] = target;
       data->goal_coordinates[goal][0] = voxels[source].x;
@@ -1162,14 +1218,14 @@ SearchResult search_shortest(
       data->goal_coordinates[goal][2] = voxels[source].z;
     }
   }
-  if (data->player_index < 0 || data->goal_count <= 0 ||
-      data->entity_count <= 0) {
-    return InvalidResult();
+  if (data->player_index < 0 || data->entity_count <= 0 ||
+      (require_goals && data->goal_count <= 0)) {
+    return false;
   }
   const int32_t coordinate_limited_nodes =
       kSearchCoordinateCapacity / data->entity_count;
-  if (maximum_nodes > coordinate_limited_nodes) {
-    maximum_nodes = coordinate_limited_nodes;
+  if (*maximum_nodes > coordinate_limited_nodes) {
+    *maximum_nodes = coordinate_limited_nodes;
   }
   if (!prepare_scene(
           physics_workspace,
@@ -1178,13 +1234,11 @@ SearchResult search_shortest(
           width,
           height,
           data->dynamic_voxel_count)) {
-    return InvalidResult();
+    return false;
   }
   data->root_is_quiescent = SceneIsSettled(data, width, height);
-
-  SearchResult result{};
   if (!CaptureCandidate(data) ||
-      !CandidatePlayerIsActive(data, width, height)) return InvalidResult();
+      !CandidatePlayerIsActive(data, width, height)) return false;
   SearchNode& root = data->nodes[0];
   root.coordinates = data->node_coordinates;
   StoreNodeCoordinates(
@@ -1207,8 +1261,31 @@ SearchResult search_shortest(
       root.collected_goals,
       root.lift_states,
       root.orange_depth), 0);
-  int32_t node_count = 1;
+  return true;
+}
 
+}  // namespace
+
+SearchResult search_shortest(
+    SearchWorkspace* search_workspace,
+    PhysicsWorkspace* physics_workspace,
+    const Voxel* voxels,
+    int32_t count,
+    int32_t width,
+    int32_t height,
+    int32_t maximum_nodes) {
+  if (!InitializeSearch(
+          search_workspace,
+          physics_workspace,
+          voxels,
+          count,
+          width,
+          height,
+          &maximum_nodes,
+          true)) return InvalidResult();
+
+  SearchData* data = Data(search_workspace);
+  SearchResult result{};
   if (IsGoal(data)) {
     result.status = SearchStatus::kSolved;
     return result;
@@ -1220,7 +1297,91 @@ SearchResult search_shortest(
       width,
       height,
       maximum_nodes,
-      node_count);
+      1,
+      false);
+}
+
+EdgeSearchResult search_reachable_edges(
+    SearchWorkspace* search_workspace,
+    PhysicsWorkspace* physics_workspace,
+    const Voxel* voxels,
+    int32_t count,
+    int32_t width,
+    int32_t height,
+    int32_t maximum_nodes) {
+  EdgeSearchResult result{};
+  if (!InitializeSearch(
+          search_workspace,
+          physics_workspace,
+          voxels,
+          count,
+          width,
+          height,
+          &maximum_nodes,
+          false)) {
+    result.status = SearchStatus::kInvalid;
+    return result;
+  }
+  SearchData* data = Data(search_workspace);
+  const SearchResult search = SearchGeneralized(
+      data,
+      physics_workspace,
+      count,
+      width,
+      height,
+      maximum_nodes,
+      1,
+      true);
+  result.status = search.status;
+  result.edges = data->edge_count;
+  result.expanded = search.expanded;
+  result.generated = search.generated;
+  result.transpositions = search.transpositions;
+  result.local_expanded = search.local_expanded;
+  result.command_transitions = search.command_transitions;
+  result.full_physics_transitions = search.full_physics_transitions;
+  return result;
+}
+
+SearchResult search_edge_solution(
+    SearchWorkspace* search_workspace,
+    PhysicsWorkspace* physics_workspace,
+    int32_t edge_index,
+    int32_t count,
+    int32_t width,
+    int32_t height) {
+  if (search_workspace == nullptr || physics_workspace == nullptr ||
+      !search_workspace->initialized) return InvalidResult();
+  SearchData* data = Data(search_workspace);
+  if (edge_index < 0 || edge_index >= data->edge_count ||
+      count != data->count || width != data->search_width ||
+      height != data->search_height) return InvalidResult();
+  const SearchEdge edge = data->edges[edge_index];
+  SearchResult result{};
+  if (!ReconstructGeneralSolution(
+          data,
+          physics_workspace,
+          static_cast<int32_t>(edge.parent),
+          count,
+          width,
+          height,
+          &result) ||
+      !AppendGeneralLocalPath(
+          data,
+          physics_workspace,
+          data->nodes[edge.parent],
+          edge.player_coordinates,
+          count,
+          width,
+          height,
+          &result) ||
+      result.solution_length >= kSearchSolutionCapacity) {
+    return InvalidResult();
+  }
+  result.solution[result.solution_length++] = edge.direction;
+  result.moves = result.solution_length;
+  result.status = SearchStatus::kSolved;
+  return result;
 }
 
 }  // namespace voxelbench

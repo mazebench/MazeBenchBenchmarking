@@ -59,6 +59,11 @@ const elements = {
   replaySolution: document.getElementById("replay-solution"),
   solverResult: document.getElementById("solver-result"),
   solverPath: document.getElementById("solver-path"),
+  edgeStartMode: document.getElementById("edge-start-mode"),
+  edgeFind: document.getElementById("edge-find"),
+  edgeExact: document.getElementById("edge-exact"),
+  edgeResult: document.getElementById("edge-result"),
+  edgeList: document.getElementById("edge-list"),
   genericDialog: document.getElementById("generic-dialog"),
   genericForm: document.getElementById("generic-form"),
   genericTitle: document.getElementById("generic-title"),
@@ -111,8 +116,13 @@ function invalidateSolution({ cancel = true } = {}) {
   elements.exactSolve.disabled = false;
   elements.cancelSolve.disabled = true;
   elements.replaySolution.disabled = true;
+  elements.edgeFind.disabled = false;
+  elements.edgeExact.disabled = false;
+  elements.edgeStartMode.disabled = false;
   elements.solverResult.textContent = "Room changed; run a solver again.";
   elements.solverPath.textContent = "";
+  elements.edgeResult.textContent = "Room changed; run Edge Finder again.";
+  elements.edgeList.textContent = "";
 }
 
 function setSolverBusy(busy, label = "") {
@@ -121,6 +131,9 @@ function setSolverBusy(busy, label = "") {
   elements.exactSolve.disabled = busy;
   elements.cancelSolve.disabled = !busy;
   elements.replaySolution.disabled = busy || !lastSolution?.solution?.length;
+  elements.edgeFind.disabled = busy;
+  elements.edgeExact.disabled = busy;
+  elements.edgeStartMode.disabled = busy;
   if (label) elements.solverResult.textContent = label;
 }
 
@@ -478,6 +491,10 @@ async function saveRoom() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Save failed.");
     markSaved();
+    if (payload.invalidatedWorldSolverNodes > 0 ||
+        payload.invalidatedWorldSolverTransitions > 0) {
+      setStatus(`Saved ${currentRoom.fileName}; removed ${payload.invalidatedWorldSolverNodes} dependent world-solver states and ${payload.invalidatedWorldSolverTransitions} routes.`);
+    }
   } catch (error) {
     setStatus(error.message || "Save failed.", true);
   } finally {
@@ -539,6 +556,48 @@ async function replaySolution() {
   }
 }
 
+async function runEdgeFinder(preset) {
+  if (solverBusy) return;
+  elements.edgeList.textContent = "";
+  setSolverBusy(true);
+  elements.edgeResult.textContent = `${preset.label} edge search is running…`;
+  setStatus(`Finding connected-world exits from ${currentRoom.position.join("×")}…`);
+  try {
+    const result = await solvers.findEdges(currentRoom, preset, {
+      includeSavedEntries: elements.edgeStartMode.value === "saved",
+      onProgress: (message) => { elements.edgeResult.textContent = message; }
+    });
+    const entries = result.results.length;
+    const transitions = result.results.flatMap((entry) => entry.transitions.map((transition) => ({
+      ...transition,
+      startId: entry.startId
+    })));
+    const candidates = result.results.reduce((sum, entry) => sum + entry.search.edgeCount, 0);
+    elements.edgeResult.textContent = `${transitions.length} exact room-crossing states · ${entries} start state${entries === 1 ? "" : "s"} · ${candidates.toLocaleString()} boundary witnesses checked`;
+    for (const transition of transitions.slice(0, 200)) {
+      const destination = transition.destinationRoom.position?.join("×") || transition.destinationRoom.fileName;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "edge-route";
+      button.innerHTML = `<b>Entry ${transition.startId} → ${destination} · ${transition.hops.length} seam${transition.hops.length === 1 ? "" : "s"}</b><code>${solverPathLabelV1(transition.solution)}</code>`;
+      elements.edgeList.append(button);
+    }
+    if (transitions.length > 200) {
+      elements.edgeList.append(`Showing 200 of ${transitions.length}; use World Solver to review the complete saved graph.`);
+    }
+    setStatus(transitions.length
+      ? `Edge Finder found ${transitions.length} connected-world entry states.`
+      : "No neighboring room crossing was reachable from these starts.", !transitions.length);
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      elements.edgeResult.textContent = error?.message || "Edge Finder failed.";
+      setStatus(error?.message || "Edge Finder failed.", true);
+    }
+  } finally {
+    setSolverBusy(false);
+  }
+}
+
 elements.resetView.addEventListener("click", () => renderer?.resetView());
 elements.eraser.addEventListener("click", () => setTool("__erase_top__"));
 elements.save.addEventListener("click", saveRoom);
@@ -557,6 +616,8 @@ elements.genericDialog.addEventListener("pointerdown", (event) => {
 });
 elements.quickSolve.addEventListener("click", () => runSolver(EDITOR_SOLVER_PRESETS_V1.quick));
 elements.exactSolve.addEventListener("click", () => runSolver(EDITOR_SOLVER_PRESETS_V1.exact));
+elements.edgeFind.addEventListener("click", () => runEdgeFinder(EDITOR_SOLVER_PRESETS_V1.quick));
+elements.edgeExact.addEventListener("click", () => runEdgeFinder(EDITOR_SOLVER_PRESETS_V1.exact));
 elements.cancelSolve.addEventListener("click", () => {
   replayGeneration += 1;
   if (solvers.cancel()) setStatus("Solver cancelled.");

@@ -17,6 +17,7 @@
       </div>
       <div class="editor-actions">
         <a id="play-link" class="play-room-link" href="../../play/v1/">Play v1</a>
+        <a class="play-room-link" href="../../world-solver/v1/">World Solver</a>
         <button id="reset-view" type="button">Reset view</button>
         <button id="eraser" type="button" aria-pressed="false" title="Erase one object">Eraser</button>
         <button id="undo" type="button" disabled>Undo</button>
@@ -61,6 +62,23 @@
           </div>
           <output id="solver-result" class="solver-result">No solution run yet.</output>
           <div id="solver-path" class="solver-path" aria-label="Solver path"></div>
+        </section>
+
+        <section class="panel solver-panel edge-panel">
+          <div class="panel-heading"><div><span>Engine v1 solvers</span><strong>Edge Finder</strong></div></div>
+          <p class="description">Find exact board states that can cross into neighboring rooms. Saved world entries can also be used as starts.</p>
+          <label class="edge-start">Starts
+            <select id="edge-start-mode">
+              <option value="authored">Authored player</option>
+              <option value="saved">Authored + saved entries</option>
+            </select>
+          </label>
+          <div class="solver-actions">
+            <button id="edge-find" type="button">Quick · 12k</button>
+            <button id="edge-exact" type="button">Exact · 180k</button>
+          </div>
+          <output id="edge-result" class="solver-result">No edge search run yet.</output>
+          <div id="edge-list" class="edge-list"></div>
         </section>
 
         <section class="panel cell-panel">

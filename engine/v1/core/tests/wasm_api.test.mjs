@@ -222,6 +222,34 @@ test("WebAssembly exact search targets collection of a literal gem", async () =>
   assert.deepEqual([engine.search_solution_step(0), engine.search_solution_step(1)], [0, 0]);
 });
 
+test("WebAssembly enumerates reachable room edges without requiring gems", async () => {
+  const engine = await loadEngine();
+  const voxels = [{ x: 1, y: 1, z: 1, roleId: "player" }];
+  for (let y = 0; y < 3; y += 1) {
+    for (let x = 0; x < 3; x += 1) {
+      voxels.push({ x, y, z: 0, roleId: "floor" });
+    }
+  }
+  const stride = engine.voxel_stride();
+  const buffer = new Int32Array(
+    engine.memory.buffer,
+    engine.voxel_buffer(),
+    voxels.length * stride,
+  );
+  voxels.forEach((voxel, index) => buffer.set([
+    voxel.x, voxel.y, voxel.z, roleCode(engine, voxel.roleId), -1,
+  ], index * stride));
+
+  assert.equal(engine.search_edges(voxels.length, 3, 3, 1000), 1);
+  assert.equal(engine.search_edge_count(), 12);
+  assert.equal(engine.search_edge_solution(0, voxels.length, 3, 3), 1);
+  assert.ok(engine.search_solution_length() >= 2);
+  assert.equal(
+    engine.search_solution_step(engine.search_solution_length() - 1),
+    0,
+  );
+});
+
 test("WebAssembly distinguishes a capped route from an optimal proof", async () => {
   const engine = await loadEngine();
   const voxels = [];

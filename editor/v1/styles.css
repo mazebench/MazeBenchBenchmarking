@@ -132,6 +132,12 @@ button:disabled { cursor: default; opacity: 0.42; }
   font-size: 11px; line-height: 1.5; word-spacing: 3px;
 }
 .solver-path:empty { display: none; }
+.edge-start { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px; margin-bottom: 7px; color: var(--muted); font-size: 8px; text-transform: uppercase; }
+.edge-start select { min-width: 0; height: 28px; padding: 0 5px; font-size: 8px; }
+.edge-list { display: grid; gap: 4px; overflow: auto; max-height: 125px; margin-top: 6px; }
+.edge-route { min-width: 0; padding: 6px; text-align: left; color: var(--muted); font-size: 8px; line-height: 1.35; }
+.edge-route b { display: block; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.edge-route code { color: var(--cyan); white-space: normal; }
 .status { min-height: 18px; margin: 0; padding: 2px 3px; color: var(--muted); font-size: 9px; }
 .status.is-error { color: #ff7b72; }
 

@@ -9,7 +9,7 @@ browser by `upstream.mjs`.
   engine-core file is rewritten here.
 - `voxel_physics.wasm` is the byte-identical upstream release build. It contains
   the arbitrary-3D physics kernel, resumable per-tick command API, cycle
-  handling, and exact shortest-command gem solver.
+  handling, exact shortest-command gem solver, and exact reachable-edge search.
 - `adapter.mjs` maps this repository's storage-v2 objects and surface-floor
   coordinates to the five-int C++ ABI.
 - `engine.mjs` is the public versioned API for play, replay, and search.

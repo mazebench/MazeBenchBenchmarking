@@ -26,6 +26,7 @@ const blocks = [
   { id: "gem", roleId: "goal", visual: { kind: "model" } },
   { id: "gate", roleId: "player-gate", visual: { kind: "gate" } },
   { id: "puncher", roleId: "puncher", visual: { kind: "puncher" } },
+  { id: "crate", roleId: "pushable", visual: { kind: "cube" } },
   { id: "floating-floor", roleId: "floating-floor", visual: { kind: "platform" } }
 ];
 
@@ -322,6 +323,42 @@ test("exact solver and play commands share the copied engine", async () => {
   }
   assert.equal(countActiveRoleV1(state, blocks, "goal"), 0);
   assert.deepEqual(state.objects[0], { x: 1, y: 0, z: 0, blockId: "player" });
+});
+
+test("edge finder enumerates shortest boundary witnesses without gems", async () => {
+  const { engine } = await loadEngine();
+  const room = {
+    width: 3,
+    height: 3,
+    objects: [{ x: 1, y: 1, z: 0, blockId: "player" }]
+  };
+  for (let y = 0; y < 3; y += 1) {
+    for (let x = 0; x < 3; x += 1) {
+      room.objects.push({ x, y, z: 0, blockId: "floor" });
+    }
+  }
+  const result = engine.findEdges(room, blocks, { maximumNodes: 1_000 });
+  assert.equal(result.status, "solved");
+  assert.equal(result.proven, true);
+  assert.equal(result.edgeCount, 12);
+  assert.equal(result.edges.length, 12);
+  assert.deepEqual(result.edges[0].solution, ["up", "up"]);
+
+  const dynamic = {
+    width: 4,
+    height: 3,
+    objects: [
+      { x: 1, y: 2, z: 0, blockId: "player" },
+      { x: 1, y: 1, z: 0, blockId: "crate" }
+    ]
+  };
+  for (let y = 0; y < 3; y += 1) {
+    for (let x = 0; x < 4; x += 1) {
+      dynamic.objects.push({ x, y, z: 0, blockId: "floor" });
+    }
+  }
+  const variants = engine.findEdges(dynamic, blocks, { maximumNodes: 1_000 });
+  assert.ok(variants.edgeCount > 14, "different dynamic board states share edge coordinates");
 });
 
 test("storage-v2 surface Ice produces the engine's multi-tick slide", async () => {

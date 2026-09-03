@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="MazeBench connected-world edge and playability solver.">
+    <title>MazeBench — World Solver v1</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header>
+      <nav><a href="../../">← World</a><a href="../../editor/v1/">Editor</a></nav>
+      <div><strong>World Solver</strong><span>connected-world / v1</span></div>
+      <output id="status">Loading world…</output>
+    </header>
+    <main>
+      <section class="map-panel">
+        <div id="world-grid" class="world-grid" aria-label="World solver room map"></div>
+        <div class="legend">
+          <span><i class="marker start"></i> authored start</span>
+          <span><i class="marker exit"></i> reachable edge</span>
+          <span><i class="marker entry"></i> entered state</span>
+        </div>
+      </section>
+      <aside>
+        <section class="panel controls">
+          <label>Start room<select id="start-room"></select></label>
+          <div class="limits">
+            <label>C++ states<input id="maximum-nodes" type="number" min="1" max="180000" value="12000"></label>
+            <label>World entries<input id="maximum-states" type="number" min="1" value="512"></label>
+            <label>Entries / room<input id="maximum-per-room" type="number" min="1" value="32"></label>
+            <label>Edge witnesses<input id="maximum-edges" type="number" min="1" max="8192" value="512"></label>
+          </div>
+          <div class="actions">
+            <button id="run" class="primary" type="button">Run / resume</button>
+            <button id="exact" type="button">Exact · 180k</button>
+            <button id="fresh" type="button">Fresh run</button>
+            <button id="stop" type="button" disabled>Stop</button>
+          </div>
+        </section>
+        <section class="panel stats-grid">
+          <div><span>Rooms</span><strong id="rooms">0</strong></div>
+          <div><span>Entry states</span><strong id="entries">0</strong></div>
+          <div><span>Transitions</span><strong id="transitions">0</strong></div>
+          <div><span>Pending</span><strong id="pending">0</strong></div>
+          <div><span>Gems found</span><strong id="gems">0</strong></div>
+          <div><span>Best route</span><strong id="best-gems">0</strong></div>
+        </section>
+        <section class="panel review">
+          <div class="review-heading"><strong id="review-title">Route review</strong><button id="download" type="button" disabled>Download JSON</button></div>
+          <div id="review-body" class="review-body">Run the solver or select a saved room.</div>
+        </section>
+      </aside>
+    </main>
+    <script type="module" src="./main.mjs"></script>
+  </body>
+</html>

@@ -174,6 +174,9 @@ async function verifyWasm(sourceRoot, manifest) {
     "command_cycle_repeat_tick",
     "simulate_turn",
     "search_solve",
+    "search_edges",
+    "search_edge_count",
+    "search_edge_solution",
     "search_solution_length",
     "search_solution_step"
   ];
