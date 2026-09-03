@@ -19,6 +19,7 @@ A deliberately small localhost site that renders the complete MazeBench main wor
 - `engine/v1/voxel_physics.wasm` — the exact copied UnitTest release engine; physics and exact search live here
 - `engine/v1/engine.mjs` — the small storage-v2/browser ABI boundary
 - `play/v1/` — play mode v1, driven by the engine's resumable per-tick command trace
+- `benchmarking/v1/` — local Codex benchmark runner with a read-only records MCP interface, optional isolated Python workspace, and live evaluation charts
 - `editor/v1/` — editor v1 with face-mounted objects, 3D toolbox previews, Fast A*, and Exact Shortest gem solvers
 - `scripts/migrate-v1-to-v2.mjs` — deterministic v1 text to v2 object migration
 - `index.html` — the single page entry point
@@ -55,6 +56,28 @@ orange room as yellow; a duplicate entry is ignored. Search-mode rooms are
 yellow while open and turn
 orange once searched or exhausted; the live red position is never drawn in a
 closed orange room.
+
+Open `/benchmarking/v1/` to run locally authenticated Codex models against the
+same engine and H×I start. Every condition receives `maze_observe`,
+`maze_action`, and `maze_sequence`; tools-on runs additionally receive
+`python_exec` in a preflighted persistent workspace. `maze_observe` is the only
+agent-facing reader for current state and the run's allowlisted read-only
+records. Authoritative results are stored under
+`~/records/mazebench-benchmark/` and are never exposed to Python.
+Every launch starts from a deny-all Codex feature inventory and uses a frozen,
+hashed per-run model catalog that forces direct MCP tool calls. Both
+Node/JavaScript hosts and their in-process fallback are disabled, and the
+launcher refuses untested Codex CLI versions. The only executable agent code is
+a saved `.py` file run by `python_exec` inside `/workspace`; tools-off runs have
+no code executor or writable agent directory. Runs created before this boundary
+cannot be resumed.
+The benchmark landing page is the launcher and agent-record library; each
+record opens a dedicated live model report with the engine's colored ASCII
+frame, heatmap, novelty trace, activity, and workspace inventory. A run can be
+paused or stopped and then resumed from its existing Codex thread while the
+game remains nonterminal. The record page can also create any number of
+isolated interview branches at the current move, accept free-form questions,
+and end chats without changing the benchmark thread or authoritative results.
 They report command speed, state visits, rooms, and collectible gems on the full
 256×256 grid. Random Agent paints visits on that same grid, reports live speed,
 rooms, gems, and death undos, and teleports every 10,000 moves to escape

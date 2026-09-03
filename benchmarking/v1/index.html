@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Launch local Codex MazeBench evaluations and browse agent run records.">
+    <title>MazeBench — Benchmark v1</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body class="records-page">
+    <header class="topbar">
+      <nav aria-label="MazeBench sections">
+        <a href="../../">World</a>
+        <a href="../../play/v1/">Play</a>
+        <a href="../../editor/v1/">Editor</a>
+        <a href="../../world-solver/v1/">World Solver</a>
+        <a class="active" href="./" aria-current="page">Benchmark</a>
+      </nav>
+      <div class="identity">
+        <span class="pulse" aria-hidden="true"></span>
+        <div><strong>Agent Benchmark</strong><span>Codex local · engine v1</span></div>
+      </div>
+      <output id="connection-status" class="connection-status" aria-live="polite">Connecting…</output>
+    </header>
+
+    <main class="records-main">
+      <section class="launch-panel" aria-labelledby="launch-title">
+        <div class="launch-heading">
+          <div>
+            <span class="eyebrow">New evaluation</span>
+            <h1 id="launch-title">Send a Codex model into the maze</h1>
+            <p>Start at H×I with the canonical prompt and choose whether the model gets an isolated Python workspace.</p>
+          </div>
+          <div class="goal-chip"><span>Objective</span><strong>Collect 100 gems</strong></div>
+        </div>
+        <form id="launch-form" class="launch-controls">
+          <label><span>Codex model</span><select id="model" required></select></label>
+          <label><span>Reasoning</span><select id="effort" required></select></label>
+          <label><span>Action limit</span><select id="action-limit"><option value="100">100 actions</option><option value="unlimited">Unlimited</option></select></label>
+          <label class="tool-toggle">
+            <span>Python workspace</span>
+            <input id="tools-enabled" type="checkbox" role="switch">
+            <i aria-hidden="true"></i>
+            <strong id="tools-label">Off</strong>
+          </label>
+          <div class="launch-actions">
+            <button id="launch-single" type="submit">Launch run</button>
+            <button id="launch-pair" class="primary" type="button">Launch matched pair</button>
+          </div>
+        </form>
+        <p id="launch-status" class="launch-status" role="status" aria-live="polite">Every run gets maze_observe, maze_action, and maze_sequence. Python is the only condition toggle.</p>
+      </section>
+
+      <section class="records-section" aria-labelledby="runs-title">
+        <div class="records-heading">
+          <div>
+            <span class="eyebrow">Agent records</span>
+            <h2 id="runs-title">Evaluation library</h2>
+            <p>Each record opens into its own live model report.</p>
+          </div>
+          <div class="records-actions">
+            <span id="record-count">0 records</span>
+            <button id="refresh" class="icon-button" type="button" aria-label="Refresh agent records">↻</button>
+          </div>
+        </div>
+        <div id="run-list" class="record-grid"><p class="empty-copy">No agent records yet.</p></div>
+      </section>
+    </main>
+
+    <script type="module" src="./main.mjs"></script>
+  </body>
+</html>

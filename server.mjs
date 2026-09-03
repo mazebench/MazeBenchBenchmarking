@@ -3,6 +3,7 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { BenchmarkSupervisor } from "./benchmarking/v1/supervisor.mjs";
 import { decodeVoxelRoom, encodeVoxelRoom } from "./render/v1/voxel-world-v2.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -14,6 +15,7 @@ const allowedV1Levels = new Set(Object.keys(v1Manifest.levels || {}));
 const allowedV2Levels = new Set(Object.keys(v2Manifest.rooms || {}));
 const host = process.env.MAZEBENCH_BENCHMARK_HOST || "127.0.0.1";
 const port = Number(process.env.MAZEBENCH_BENCHMARK_PORT || 8080);
+const benchmarkSupervisor = new BenchmarkSupervisor(root);
 
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -33,6 +35,10 @@ function send(response, status, body, type = "text/plain; charset=utf-8") {
     "X-Content-Type-Options": "nosniff"
   });
   response.end(body);
+}
+
+function sendJson(response, status, value) {
+  send(response, status, JSON.stringify(value), "application/json; charset=utf-8");
 }
 
 async function requestBody(request, maximumBytes = 256 * 1024) {
@@ -94,6 +100,111 @@ async function saveV2Level(request, response, fileName) {
   }
 }
 
+async function benchmarkApi(request, response, url) {
+  try {
+    if (request.method === "GET" && url.pathname === "/api/benchmark/v1/models") {
+      sendJson(response, 200, await benchmarkSupervisor.models());
+      return true;
+    }
+    if (request.method === "GET" && url.pathname === "/api/benchmark/v1/runs") {
+      sendJson(response, 200, { runs: await benchmarkSupervisor.list() });
+      return true;
+    }
+    if (request.method === "POST" && url.pathname === "/api/benchmark/v1/runs") {
+      const payload = JSON.parse(await requestBody(request, 32 * 1024) || "{}");
+      sendJson(response, 202, await benchmarkSupervisor.launch(payload));
+      return true;
+    }
+    if (request.method === "POST" && url.pathname === "/api/benchmark/v1/pairs") {
+      const payload = JSON.parse(await requestBody(request, 32 * 1024) || "{}");
+      sendJson(response, 202, await benchmarkSupervisor.launchPair(payload));
+      return true;
+    }
+    const recordMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/record\/(.+)$/);
+    if (request.method === "GET" && recordMatch) {
+      const content = await benchmarkSupervisor.record(
+        decodeURIComponent(recordMatch[1]),
+        decodeURIComponent(recordMatch[2])
+      );
+      send(response, 200, content, "text/plain; charset=utf-8");
+      return true;
+    }
+    const displayMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/display\/(\d+)$/);
+    if (request.method === "GET" && displayMatch) {
+      sendJson(response, 200, await benchmarkSupervisor.displayFrame(
+        decodeURIComponent(displayMatch[1]),
+        displayMatch[2]
+      ));
+      return true;
+    }
+    const interviewsMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/interviews$/);
+    if (request.method === "GET" && interviewsMatch) {
+      sendJson(response, 200, await benchmarkSupervisor.listInterviews(
+        decodeURIComponent(interviewsMatch[1])
+      ));
+      return true;
+    }
+    if (request.method === "POST" && interviewsMatch) {
+      sendJson(response, 201, await benchmarkSupervisor.createInterview(
+        decodeURIComponent(interviewsMatch[1])
+      ));
+      return true;
+    }
+    const interviewChatMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/interviews\/([^/]+)$/);
+    if (request.method === "GET" && interviewChatMatch) {
+      sendJson(response, 200, await benchmarkSupervisor.getInterviewChat(
+        decodeURIComponent(interviewChatMatch[1]),
+        decodeURIComponent(interviewChatMatch[2])
+      ));
+      return true;
+    }
+    const interviewMessageMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/interviews\/([^/]+)\/messages$/);
+    if (request.method === "POST" && interviewMessageMatch) {
+      const payload = JSON.parse(await requestBody(request, 32 * 1024) || "{}");
+      sendJson(response, 200, await benchmarkSupervisor.askInterview(
+        decodeURIComponent(interviewMessageMatch[1]),
+        decodeURIComponent(interviewMessageMatch[2]),
+        payload.question
+      ));
+      return true;
+    }
+    const interviewEndMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/interviews\/([^/]+)\/end$/);
+    if (request.method === "POST" && interviewEndMatch) {
+      sendJson(response, 200, await benchmarkSupervisor.endInterview(
+        decodeURIComponent(interviewEndMatch[1]),
+        decodeURIComponent(interviewEndMatch[2])
+      ));
+      return true;
+    }
+    const runMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)$/);
+    if (request.method === "GET" && runMatch) {
+      sendJson(response, 200, await benchmarkSupervisor.get(decodeURIComponent(runMatch[1])));
+      return true;
+    }
+    const stopMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/stop$/);
+    if (request.method === "POST" && stopMatch) {
+      sendJson(response, 200, await benchmarkSupervisor.stop(decodeURIComponent(stopMatch[1])));
+      return true;
+    }
+    const pauseMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/pause$/);
+    if (request.method === "POST" && pauseMatch) {
+      sendJson(response, 200, await benchmarkSupervisor.pause(decodeURIComponent(pauseMatch[1])));
+      return true;
+    }
+    const resumeMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/resume$/);
+    if (request.method === "POST" && resumeMatch) {
+      sendJson(response, 202, await benchmarkSupervisor.resume(decodeURIComponent(resumeMatch[1])));
+      return true;
+    }
+  } catch (error) {
+    const message = String(error?.message || error || "Benchmark request failed.");
+    const status = /not found/i.test(message) ? 404 : 400;
+    sendJson(response, status, { error: message });
+    return true;
+  }
+  return false;
+}
+
 async function serveStatic(request, response, pathname) {
   let decoded;
   try {
@@ -132,6 +243,8 @@ async function serveStatic(request, response, pathname) {
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+  if (url.pathname.startsWith("/api/benchmark/v1/") &&
+      await benchmarkApi(request, response, url)) return;
   const v1LevelMatch = url.pathname.match(/^\/api\/(?:v1\/)?levels\/([^/]+)$/);
   const v2LevelMatch = url.pathname.match(/^\/api\/v2\/levels\/([^/]+)$/);
   if (request.method === "PUT" && v2LevelMatch) {
