@@ -326,6 +326,11 @@ async function main() {
     stdio: "inherit",
     env: { ...process.env, MAZEBENCH_UNIT_TEST_REPO: sourceRoot }
   });
+  console.log("Building the project-owned command-state solver accelerator...");
+  command("sh", ["scripts/build-editor-solver-v1.sh"], repositoryRoot, {
+    stdio: "inherit",
+    env: { ...process.env, MAZEBENCH_UNIT_TEST_REPO: sourceRoot }
+  });
   console.log("Running MazeBenchBenchmarking integration tests...");
   command(process.execPath, [
     "--test",

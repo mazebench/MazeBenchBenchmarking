@@ -1,4 +1,8 @@
-import { engineRoleIdForObject } from "../../engine/v1/adapter.mjs";
+import {
+  engineRoleIdForObject,
+  readEngineStateV1
+} from "../../engine/v1/adapter.mjs";
+import { ConnectedWorldSessionV1 } from "../../play/v1/connected-world-session.mjs";
 
 export const ROOM_BFS_START_POSITION_V1 = Object.freeze(["H", "I"]);
 export const ROOM_BFS_DIRECTIONS_V1 = Object.freeze(["up", "right", "down", "left"]);
@@ -87,6 +91,58 @@ export async function runRoomBfsV1(engine, world, options = {}) {
     `${room.columnIndex},${room.rowIndex}`,
     room
   ]));
+  const connectedWorld = metaStrategy === "row-astar"
+    ? new ConnectedWorldSessionV1(engine, definitions, world.rooms)
+    : null;
+  const canonicalStateKey = (state) => {
+    const { buffer, stride } = engine.writeState(state, definitions);
+    const records = Array.from({ length: state.objects.length }, (_, index) =>
+      Array.from(buffer.subarray(index * stride, (index + 1) * stride)).join(","));
+    records.sort();
+    return `${state.width}x${state.height}|${records.join(";")}`;
+  };
+  const goalSignature = (object) => [
+    object.blockId,
+    object.x,
+    object.y,
+    object.z
+  ].join(":");
+  const authoredGoalRecords = new Map(world.rooms.map((room) => [
+    room.fileName,
+    room.objects.flatMap((object, index) =>
+      engineRoleIdForObject(object, definitions) === "goal"
+        ? [{ key: `${room.fileName}:${index}`, signature: goalSignature(object) }]
+        : [])
+  ]));
+  const goalKeysForState = (room, state) => {
+    const available = new Map();
+    for (const record of authoredGoalRecords.get(room.fileName) || []) {
+      const records = available.get(record.signature) || [];
+      records.push(record.key);
+      available.set(record.signature, records);
+    }
+    return state.objects.flatMap((object) => {
+      if (engineRoleIdForObject(object, definitions) !== "goal") return [];
+      const records = available.get(goalSignature(object));
+      return records?.length ? [records.shift()] : [];
+    });
+  };
+  const collectedGemKeys = new Set();
+  const roomGemCounts = new Map();
+  let pendingGemRooms = [];
+  const recordGem = (room, key) => {
+    if (collectedGemKeys.has(key)) return;
+    collectedGemKeys.add(key);
+    const count = (roomGemCounts.get(room.fileName) || 0) + 1;
+    roomGemCounts.set(room.fileName, count);
+    pendingGemRooms.push({
+      fileName: room.fileName,
+      position: room.position,
+      columnIndex: room.columnIndex,
+      rowIndex: room.rowIndex,
+      count
+    });
+  };
   let nextSequence = 0;
   const makeFrame = (room, entry, depth = 0) => ({
     room,
@@ -95,19 +151,28 @@ export async function runRoomBfsV1(engine, world, options = {}) {
     sequence: nextSequence++,
     slices: 0,
     lastGemCount: 0,
-    authoredGoals: room.objects.filter((object) =>
-      engineRoleIdForObject(object, definitions) === "goal").length,
+    authoredGoals: (authoredGoalRecords.get(room.fileName) || []).length,
+    nativeGoalKeys: [],
     snapshot: null,
     sentVisited: new Uint8Array(room.width * room.height),
     sentEdges: 0,
     edgeCursor: 0,
-    searchStatus: "open"
+    searchStatus: "open",
+    finished: false
   });
   const queue = [];
   const stack = [];
   const portfolio = [];
+  const startState = engine.createState(startRoom);
   let active = makeFrame(startRoom, null);
   const discovered = new Map([[startRoom.fileName, startRoom]]);
+  const seenRoomStates = new Map([[
+    startRoom.fileName,
+    new Set([canonicalStateKey(startState)])
+  ]]);
+  const deferredEntries = new Map();
+  const roomStatuses = new Map([[startRoom.fileName, "open"]]);
+  const closedRooms = new Set();
   let pendingRooms = [startRoom];
   let pendingRoomUpdates = [{
     fileName: startRoom.fileName,
@@ -136,6 +201,13 @@ export async function runRoomBfsV1(engine, world, options = {}) {
   };
 
   const stateForEntry = (room, entry) => {
+    if (entry?.state) {
+      return {
+        width: entry.state.width,
+        height: entry.state.height,
+        objects: entry.state.objects.map((object) => ({ ...object }))
+      };
+    }
     const state = engine.createState(room);
     if (!entry) return state;
     state.objects = state.objects.filter((object) =>
@@ -166,8 +238,20 @@ export async function runRoomBfsV1(engine, world, options = {}) {
     for (const frame of [...stack, ...queue, ...portfolio]) {
       if (frame.snapshot) addCounters(result, frame.snapshot.counters);
     }
-    if (active) addCounters(result, liveCounters());
+    if (active && !active.finished) addCounters(result, liveCounters());
+    result.gems = collectedGemKeys.size;
     return result;
+  };
+
+  const recordCollectedGems = (frame) => {
+    const low = engine.exports.room_bfs_collected_goals_low() >>> 0;
+    const high = engine.exports.room_bfs_collected_goals_high() >>> 0;
+    frame.nativeGoalKeys.forEach((key, index) => {
+      const word = index < 32 ? low : high;
+      if (((word >>> (index % 32)) & 1) !== 0) recordGem(frame.room, key);
+    });
+    frame.lastGemCount = frame.authoredGoals - frame.nativeGoalKeys.length +
+      engine.exports.room_bfs_collected_goals();
   };
 
   const capture = (frame) => {
@@ -188,7 +272,11 @@ export async function runRoomBfsV1(engine, world, options = {}) {
       edges.push([
         engine.exports.room_bfs_edge_cell(index),
         engine.exports.room_bfs_edge_direction(index),
-        engine.exports.room_bfs_edge_z(index)
+        engine.exports.room_bfs_edge_z(index),
+        engine.exports.room_bfs_edge_node(index),
+        engine.exports.room_bfs_edge_player_axis(index, 0),
+        engine.exports.room_bfs_edge_player_axis(index, 1),
+        engine.exports.room_bfs_edge_player_axis(index, 2)
       ]);
     }
     frame.snapshot = {
@@ -241,6 +329,12 @@ export async function runRoomBfsV1(engine, world, options = {}) {
 
   const begin = (frame) => {
     const prepared = prepareState(stateForEntry(frame.room, frame.entry), definitions);
+    frame.preparedState = prepared.state;
+    frame.nativeGoalKeys = goalKeysForState(frame.room, prepared.state);
+    const activeGoalKeys = new Set(frame.nativeGoalKeys);
+    for (const record of authoredGoalRecords.get(frame.room.fileName) || []) {
+      if (!activeGoalKeys.has(record.key)) recordGem(frame.room, record.key);
+    }
     engine.writeState(prepared.state, definitions);
     const started = metaStrategy === "super-astar"
       ? engine.exports.super_astar_begin(
@@ -312,14 +406,30 @@ export async function runRoomBfsV1(engine, world, options = {}) {
     for (let index = 0; index < snapshot.visited.length; index += 1) {
       engine.exports.room_bfs_restore_visited_word(index, snapshot.visited[index]);
     }
-    for (const [cell, direction, z] of snapshot.edges) {
-      engine.exports.room_bfs_restore_edge(cell, direction, z);
+    for (const [cell, direction, z, source, x, y, playerZ] of snapshot.edges) {
+      engine.exports.room_bfs_restore_edge(
+        cell, direction, z, source, x, y, playerZ
+      );
     }
     frame.snapshot = null;
     return "room-resume";
   };
 
-  const neighborForEdge = (frame, edge) => {
+  const updateRoomStatus = (room, searchStatus) => {
+    if (roomStatuses.get(room.fileName) === searchStatus) return;
+    roomStatuses.set(room.fileName, searchStatus);
+    if (searchStatus === "searched") closedRooms.add(room.fileName);
+    else closedRooms.delete(room.fileName);
+    pendingRoomUpdates.push({
+      fileName: room.fileName,
+      position: room.position,
+      columnIndex: room.columnIndex,
+      rowIndex: room.rowIndex,
+      searchStatus
+    });
+  };
+
+  const neighborForEdge = async (frame, edge) => {
     const room = frame.room;
     const direction = engine.exports.room_bfs_edge_direction(edge);
     const localCell = engine.exports.room_bfs_edge_cell(edge);
@@ -327,8 +437,80 @@ export async function runRoomBfsV1(engine, world, options = {}) {
     const localY = Math.floor(localCell / room.width);
     const nextColumn = room.columnIndex + (direction === 1 ? 1 : direction === 3 ? -1 : 0);
     const nextRow = room.rowIndex + (direction === 2 ? 1 : direction === 0 ? -1 : 0);
-    const nextRoom = roomAt.get(`${nextColumn},${nextRow}`);
-    if (!nextRoom || discovered.has(nextRoom.fileName)) return null;
+    let nextRoom = roomAt.get(`${nextColumn},${nextRow}`);
+    if (!nextRoom) return null;
+    if (metaStrategy === "row-astar") {
+      const count = engine.exports.row_astar_edge_load_state(edge);
+      if (count !== frame.preparedState.objects.length) {
+        throw new Error(`Row A* could not restore an edge state in ${room.position.join("×")}.`);
+      }
+      const stride = engine.exports.voxel_stride();
+      const buffer = new Int32Array(
+        engine.exports.memory.buffer,
+        engine.exports.voxel_buffer(),
+        count * stride
+      );
+      const edgeState = readEngineStateV1(
+        frame.preparedState,
+        definitions,
+        buffer,
+        stride
+      );
+      let sourceStates = seenRoomStates.get(room.fileName);
+      if (!sourceStates) {
+        sourceStates = new Set();
+        seenRoomStates.set(room.fileName, sourceStates);
+      }
+      sourceStates.add(canonicalStateKey(edgeState));
+      let crossing;
+      try {
+        crossing = await connectedWorld.simulateCommand(
+          edgeState,
+          room,
+          ROOM_BFS_DIRECTIONS_V1[direction]
+        );
+      } finally {
+        if (engine.exports.row_astar_restore_physics_workspace() !== 1) {
+          throw new Error(`Row A* could not restore ${room.position.join("×")} after testing its edge.`);
+        }
+      }
+      if (!crossing.room || crossing.room.fileName === room.fileName) return null;
+      nextRoom = crossing.room;
+      const key = canonicalStateKey(crossing.final);
+      let keys = seenRoomStates.get(nextRoom.fileName);
+      if (!keys) {
+        keys = new Set();
+        seenRoomStates.set(nextRoom.fileName, keys);
+      }
+      if (keys.has(key)) return null;
+      if (roomStatuses.get(nextRoom.fileName) === "open") {
+        let entries = deferredEntries.get(nextRoom.fileName);
+        if (!entries) {
+          entries = new Map();
+          deferredEntries.set(nextRoom.fileName, entries);
+        }
+        if (!entries.has(key)) {
+          entries.set(key, {
+            room: nextRoom,
+            state: crossing.final,
+            key,
+            depth: frame.depth + 1
+          });
+        }
+        return null;
+      }
+      if (!discovered.has(nextRoom.fileName) && discovered.size >= maximumRooms) {
+        return null;
+      }
+      keys.add(key);
+      if (!discovered.has(nextRoom.fileName)) {
+        discovered.set(nextRoom.fileName, nextRoom);
+        pendingRooms.push(nextRoom);
+      }
+      updateRoomStatus(nextRoom, "open");
+      return makeFrame(nextRoom, { state: crossing.final, key }, frame.depth + 1);
+    }
+    if (discovered.has(nextRoom.fileName)) return null;
     const entryCell = direction === 1
       ? localY * nextRoom.width
       : direction === 3
@@ -352,11 +534,11 @@ export async function runRoomBfsV1(engine, world, options = {}) {
     return next;
   };
 
-  const discoverNeighbors = (frame, stopAfterFirst) => {
+  const discoverNeighbors = async (frame, stopAfterFirst) => {
     const found = [];
     const edgeCount = engine.exports.room_bfs_edge_count();
     while (frame.edgeCursor < edgeCount) {
-      const next = neighborForEdge(frame, frame.edgeCursor++);
+      const next = await neighborForEdge(frame, frame.edgeCursor++);
       if (!next) continue;
       found.push(next);
       if (stopAfterFirst) break;
@@ -366,7 +548,36 @@ export async function runRoomBfsV1(engine, world, options = {}) {
 
   const finishActive = () => {
     addCounters(completed, liveCounters());
+    active.finished = true;
     completedRooms += 1;
+    if (metaStrategy === "row-astar") {
+      const hasPendingRoom = [...stack, ...queue, ...portfolio].some((frame) =>
+        frame.room.fileName === active.room.fileName);
+      if (!hasPendingRoom) {
+        const seen = seenRoomStates.get(active.room.fileName) || new Set();
+        const entries = deferredEntries.get(active.room.fileName);
+        let deferred = null;
+        if (entries) {
+          for (const [key, candidate] of entries) {
+            entries.delete(key);
+            if (seen.has(key)) continue;
+            deferred = candidate;
+            break;
+          }
+          if (entries.size === 0) deferredEntries.delete(active.room.fileName);
+        }
+        if (deferred) {
+          seen.add(deferred.key);
+          enqueuePortfolio(makeFrame(
+            deferred.room,
+            { state: deferred.state, key: deferred.key },
+            deferred.depth
+          ));
+        } else {
+          updateRoomStatus(active.room, "searched");
+        }
+      }
+    }
   };
 
   const portfolioScore = (frame) => {
@@ -390,8 +601,10 @@ export async function runRoomBfsV1(engine, world, options = {}) {
 
   let lastMessage = null;
   const report = (type, statusCode = 0) => {
+      recordCollectedGems(active);
       const room = active.room;
-      if ((statusCode === 1 || statusCode === 4) &&
+      if (metaStrategy !== "row-astar" &&
+          (statusCode === 1 || statusCode === 4) &&
           active.searchStatus !== "searched") {
         active.searchStatus = "searched";
         pendingRoomUpdates.push({
@@ -439,7 +652,9 @@ export async function runRoomBfsV1(engine, world, options = {}) {
         roomHeight: room.height,
         visitedCells,
         exitStates,
-        trail: active.searchStatus === "searched"
+        trail: (metaStrategy === "row-astar"
+          ? roomStatuses.get(room.fileName) === "searched"
+          : active.searchStatus === "searched")
           ? []
           : [worldCell(room, engine.exports.room_bfs_latest_cell())],
         trailReplaces: true,
@@ -449,6 +664,7 @@ export async function runRoomBfsV1(engine, world, options = {}) {
           columnIndex: reached.columnIndex,
           rowIndex: reached.rowIndex
         })),
+        gemRooms: pendingGemRooms,
         roomUpdates: pendingRoomUpdates,
         stats: {
           states: total.states,
@@ -464,7 +680,9 @@ export async function runRoomBfsV1(engine, world, options = {}) {
           exitCells: globalExitCells.size,
           stateCapacity: engine.exports.room_bfs_state_capacity(),
           rooms: discovered.size,
-          processedRooms: completedRooms,
+          processedRooms: metaStrategy === "row-astar"
+            ? closedRooms.size
+            : completedRooms,
           gems: total.gems,
           roomStates: current.states,
           activeSearches: 1 + stack.length + queue.length + portfolio.length,
@@ -492,13 +710,14 @@ export async function runRoomBfsV1(engine, world, options = {}) {
         }
       };
       pendingRooms = [];
+      pendingGemRooms = [];
       pendingRoomUpdates = [];
       options.onProgress?.(lastMessage);
       return lastMessage;
   };
 
   let firstRoom = true;
-  while (active && completedRooms < maximumRooms) {
+  while (active && (metaStrategy === "row-astar" || completedRooms < maximumRooms)) {
     const beginType = begin(active);
     report(firstRoom ? "ready" : beginType);
     firstRoom = false;
@@ -507,7 +726,7 @@ export async function runRoomBfsV1(engine, world, options = {}) {
       if (options.isCancelled?.()) throw new DOMException("World BFS stopped.", "AbortError");
 
       if (metaStrategy === "depth") {
-        const [next] = discoverNeighbors(active, true);
+        const [next] = await discoverNeighbors(active, true);
         if (next) {
           capture(active);
           report("room-suspend");
@@ -539,12 +758,12 @@ export async function runRoomBfsV1(engine, world, options = {}) {
       }
       report("progress", status);
       if (["super-astar", "row-astar"].includes(metaStrategy)) {
-        const neighbors = discoverNeighbors(active, false);
-        active.lastGemCount = engine.exports.room_bfs_collected_goals();
+        const neighbors = await discoverNeighbors(active, false);
+        recordCollectedGems(active);
         active.slices += 1;
         if (status === 1 || status === 4) {
-          report("room-complete", status);
           finishActive();
+          report("room-complete", status);
           enqueuePortfolio(...neighbors);
           active = takePortfolio();
           switched = true;
@@ -565,7 +784,7 @@ export async function runRoomBfsV1(engine, world, options = {}) {
         continue;
       }
       if (metaStrategy === "depth") {
-        const [next] = discoverNeighbors(active, true);
+        const [next] = await discoverNeighbors(active, true);
         if (next && status !== 1) {
           capture(active);
           report("room-suspend");
@@ -575,7 +794,7 @@ export async function runRoomBfsV1(engine, world, options = {}) {
           break;
         }
         if (next) {
-          const siblings = [next, ...discoverNeighbors(active, false)];
+          const siblings = [next, ...await discoverNeighbors(active, false)];
           report("room-complete", 1);
           finishActive();
           for (let index = siblings.length - 1; index >= 1; index -= 1) {
@@ -587,7 +806,7 @@ export async function runRoomBfsV1(engine, world, options = {}) {
         }
       }
       if (status === 1) {
-        const neighbors = discoverNeighbors(active, false);
+        const neighbors = await discoverNeighbors(active, false);
         report("room-complete", 1);
         finishActive();
         if (metaStrategy === "breadth") {
@@ -619,6 +838,7 @@ export async function runRoomBfsV1(engine, world, options = {}) {
       columnIndex: room.columnIndex,
       rowIndex: room.rowIndex
     })),
+    gemRooms: pendingGemRooms,
     roomUpdates: pendingRoomUpdates,
     stats: {
       ...(lastMessage?.stats || {}),
@@ -631,14 +851,16 @@ export async function runRoomBfsV1(engine, world, options = {}) {
         : 0,
       edgeStates: completed.edgeStates,
       rooms: discovered.size,
-      processedRooms: completedRooms,
-      gems: completed.gems,
+      processedRooms: metaStrategy === "row-astar"
+        ? closedRooms.size
+        : completedRooms,
+      gems: collectedGemKeys.size,
       activeSearches: (active ? 1 : 0) + stack.length + queue.length + portfolio.length,
       searchSlices,
       heuristicWeight: ["super-astar", "row-astar"].includes(metaStrategy)
         ? heuristicWeight
         : 0,
-      opportunities: Math.max(0, discovered.size - 1) + completed.gems,
+      opportunities: Math.max(0, discovered.size - 1) + collectedGemKeys.size,
       currentRoom: active?.room.position.join("×") || "Complete"
     }
   };

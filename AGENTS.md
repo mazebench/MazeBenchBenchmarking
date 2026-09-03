@@ -9,8 +9,9 @@
   `engine/v1/voxel_physics.wasm`. Update them through the sync command.
 - World Solver acceleration is project-owned code under
   `world-solver/v1/native/`. Never add its exports to UnitTesting or to the
-  synced `engine/v1` snapshot. `scripts/build-random-agent-v1.sh` compiles its
-  wrapper against the currently synced engine source.
+  synced `engine/v1` snapshot. `scripts/build-random-agent-v1.sh` and
+  `scripts/build-editor-solver-v1.sh` compile its wrappers against the currently
+  synced engine source.
 - `engine/v1/adapter.mjs`, the public engine wrapper, Play Mode, input handling,
   and renderers belong to this repository and are not copied from UnitTesting.
 
@@ -57,8 +58,9 @@ plan a new versioned adapter with the user.
 - checks ABI v4, voxel stride 5, and the exports required by the target adapter;
 - writes `engine/v1/upstream.json` and `engine/v1/upstream.mjs` with exact
   repository, commit, tree, file, and WASM provenance;
-- rebuilds `world-solver/v1/random-agent.wasm` from the project-owned wrapper
-  after the byte-identical engine copy is complete;
+- rebuilds `world-solver/v1/random-agent.wasm` and
+  `world-solver/v1/editor-solver.wasm` from their project-owned wrappers after
+  the byte-identical engine copy is complete;
 - refuses to overwrite a locally modified vendored snapshot; and
 - runs the target engine integration tests.
 
@@ -155,6 +157,17 @@ crossings, visit pixels, reached-room bits, gem identity, death rollback, and
 teleports stay in the native batch. Complex Ice/punch/mechanism seams may stop
 the batch and use `ConnectedWorldSessionV1` as the exact fallback.
 
+The editor's gem solver also uses this project-owned wrapper so it can expose a
+chunked search without changing the imported engine. Fast A* uses weighted
+goal-distance ordering and an adjustable physics-interaction bias. Bias 0 is
+off; a positive value explores commands that move non-player bodies or change
+mechanisms sooner, with at most three interaction credits per command. Because
+that bias and the weighted heuristic affect ordering, its returned route is
+explicitly not a shortest-route proof. Exact Shortest always forces both
+weights to zero and retains uniform-cost shortest-command semantics. The editor
+reports global board states/sec and attempted engine command simulations/sec
+live for both modes.
+
 The Random Agent UI displays the full 256×256 grid. Reached room backgrounds are green,
 every visited `(x,y)` pixel (dropping z) is yellow, and the most recent 50
 distinct player positions fade from yellow toward red with the current pixel
@@ -164,8 +177,9 @@ route graph, invalidation tree, or playback UI in World Solver v1.
 
 Exact BFS, DFS Meta, Super A*, and Row A* are the deterministic World Solver modes. They start at H×I and use the
 canonical search engine's compact dynamic-entity representation with a
-project-owned FIFO reachability loop. Ordinary player reachability is collapsed
-into a local BFS for each global board configuration. The UI paints reachable
+project-owned reachability loop. Exact BFS, DFS Meta, and Super A* collapse
+ordinary player reachability into a local BFS for each global board
+configuration. The UI paints reachable
 player `(x,y)` pixels yellow on the full 256×256 world and boundary exits cyan.
 An open or actively searched room uses the yellow map palette. The same room
 changes atomically to orange when its search completes or its exact frontier is
@@ -194,25 +208,33 @@ by the native compact-state hash. Super A* is a discovery-throughput heuristic,
 not a shortest-route proof.
 
 Row A* is deliberately gem- and exit-agnostic. For each vertical player row it
-actually reaches, it uses weighted A* to cover every unvisited standable `(x,y)`
-surface derived from immutable floor, solid wall, Ice, and Ice-slope geometry;
+actually reaches, it uses the original project-owned weighted A* search to
+cover every unvisited standable `(x,y)` surface derived from immutable
+floor, solid wall, Ice, and Ice-slope geometry;
 an immutable surface covered by another immutable block is not a target. Room
 edges create neighboring-room work only when encountered incidentally. Gems are
 still counted when incidental traversal collects them but never affect the
 heuristic. Floating floors do not trigger a BFS fallback: every position they
 occupy in an encountered dynamic board state extends the Row A* target
 landscape. A room job finishes when all targets on its discovered rows have been
-visited or when its exact compact-state frontier is exhausted. It stays closed
-after exhaustion until a future phase supplies a genuinely new entry state.
+visited or when its exact command-state frontier is exhausted. Every boundary
+candidate must run the outward command against the connected neighboring room
+before it counts as an entrance. Deduplicate the resulting neighbor state, not
+just its player coordinate or room name; boundary states already covered by
+that room are duplicates. A distinct alternate entry reopens an orange room,
+turns it yellow, and starts another room job; a duplicate leaves it closed. Do
+not replace this search with the editor Fast A* wrapper or add editor
+physics-bias controls to World Solver.
 
-When a boundary exit first reaches an undiscovered neighboring room, enqueue
-that room with immutable authored state, remove its authored player, and spawn
-the incoming H×I player at the opposite boundary coordinate and carried engine
-height. Search each room exactly once from that first entrance. Count a gem if
-any explored state in that room collects it. Do not yet revisit rooms, add
-alternate entry roots, run reset-entry generations, propagate mutated board
-state across a seam, or perform back-and-forth closure; the user explicitly
-deferred those phases.
+The connected-room test command and native Row A* share one physics workspace.
+After every connected edge simulation, call the project-owned Row A* workspace
+restore export before continuing its frontier. Otherwise the next search slice
+uses the temporary multi-room terrain cache and can falsely report exhaustion;
+G×F is the regression fixture for this failure.
+
+Exact BFS, DFS Meta, and Super A* still use the first room entrance until their
+orchestration is migrated to the same alternate-entry queue. Do not silently
+describe those legacy modes as having Row A*'s re-entry closure.
 
 ## ASCII overlap and face-fixture contract
 

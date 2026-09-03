@@ -101,7 +101,10 @@ int32_t g_bfs_edge_count = 0;
 int32_t g_bfs_edge_cells[kRoomBfsEdgeCapacity];
 int32_t g_bfs_edge_directions[kRoomBfsEdgeCapacity];
 int32_t g_bfs_edge_z[kRoomBfsEdgeCapacity];
+int32_t g_bfs_edge_nodes[kRoomBfsEdgeCapacity];
+int16_t g_bfs_edge_player[kRoomBfsEdgeCapacity][3];
 uint8_t g_bfs_edge_seen[kRoomBfsEdgeCapacity];
+int16_t g_bfs_original_to_scene[voxelbench::kSearchVoxelCapacity];
 uint32_t g_bfs_visited[8];
 int32_t g_bfs_latest_cell = -1;
 uint64_t g_bfs_collected_goal_mask = 0;
@@ -587,7 +590,9 @@ int32_t RoomBfsInsertCandidate(uint32_t cost = 0) {
   return -1;
 }
 
-void RoomBfsRecordLocalState(const int16_t coordinates[3]) {
+void RoomBfsRecordLocalState(
+    const int16_t coordinates[3],
+    int32_t source_node) {
   const int32_t x = voxelbench::DecodeCoordinate(coordinates[0]);
   const int32_t y = voxelbench::DecodeCoordinate(coordinates[1]);
   const int32_t z = voxelbench::DecodeCoordinate(coordinates[2]);
@@ -616,6 +621,10 @@ void RoomBfsRecordLocalState(const int16_t coordinates[3]) {
     g_bfs_edge_cells[g_bfs_edge_count] = cell;
     g_bfs_edge_directions[g_bfs_edge_count] = direction;
     g_bfs_edge_z[g_bfs_edge_count] = z;
+    g_bfs_edge_nodes[g_bfs_edge_count] = source_node;
+    for (int32_t axis = 0; axis < 3; ++axis) {
+      g_bfs_edge_player[g_bfs_edge_count][axis] = coordinates[axis];
+    }
     ++g_bfs_edge_count;
   }
 }
@@ -910,6 +919,22 @@ int32_t BeginRoomSearch(
       false)) {
     return 0;
   }
+  int32_t scene_index = 0;
+  for (int32_t source = 0; source < count; ++source) {
+    if (!voxelbench::IsDynamic(g_voxels[source].role)) continue;
+    g_bfs_original_to_scene[source] = static_cast<int16_t>(scene_index++);
+  }
+  for (int32_t source = 0; source < count; ++source) {
+    if (g_voxels[source].role != voxelbench::kOrangeWallRole &&
+        g_voxels[source].role != voxelbench::kPlayerGateRole) continue;
+    g_bfs_original_to_scene[source] = static_cast<int16_t>(scene_index++);
+  }
+  for (int32_t source = 0; source < count; ++source) {
+    if (voxelbench::IsDynamic(g_voxels[source].role) ||
+        g_voxels[source].role == voxelbench::kOrangeWallRole ||
+        g_voxels[source].role == voxelbench::kPlayerGateRole) continue;
+    g_bfs_original_to_scene[source] = static_cast<int16_t>(scene_index++);
+  }
   g_bfs_data = voxelbench::Data(&g_search_workspace);
   g_bfs_super_astar = super_astar;
   g_bfs_row_astar = row_astar;
@@ -1036,7 +1061,8 @@ int32_t RoomBfsRun(int32_t maximum_expansions, bool stop_at_new_edge) {
     bool passive_snapshot_valid = false;
     for (int32_t local_head = 0; local_head < local_count; ++local_head) {
       ++g_bfs_local_states;
-      RoomBfsRecordLocalState(g_bfs_data->local_coordinates[local_head]);
+      RoomBfsRecordLocalState(
+          g_bfs_data->local_coordinates[local_head], source);
       const uint64_t source_key = voxelbench::LocalCoordinateKey(
           g_bfs_data->local_coordinates[local_head]);
       for (int32_t direction = 0; direction < 4; ++direction) {
@@ -1242,8 +1268,16 @@ int32_t room_bfs_restore_visited_word(int32_t index, int32_t value) {
 int32_t room_bfs_restore_edge(
     int32_t cell,
     int32_t direction,
-    int32_t z) {
+    int32_t z,
+    int32_t source_node,
+    int32_t player_x,
+    int32_t player_y,
+    int32_t player_z) {
   if (cell < 0 || cell >= 256 || direction < 0 || direction >= 4 ||
+      source_node < 0 || source_node >= g_bfs_state_count ||
+      player_x < INT16_MIN || player_x > INT16_MAX ||
+      player_y < INT16_MIN || player_y > INT16_MAX ||
+      player_z < INT16_MIN || player_z > INT16_MAX ||
       g_bfs_edge_count >= kRoomBfsEdgeCapacity) {
     return 0;
   }
@@ -1253,6 +1287,13 @@ int32_t room_bfs_restore_edge(
   g_bfs_edge_cells[g_bfs_edge_count] = cell;
   g_bfs_edge_directions[g_bfs_edge_count] = direction;
   g_bfs_edge_z[g_bfs_edge_count] = z;
+  g_bfs_edge_nodes[g_bfs_edge_count] = source_node;
+  g_bfs_edge_player[g_bfs_edge_count][0] =
+      static_cast<int16_t>(player_x);
+  g_bfs_edge_player[g_bfs_edge_count][1] =
+      static_cast<int16_t>(player_y);
+  g_bfs_edge_player[g_bfs_edge_count][2] =
+      static_cast<int16_t>(player_z);
   ++g_bfs_edge_count;
   return 1;
 }
@@ -1328,6 +1369,50 @@ int32_t room_bfs_edge_direction(int32_t index) {
 int32_t room_bfs_edge_z(int32_t index) {
   if (index < 0 || index >= g_bfs_edge_count) return INT32_MIN;
   return g_bfs_edge_z[index];
+}
+
+int32_t room_bfs_edge_node(int32_t index) {
+  if (index < 0 || index >= g_bfs_edge_count) return -1;
+  return g_bfs_edge_nodes[index];
+}
+
+int32_t room_bfs_edge_player_axis(int32_t index, int32_t axis) {
+  if (index < 0 || index >= g_bfs_edge_count || axis < 0 || axis >= 3) {
+    return INT32_MIN;
+  }
+  return voxelbench::DecodeCoordinate(g_bfs_edge_player[index][axis]);
+}
+
+int32_t row_astar_edge_load_state(int32_t index) {
+  if (!g_bfs_row_astar || g_bfs_data == nullptr || index < 0 ||
+      index >= g_bfs_edge_count) {
+    return 0;
+  }
+  voxelbench::SearchNode node{};
+  RoomBfsLoadNode(g_bfs_edge_nodes[index], &node);
+  voxelbench::LoadNode(g_bfs_data, node);
+  voxelbench::Voxel& player = g_bfs_data->scene[g_bfs_data->player_index];
+  player.x = voxelbench::DecodeCoordinate(g_bfs_edge_player[index][0]);
+  player.y = voxelbench::DecodeCoordinate(g_bfs_edge_player[index][1]);
+  player.z = voxelbench::DecodeCoordinate(g_bfs_edge_player[index][2]);
+  if (player.x < 0) return 0;
+  for (int32_t source = 0; source < g_bfs_data->count; ++source) {
+    const int32_t scene = g_bfs_original_to_scene[source];
+    if (scene < 0 || scene >= g_bfs_data->count) return 0;
+    g_voxels[source] = g_bfs_data->scene[scene];
+  }
+  return g_bfs_data->count;
+}
+
+int32_t row_astar_restore_physics_workspace() {
+  if (!g_bfs_row_astar || g_bfs_data == nullptr) return 0;
+  return voxelbench::prepare_scene(
+      &g_workspace,
+      g_bfs_data->scene,
+      g_bfs_data->count,
+      g_bfs_data->search_width,
+      g_bfs_data->search_height,
+      g_bfs_data->dynamic_voxel_count) ? 1 : 0;
 }
 
 int32_t random_world_reset(int32_t columns, int32_t rows) {

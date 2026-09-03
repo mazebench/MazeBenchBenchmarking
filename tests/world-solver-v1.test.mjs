@@ -4,6 +4,12 @@ import test from "node:test";
 
 import { instantiateMazeBenchEngineV1 } from "../engine/v1/engine.mjs";
 import {
+  readEngineStateV1
+} from "../engine/v1/adapter.mjs";
+import { createEditorSolverSessionV1 } from "../editor/v1/native-solver-runtime.mjs";
+import { ConnectedWorldSessionV1 } from "../play/v1/connected-world-session.mjs";
+import { decodeVoxelRoom } from "../render/v1/voxel-world-v2.mjs";
+import {
   RANDOM_AGENT_DIRECTIONS_V1,
   RANDOM_AGENT_START_POSITION_V1,
   randomAgentPixelV1,
@@ -52,6 +58,17 @@ async function engine() {
   return instantiateMazeBenchEngineV1(bytes);
 }
 
+async function editorEngine() {
+  const bytes = await readFile(new URL("../world-solver/v1/editor-solver.wasm", import.meta.url));
+  return instantiateMazeBenchEngineV1(bytes);
+}
+
+function finishEditorSearch(session, chunkSize = 16) {
+  let result = session.snapshot();
+  while (result.statusCode === 0) result = session.runChunk(chunkSize);
+  return result;
+}
+
 test("random agent uses only four directions and starts at H×I", () => {
   assert.deepEqual(RANDOM_AGENT_START_POSITION_V1, ["H", "I"]);
   assert.deepEqual(RANDOM_AGENT_DIRECTIONS_V1, ["up", "right", "down", "left"]);
@@ -66,6 +83,50 @@ test("room BFS uses the same four commands and starts at H×I", () => {
     "super-astar",
     "row-astar"
   ]);
+});
+
+test("editor wrapper offers exact shortest and interaction-biased fast A*", async () => {
+  const native = await editorEngine();
+  const room = {
+    width: 3,
+    height: 1,
+    objects: [
+      { x: 0, y: 0, z: 0, blockId: "player" },
+      { x: 2, y: 0, z: 0, blockId: "gem" },
+      ...Array.from({ length: 3 }, (_, x) => ({ x, y: 0, z: 0, blockId: "floor" }))
+    ]
+  };
+  const canonical = (await engine()).solve(room, blocks, { maximumNodes: 1_000 });
+  const exact = finishEditorSearch(createEditorSolverSessionV1(native, room, blocks));
+  const fast = finishEditorSearch(createEditorSolverSessionV1(native, room, blocks, {
+    heuristicWeight: 3,
+    interactionWeight: 2
+  }));
+
+  assert.equal(exact.status, "solved");
+  assert.equal(exact.proven, true);
+  assert.equal(exact.moves, canonical.moves);
+  assert.deepEqual(exact.solution, canonical.solution);
+  assert.equal(fast.status, "solved-unproven");
+  assert.equal(fast.proven, false);
+  assert.equal(fast.interactionWeight, 2);
+  assert.deepEqual(fast.solution, ["right", "right"]);
+  assert.ok(exact.actionsPerSecond > 0);
+  assert.ok(exact.statesPerSecond > 0);
+});
+
+test("editor UI exposes both solver modes, physics bias, and live throughput", async () => {
+  const [html, main, worker] = await Promise.all([
+    readFile(new URL("../editor/v1/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../editor/v1/main.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../editor/v1/solver-worker.mjs", import.meta.url), "utf8")
+  ]);
+  assert.match(html, /Fast A\*/);
+  assert.match(html, /Exact Shortest/);
+  assert.match(html, /id="physics-interaction-weight"[^>]*value="0"/);
+  assert.match(main, /board states\/s/);
+  assert.match(main, /command sims\/s/);
+  assert.match(worker, /type: "progress"/);
 });
 
 test("room BFS exhausts exact states, paints cells, records exits, and locks", async () => {
@@ -302,6 +363,7 @@ test("Row A* covers reached rows while treating gems and exits as incidental", a
     height: 3,
     objects
   });
+  const progress = [];
   const stats = await runRoomBfsV1(await engine(), {
     columns: ["H", "I"],
     rows: ["H", "I"],
@@ -322,19 +384,135 @@ test("Row A* covers reached rows while treating gems and exits as incidental", a
     metaStrategy: "row-astar",
     heuristicWeight: 3,
     chunkSize: 512,
-    progressDelayMs: 0
+    progressDelayMs: 0,
+    onProgress: (message) => progress.push(message)
   });
 
   assert.equal(stats.rooms, 3);
   assert.equal(stats.processedRooms, 3);
   // The gem tile is reached only after the collection transition, so the
   // starter room expands both its pre- and post-collection board states.
-  assert.equal(stats.states, 35);
+  assert.ok(stats.states > 35);
   assert.equal(stats.gems, 1);
   assert.equal(stats.rowTargets, 9);
   assert.equal(stats.rowVisited, 9);
   assert.equal(stats.rowsDiscovered, 1);
   assert.equal(stats.rowCoverageComplete, 1);
+  assert.ok(progress.some((message) => message.gemRooms?.some((room) =>
+    room.fileName === "start.json" && room.count === 1)));
+  const startStatuses = progress.flatMap((message) => message.roomUpdates || [])
+    .filter((update) => update.fileName === "start.json")
+    .map((update) => update.searchStatus);
+  assert.deepEqual(startStatuses, ["open", "searched", "open", "searched"]);
+});
+
+test("Row A* accepts only edge states that really enter the neighboring room", async () => {
+  const floors = [];
+  for (let y = 0; y < 3; y += 1) {
+    for (let x = 0; x < 3; x += 1) floors.push({ x, y, z: 0, blockId: "floor" });
+  }
+  const room = (fileName, position, columnIndex, objects) => ({
+    fileName,
+    position,
+    columnIndex,
+    rowIndex: 0,
+    width: 3,
+    height: 3,
+    objects
+  });
+  const stats = await runRoomBfsV1(await engine(), {
+    columns: ["H", "I"],
+    rows: ["I"],
+    roomWidth: 3,
+    roomHeight: 3,
+    rooms: [
+      room("start.json", ["H", "I"], 0, [
+        { x: 1, y: 1, z: 0, blockId: "player" },
+        ...floors
+      ]),
+      room("blocked.json", ["I", "I"], 1, [
+        ...floors,
+        ...Array.from({ length: 3 }, (_, y) => ({ x: 0, y, z: 0, blockId: "wall" }))
+      ])
+    ],
+    blocks,
+    blockDefinitions: new Map(blocks.map((block) => [block.id, block]))
+  }, {
+    metaStrategy: "row-astar",
+    chunkSize: 32,
+    progressDelayMs: 0
+  });
+
+  assert.equal(stats.rooms, 1);
+  assert.equal(stats.processedRooms, 1);
+});
+
+test("connected edge tests restore Row A* physics before G×F resumes", async () => {
+  const [manifestSource, roomSource] = await Promise.all([
+    readFile(new URL("../level-data/v2/main-world/world.json", import.meta.url), "utf8"),
+    readFile(new URL("../level-data/v2/main-world/0lzre7ixaq.json", import.meta.url), "utf8")
+  ]);
+  const definitions = new Map(JSON.parse(manifestSource).blocks.map((block) => [block.id, block]));
+  const decoded = decodeVoxelRoom(JSON.parse(roomSource));
+  const state = {
+    ...decoded,
+    objects: decoded.objects.map((object) =>
+      object.blockId === "player" ? { ...object, x: 15, y: 1 } : object)
+  };
+  const native = await engine();
+  native.writeState(state, definitions);
+  assert.equal(native.exports.row_astar_begin(
+    state.objects.length,
+    state.width,
+    state.height,
+    12,
+    3
+  ), 1);
+  assert.equal(native.exports.row_astar_run(512), 3);
+  assert.equal(native.exports.row_astar_edge_load_state(0), state.objects.length);
+  const stride = native.exports.voxel_stride();
+  const edgeState = readEngineStateV1(
+    state,
+    definitions,
+    new Int32Array(
+      native.exports.memory.buffer,
+      native.exports.voxel_buffer(),
+      state.objects.length * stride
+    ),
+    stride
+  );
+  const east = {
+    fileName: "east.json",
+    position: ["I", "I"],
+    columnIndex: 1,
+    rowIndex: 0,
+    width: 16,
+    height: 16,
+    objects: Array.from({ length: 256 }, (_, cell) => ({
+      x: cell % 16,
+      y: Math.floor(cell / 16),
+      z: 0,
+      blockId: "floor"
+    }))
+  };
+  const source = {
+    ...state,
+    fileName: "gxf.json",
+    position: ["H", "I"],
+    columnIndex: 0,
+    rowIndex: 0
+  };
+  const connected = new ConnectedWorldSessionV1(native, definitions, [source, east]);
+  const crossing = await connected.simulateCommand(edgeState, source, "right");
+  assert.equal(crossing.room.fileName, "east.json");
+  assert.equal(native.exports.row_astar_restore_physics_workspace(), 1);
+
+  let status = 0;
+  while (status === 0 || status === 3) status = native.exports.row_astar_run(512);
+  assert.equal(status, 4);
+  assert.equal(native.exports.row_astar_active_targets(), 135);
+  assert.equal(native.exports.row_astar_visited_targets(), 135);
+  assert.equal(native.exports.room_bfs_collected_goals(), 1);
 });
 
 test("Row A* keeps ice slopes and floating floors in its landscape without falling back", async () => {

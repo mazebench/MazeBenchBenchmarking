@@ -2,7 +2,18 @@ import { loadMazeBenchEngineV1 } from "../../engine/v1/engine.mjs";
 
 export const EDITOR_SOLVER_PRESETS_V1 = Object.freeze({
   quick: Object.freeze({ id: "quick", label: "Quick", maximumNodes: 12_000, maximumEdges: 512 }),
-  exact: Object.freeze({ id: "exact", label: "Exact", maximumNodes: 180_000, maximumEdges: 8_192 })
+  fast: Object.freeze({
+    id: "fast-astar",
+    label: "Fast A*",
+    heuristicWeight: 3
+  }),
+  exact: Object.freeze({
+    id: "exact-shortest",
+    label: "Exact Shortest",
+    maximumNodes: 180_000,
+    maximumEdges: 8_192,
+    heuristicWeight: 0
+  })
 });
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -14,10 +25,10 @@ export class EditorSolversV1 {
     this.requestId = 0;
   }
 
-  solve(room, blocks, preset = EDITOR_SOLVER_PRESETS_V1.exact) {
+  solve(room, blocks, preset = EDITOR_SOLVER_PRESETS_V1.exact, options = {}) {
     this.cancel();
     const id = ++this.requestId;
-    this.worker = new Worker(new URL("../../engine/v1/solver-worker.mjs", import.meta.url), {
+    this.worker = new Worker(new URL("./solver-worker.mjs", import.meta.url), {
       type: "module",
       name: `mazebench-engine-v1-${preset.id}`
     });
@@ -25,11 +36,16 @@ export class EditorSolversV1 {
       this.reject = reject;
       this.worker.addEventListener("message", (event) => {
         if (event.data?.id !== id) return;
+        if (event.data.type === "progress") {
+          options.onProgress?.(event.data.result);
+          return;
+        }
+        if (event.data.type !== "complete" && event.data.type !== "error") return;
         const worker = this.worker;
         this.worker = null;
         this.reject = null;
         worker?.terminate();
-        if (event.data.error) reject(new Error(event.data.error));
+        if (event.data.type === "error") reject(new Error(event.data.error));
         else resolve({ ...event.data.result, preset });
       });
       this.worker.addEventListener("error", (event) => {
@@ -47,7 +63,10 @@ export class EditorSolversV1 {
           objects: room.objects.map((object) => ({ ...object }))
         },
         blocks,
-        maximumNodes: preset.maximumNodes
+        heuristicWeight: preset.heuristicWeight || 0,
+        interactionWeight: preset.id === "fast-astar"
+          ? options.interactionWeight
+          : 0
       });
     });
   }

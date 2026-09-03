@@ -7,7 +7,7 @@ const ids = [
   "active-searches", "search-slices", "heuristic-weight", "opportunities",
   "row-targets", "row-visited", "rows-discovered", "row-coverage",
   "bfs-current-room", "random-stats", "bfs-stats", "random-legend", "bfs-legend",
-  "intro-description", "mode-random", "mode-bfs", "mode-dfs", "mode-super",
+  "map-room-details", "intro-description", "mode-random", "mode-bfs", "mode-dfs", "mode-super",
   "mode-row", "restart", "stop"
 ];
 const elements = Object.fromEntries(ids.map((id) => [
@@ -117,6 +117,19 @@ function draw() {
     image.data[offset + 1] = Math.round(216 + (52 - 216) * amount);
     image.data[offset + 2] = Math.round(64 + (35 - 64) * amount);
   });
+  for (const room of reachedRooms.values()) {
+    if (!room.gemCount) continue;
+    const markerX = room.columnIndex * roomWidth + roomWidth - 3;
+    const markerY = room.rowIndex * roomHeight + 1;
+    for (let y = markerY; y < markerY + 2; y += 1) {
+      for (let x = markerX; x < markerX + 2; x += 1) {
+        const offset = (y * width + x) * 4;
+        image.data[offset] = 238;
+        image.data[offset + 1] = 111;
+        image.data[offset + 2] = 255;
+      }
+    }
+  }
   context.putImageData(image, 0, 0);
 }
 
@@ -127,6 +140,20 @@ function roomAtCell(index) {
   const rowIndex = Math.floor(y / roomHeight);
   return roomsByGridPosition.get(`${columnIndex},${rowIndex}`);
 }
+
+elements.worldcanvas.addEventListener("pointermove", (event) => {
+  const bounds = elements.worldcanvas.getBoundingClientRect();
+  const x = Math.floor((event.clientX - bounds.left) * width / bounds.width);
+  const y = Math.floor((event.clientY - bounds.top) * height / bounds.height);
+  const room = roomAtCell(y * width + x);
+  elements.maproomdetails.textContent = room
+    ? `${room.position?.join("×") || room.fileName} · ${formatNumber(room.gemCount)} gems found`
+    : "Unreached room";
+});
+
+elements.worldcanvas.addEventListener("pointerleave", () => {
+  elements.maproomdetails.textContent = "Hover a room to see its coordinate and gems.";
+});
 
 function setReachedRoom(room) {
   reachedRooms.set(room.fileName, room);
@@ -179,6 +206,13 @@ function update(message) {
   roomWidth = message.roomWidth || roomWidth;
   roomHeight = message.roomHeight || roomHeight;
   for (const room of message.reachedRooms || []) setReachedRoom(room);
+  for (const room of message.gemRooms || []) {
+    setReachedRoom({
+      ...(reachedRooms.get(room.fileName) || {}),
+      ...room,
+      gemCount: room.count
+    });
+  }
   for (const update of message.roomUpdates || []) {
     setReachedRoom({
       ...(reachedRooms.get(update.fileName) || {}),

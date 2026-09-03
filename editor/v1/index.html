@@ -53,10 +53,15 @@
 
         <section class="panel solver-panel">
           <div class="panel-heading"><div><span>Engine v1 solvers</span><strong>Collect every gem</strong></div></div>
-          <p class="description">Both presets run the copied C++ engine's generalized shortest-command search in a worker.</p>
+          <p class="description">Fast A* favors progress and physics activity. Exact Shortest proves the minimum command count when its state budget is sufficient.</p>
+          <label class="solver-weight">
+            <span>Physics interaction bias</span>
+            <input id="physics-interaction-weight" type="number" min="0" max="1000" step="1" value="0" inputmode="numeric">
+            <small>0 is off; higher values explore box and mechanism motion sooner.</small>
+          </label>
           <div class="solver-actions">
-            <button id="quick-solve" type="button">Quick · 12k</button>
-            <button id="exact-solve" type="button">Exact · 180k</button>
+            <button id="quick-solve" type="button">Fast A*</button>
+            <button id="exact-solve" type="button">Exact Shortest</button>
             <button id="cancel-solve" type="button" disabled>Cancel</button>
             <button id="replay-solution" type="button" disabled>Replay</button>
           </div>

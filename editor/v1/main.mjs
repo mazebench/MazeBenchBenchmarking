@@ -55,6 +55,7 @@ const elements = {
   playLink: document.getElementById("play-link"),
   quickSolve: document.getElementById("quick-solve"),
   exactSolve: document.getElementById("exact-solve"),
+  physicsInteractionWeight: document.getElementById("physics-interaction-weight"),
   cancelSolve: document.getElementById("cancel-solve"),
   replaySolution: document.getElementById("replay-solution"),
   solverResult: document.getElementById("solver-result"),
@@ -106,6 +107,13 @@ function setStatus(message, error = false) {
   elements.status.classList.toggle("is-error", error);
 }
 
+function formatRate(value) {
+  const rate = Math.max(0, Number(value) || 0);
+  if (rate >= 1_000_000) return `${(rate / 1_000_000).toFixed(2)}M`;
+  if (rate >= 1_000) return `${(rate / 1_000).toFixed(1)}k`;
+  return rate.toFixed(0);
+}
+
 function invalidateSolution({ cancel = true } = {}) {
   replayGeneration += 1;
   if (cancel) solvers.cancel();
@@ -113,6 +121,7 @@ function invalidateSolution({ cancel = true } = {}) {
   lastSolution = null;
   elements.quickSolve.disabled = false;
   elements.exactSolve.disabled = false;
+  elements.physicsInteractionWeight.disabled = false;
   elements.cancelSolve.disabled = true;
   elements.replaySolution.disabled = true;
   elements.edgeFind.disabled = false;
@@ -127,6 +136,7 @@ function setSolverBusy(busy, label = "") {
   solverBusy = busy;
   elements.quickSolve.disabled = busy;
   elements.exactSolve.disabled = busy;
+  elements.physicsInteractionWeight.disabled = busy;
   elements.cancelSolve.disabled = !busy;
   elements.replaySolution.disabled = busy || !lastSolution?.solution?.length;
   elements.edgeFind.disabled = busy;
@@ -499,16 +509,37 @@ async function runSolver(preset) {
   if (solverBusy) return;
   lastSolution = null;
   elements.solverPath.textContent = "";
-  setSolverBusy(true, `${preset.label} C++ search is running…`);
+  const interactionWeight = preset.id === "fast-astar"
+    ? Math.max(0, Math.min(1_000, Math.floor(Number(elements.physicsInteractionWeight.value) || 0)))
+    : 0;
+  elements.physicsInteractionWeight.value = String(
+    Math.max(0, Math.min(1_000, Math.floor(Number(elements.physicsInteractionWeight.value) || 0)))
+  );
+  setSolverBusy(true, `${preset.label} C++ search is starting…`);
   setStatus(`Running engine v1 ${preset.label.toLowerCase()} solver…`);
   try {
-    const result = await solvers.solve(currentRoom, world.blocks, preset);
+    const result = await solvers.solve(currentRoom, world.blocks, preset, {
+      interactionWeight,
+      onProgress: (progress) => {
+        const elapsed = progress.elapsedMs < 1_000
+          ? `${progress.elapsedMs.toFixed(0)} ms`
+          : `${(progress.elapsedMs / 1_000).toFixed(1)} s`;
+        elements.solverResult.textContent =
+          `${preset.label} · ${progress.expanded.toLocaleString()} states · ` +
+          `${formatRate(progress.statesPerSecond)} board states/s · ` +
+          `${formatRate(progress.actionsPerSecond)} command sims/s · ${elapsed}`;
+      }
+    });
     lastSolution = result.solution.length ? result : null;
     const elapsed = result.elapsedMs < 1000
       ? `${result.elapsedMs.toFixed(0)} ms`
       : `${(result.elapsedMs / 1000).toFixed(2)} s`;
     const proof = result.proven ? "proven shortest" : result.status === "solved-unproven" ? "route found, not proven" : result.status;
-    elements.solverResult.textContent = `${proof} · ${result.moves} moves · ${result.expanded.toLocaleString()} global states · ${elapsed}`;
+    const route = result.solution.length ? `${result.moves} moves` : "no route";
+    elements.solverResult.textContent =
+      `${proof} · ${route} · ${result.expanded.toLocaleString()} states · ` +
+      `${formatRate(result.statesPerSecond)} board states/s · ` +
+      `${formatRate(result.actionsPerSecond)} command sims/s · ${elapsed}`;
     elements.solverPath.textContent = solverPathLabelV1(result.solution);
     setStatus(result.solution.length
       ? `Engine v1 found a ${result.moves}-move ${result.proven ? "optimal " : ""}route.`
@@ -606,7 +637,7 @@ elements.genericCancel.addEventListener("click", closeGenericPrompt);
 elements.genericDialog.addEventListener("pointerdown", (event) => {
   if (event.target === elements.genericDialog) closeGenericPrompt();
 });
-elements.quickSolve.addEventListener("click", () => runSolver(EDITOR_SOLVER_PRESETS_V1.quick));
+elements.quickSolve.addEventListener("click", () => runSolver(EDITOR_SOLVER_PRESETS_V1.fast));
 elements.exactSolve.addEventListener("click", () => runSolver(EDITOR_SOLVER_PRESETS_V1.exact));
 elements.edgeFind.addEventListener("click", () => runEdgeFinder(EDITOR_SOLVER_PRESETS_V1.quick));
 elements.edgeExact.addEventListener("click", () => runEdgeFinder(EDITOR_SOLVER_PRESETS_V1.exact));

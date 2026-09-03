@@ -19,7 +19,7 @@ A deliberately small localhost site that renders the complete MazeBench main wor
 - `engine/v1/voxel_physics.wasm` — the exact copied UnitTest release engine; physics and exact search live here
 - `engine/v1/engine.mjs` — the small storage-v2/browser ABI boundary
 - `play/v1/` — play mode v1, driven by the engine's resumable per-tick command trace
-- `editor/v1/` — editor v1 with face-mounted objects, 3D toolbox previews, and quick/exact engine-v1 gem solvers
+- `editor/v1/` — editor v1 with face-mounted objects, 3D toolbox previews, Fast A*, and Exact Shortest gem solvers
 - `scripts/migrate-v1-to-v2.mjs` — deterministic v1 text to v2 object migration
 - `index.html` — the single page entry point
 
@@ -48,8 +48,13 @@ and use their first entrance. Row A* is gem- and exit-agnostic: it targets every
 open immutable floor, wall, Ice, and Ice-slope surface on each reached vertical
 row, while dynamically adding encountered floating-floor positions. A room
 finishes when its reached-row targets are covered or its frontier is exhausted.
-Search-mode rooms are yellow while open and turn orange once searched or
-exhausted; the live red position is never drawn in a closed orange room.
+Row A* validates an edge by executing the outward command into the connected
+neighbor and deduplicates the resulting room-entry state against entry and
+boundary states the room already covered. A new alternate entry reopens an
+orange room as yellow; a duplicate entry is ignored. Search-mode rooms are
+yellow while open and turn
+orange once searched or exhausted; the live red position is never drawn in a
+closed orange room.
 They report command speed, state visits, rooms, and collectible gems on the full
 256×256 grid. Random Agent paints visits on that same grid, reports live speed,
 rooms, gems, and death undos, and teleports every 10,000 moves to escape
@@ -58,6 +63,14 @@ softlocks. Their accelerator is owned by
 without changing `engine/v1`.
 
 Open play mode at <http://localhost:8080/play/v1/> or the editor at <http://localhost:8080/editor/v1/>. In play mode, `M` swaps between the same live engine state in 3D and ASCII. ASCII uses `A`/`D` for its four cardinal headings and `W`/`S` for MazeBench's five views from top-down through side-on.
+
+The editor's Fast A* mode runs through the project-owned native wrapper and can
+favor box/mechanism-changing commands with a configurable physics interaction
+bias (`0` disables it). Exact Shortest forces that bias and the heuristic to
+zero. Both modes display live global board states/sec and attempted engine
+command simulations/sec;
+Fast A* routes are deliberately marked unproven, while Exact Shortest reports a
+proof only when it solves before physical WebAssembly memory is exhausted.
 
 ## Level storage versions
 

@@ -81,6 +81,8 @@ canvas {
 .recent-swatch { background: linear-gradient(90deg, var(--yellow), var(--red)); }
 .current-swatch { background: var(--red); }
 .exit-swatch { background: var(--cyan); }
+.gem-room-swatch { background: #ee6fff; }
+#map-room-details { color: var(--muted); font-size: 9px; }
 
 aside { display: grid; align-content: start; gap: 9px; overflow: auto; padding: 10px; border-left: 1px solid var(--line); }
 .panel { padding: 11px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); }
