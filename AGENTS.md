@@ -92,6 +92,30 @@ intermediate tick frames and renders only the command's final engine state.
 Camera motion is independent and continues to use `requestAnimationFrame` at
 the browser's display cadence.
 
+## Connected-world Play transitions
+
+World topology and reset-on-leave policy belong to Play Mode, not the vendored
+C++ source. `play/v1/connected-world-session.mjs` begins every command with only
+the current room. If the authoritative engine trace stops at a room edge while
+walking outward, retaining Ice momentum, or carrying punch momentum, it adds
+only that neighboring room and reruns the same command from its original state.
+Repeat this on later edge contacts so one command may visit a straight or
+L-shaped chain of rooms without loading unrelated rooms.
+
+Rooms attached during a command start from immutable authored data with their
+authored player removed; the incoming player is the only player carried across
+the seam. At completion, retain only the room containing the player and discard
+all rooms that were left. Re-entering a discarded room therefore restores its
+original objects. Connected-world animation frames may name different rooms;
+`PlaySessionV1` must switch its active room before publishing each such frame
+and must clear room-local undo history after a transition.
+
+The C++ engine accepts a rectangle, so an L-shaped temporary region represents
+unvisited holes with synthetic solid boundary columns. These columns must never
+be projected into room state or rendered. Do not eagerly combine a complete
+row, column, or world: a room is attached only after the trace expresses intent
+to cross its shared edge.
+
 ## ASCII overlap and face-fixture contract
 
 The ASCII renderer resolves ordinary objects by exact `(x, y, z)` occupancy.

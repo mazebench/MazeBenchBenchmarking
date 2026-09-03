@@ -12,6 +12,7 @@ import {
   instantiateMazeBenchEngineV1
 } from "../engine/v1/engine.mjs";
 import { cameraRelativeMoveDirection } from "../play/v1/camera-relative-input.mjs";
+import { ConnectedWorldSessionV1 } from "../play/v1/connected-world-session.mjs";
 import {
   DEFAULT_PLAY_FRAME_DELAY_MS,
   PlaySessionV1
@@ -80,6 +81,168 @@ test("play animation timing defaults to 105 ms and zero skips to the final frame
   assert.equal(session.state.objects[0].y, 0);
   assert.equal(session.setFrameDelay(105), 105);
   assert.throws(() => session.setFrameDelay(-1), /non-negative number/);
+});
+
+test("connected play walks across an edge and reloads a room after leaving it", async () => {
+  const { engine } = await loadEngine();
+  const roomA = {
+    fileName: "a.json",
+    position: ["A", "A"],
+    columnIndex: 0,
+    rowIndex: 0,
+    width: 3,
+    height: 2,
+    objects: [
+      { x: 1, y: 0, z: 0, blockId: "player" },
+      { x: 1, y: 0, z: 0, blockId: "floor" },
+      { x: 2, y: 0, z: 0, blockId: "floor" },
+      { x: 0, y: 1, z: 0, blockId: "gem" }
+    ]
+  };
+  const roomB = {
+    fileName: "b.json",
+    position: ["B", "A"],
+    columnIndex: 1,
+    rowIndex: 0,
+    width: 3,
+    height: 2,
+    objects: [
+      { x: 1, y: 1, z: 0, blockId: "player" },
+      { x: 0, y: 0, z: 0, blockId: "floor" }
+    ]
+  };
+  const connectedWorld = new ConnectedWorldSessionV1(engine, blocks, [roomA, roomB]);
+  const entered = [];
+  const session = new PlaySessionV1(engine, blocks, {
+    frameDelay: 0,
+    onRoomChange: (room) => entered.push(room.fileName),
+    resolveCommand: (state, room, direction) =>
+      connectedWorld.simulateCommand(state, room, direction)
+  });
+  session.open(roomA);
+  session.state.objects.find((object) => object.blockId === "gem").x = -1;
+
+  await session.move("right");
+  assert.equal(session.room, roomA);
+  assert.deepEqual(
+    session.state.objects.filter((object) => object.blockId === "player")
+      .map(({ x, y }) => ({ x, y })),
+    [{ x: 2, y: 0 }]
+  );
+
+  await session.move("right");
+  assert.equal(session.room, roomB);
+  assert.deepEqual(
+    session.state.objects.filter((object) => object.blockId === "player")
+      .map(({ x, y }) => ({ x, y })),
+    [{ x: 0, y: 0 }]
+  );
+  assert.equal(session.history.length, 0);
+
+  await session.move("left");
+  assert.equal(session.room, roomA);
+  assert.equal(session.state.objects.some((object) =>
+    object.blockId === "gem" && object.x === 0 && object.y === 1), true);
+  assert.equal(session.moves, 3);
+  assert.deepEqual(entered, ["b.json", "a.json"]);
+});
+
+test("one Ice command dynamically combines only the rooms reached by a long slide", async () => {
+  const { engine } = await loadEngine();
+  const makeRoom = (fileName, columnIndex, objects) => ({
+    fileName,
+    position: [String.fromCharCode(65 + columnIndex), "A"],
+    columnIndex,
+    rowIndex: 0,
+    width: 3,
+    height: 2,
+    objects
+  });
+  const support = (blockId, x) => ({ x, y: 0, z: 0, blockId });
+  const roomA = makeRoom("ice-a.json", 0, [
+    { x: 0, y: 0, z: 0, blockId: "player" },
+    support("floor", 0),
+    support("ice-floor", 1),
+    support("ice-floor", 2)
+  ]);
+  const roomB = makeRoom("ice-b.json", 1, [
+    { x: 1, y: 1, z: 0, blockId: "player" },
+    support("ice-floor", 0),
+    support("ice-floor", 1),
+    support("ice-floor", 2)
+  ]);
+  const roomC = makeRoom("ice-c.json", 2, [
+    { x: 1, y: 1, z: 0, blockId: "player" },
+    support("ice-floor", 0),
+    support("ice-floor", 1),
+    support("floor", 2)
+  ]);
+  const connectedWorld = new ConnectedWorldSessionV1(engine, blocks, [roomA, roomB, roomC]);
+  const result = await connectedWorld.simulateCommand(engine.createState(roomA), roomA, "right");
+
+  assert.equal(result.room, roomC);
+  assert.deepEqual(
+    result.final.objects.filter((object) => object.blockId === "player")
+      .map(({ x, y }) => ({ x, y })),
+    [{ x: 2, y: 0 }]
+  );
+  assert.deepEqual([...new Set(result.animationFrames.map(({ room }) => room.fileName))], [
+    "ice-a.json",
+    "ice-b.json",
+    "ice-c.json"
+  ]);
+});
+
+test("a redirected punch grows an L-shaped temporary level without adding the missing room", async () => {
+  const { engine } = await loadEngine();
+  const makeRoom = (fileName, columnIndex, rowIndex, objects) => ({
+    fileName,
+    position: [String.fromCharCode(65 + columnIndex), String.fromCharCode(65 + rowIndex)],
+    columnIndex,
+    rowIndex,
+    width: 4,
+    height: 4,
+    objects
+  });
+  const floor = (x, y) => ({ x, y, z: 0, blockId: "floor" });
+  const roomA = makeRoom("punch-a.json", 0, 0, [
+    { x: 1, y: 2, z: 0, blockId: "player" },
+    { x: 1, y: 1, z: 0, blockId: "puncher", orientation: "right", stateId: 0 },
+    floor(1, 2), floor(1, 1), floor(2, 1), floor(3, 1)
+  ]);
+  const roomB = makeRoom("punch-b.json", 1, 0, [
+    { x: 0, y: 1, z: 0, blockId: "player" },
+    { x: 2, y: 1, z: 0, blockId: "puncher", orientation: "down", stateId: 0 },
+    floor(0, 1), floor(1, 1), floor(2, 1), floor(2, 2), floor(2, 3)
+  ]);
+  const roomC = makeRoom("punch-c.json", 1, 1, [
+    { x: 0, y: 0, z: 0, blockId: "player" },
+    floor(2, 0), floor(2, 1), floor(2, 2), floor(2, 3),
+    { x: 2, y: 3, z: 0, blockId: "wall" }
+  ]);
+  const unvisitedRoom = makeRoom("not-visited.json", 0, 1, [
+    { x: 0, y: 0, z: 0, blockId: "player" },
+    floor(0, 0)
+  ]);
+  const connectedWorld = new ConnectedWorldSessionV1(
+    engine,
+    blocks,
+    [roomA, roomB, roomC, unvisitedRoom]
+  );
+  const result = await connectedWorld.simulateCommand(engine.createState(roomA), roomA, "up");
+
+  assert.equal(result.room, roomC);
+  assert.deepEqual(
+    result.final.objects.filter((object) => object.blockId === "player")
+      .map(({ x, y }) => ({ x, y })),
+    [{ x: 2, y: 2 }]
+  );
+  assert.deepEqual([...new Set(result.animationFrames.map(({ room }) => room.fileName))], [
+    "punch-a.json",
+    "punch-b.json",
+    "punch-c.json"
+  ]);
+  assert.equal(result.connectedRooms.includes("not-visited.json"), false);
 });
 
 test("engine v1 is the byte-identical UnitTest WebAssembly build", async () => {

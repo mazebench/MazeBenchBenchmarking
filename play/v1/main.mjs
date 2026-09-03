@@ -3,6 +3,7 @@ import { AsciiMazeRendererV1 } from "../../render-ascii/v1/ascii-renderer.mjs";
 import { ThreeMazeRendererV1 } from "../../render/v1/three-renderer.mjs";
 import { loadMainWorldV2 } from "../../render/v1/voxel-world-v2.mjs";
 import { cameraRelativeMoveDirection } from "./camera-relative-input.mjs";
+import { ConnectedWorldSessionV1 } from "./connected-world-session.mjs";
 import {
   DEFAULT_PLAY_FRAME_DELAY_MS,
   PlaySessionV1
@@ -41,6 +42,7 @@ let engine;
 let renderer;
 let asciiRenderer;
 let session;
+let connectedWorld;
 let currentRoom;
 let markCurrentRoom;
 let viewMode = "3d";
@@ -190,7 +192,7 @@ function updateAnimationSettings({ persist = true } = {}) {
   history.replaceState(null, "", url);
 }
 
-function openRoom(room) {
+function activateRoom(room) {
   currentRoom = room;
   const label = room.position.join("×");
   const routeRoom = encodeURIComponent(room.position.join("x"));
@@ -203,6 +205,10 @@ function openRoom(room) {
   const url = new URL(location.href);
   url.searchParams.set("room", room.position.join("x"));
   history.replaceState(null, "", url);
+}
+
+function openRoom(room) {
+  activateRoom(room);
   asciiRenderer.openRoom(room);
   session.open(room);
 }
@@ -293,9 +299,13 @@ try {
     }
   );
   updateSeedOptions({ persist: false });
+  connectedWorld = new ConnectedWorldSessionV1(engine, world.blocks, world.rooms);
   session = new PlaySessionV1(engine, world.blocks, {
     onFrame: showFrame,
     onChange: updateSession,
+    onRoomChange: activateRoom,
+    resolveCommand: (state, room, direction) =>
+      connectedWorld.simulateCommand(state, room, direction),
     frameDelay: animationDelayMs
   });
   new ResizeObserver(() => renderer.resize()).observe(elements.stage);

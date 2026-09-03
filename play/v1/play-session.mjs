@@ -18,6 +18,9 @@ export class PlaySessionV1 {
     this.definitions = definitions;
     this.onFrame = callbacks.onFrame || (() => {});
     this.onChange = callbacks.onChange || (() => {});
+    this.onRoomChange = callbacks.onRoomChange || (() => {});
+    this.resolveCommand = callbacks.resolveCommand || ((state, room, direction) =>
+      this.engine.simulateCommand(state, direction, this.definitions));
     this.setFrameDelay(callbacks.frameDelay ?? DEFAULT_PLAY_FRAME_DELAY_MS);
     this.room = null;
     this.state = null;
@@ -113,22 +116,40 @@ export class PlaySessionV1 {
         this.history.push({ state: cloneState(this.state), moves: this.moves });
         if (this.history.length > 256) this.history.shift();
         this.publish();
-        const simulation = await this.engine.simulateCommand(
+        const commandRoom = this.room;
+        const simulation = await this.resolveCommand(
           this.state,
+          this.room,
           direction,
           this.definitions
         );
         const instant = this.frameDelay === 0;
+        const finalRoom = simulation.room || commandRoom;
         const frames = instant
-          ? [simulation.final]
-          : simulation.frames.length ? simulation.frames : [simulation.final];
+          ? [{ state: simulation.final, room: finalRoom }]
+          : simulation.animationFrames?.length
+            ? simulation.animationFrames
+            : (simulation.frames.length ? simulation.frames : [simulation.final])
+              .map((state) => ({ state, room: commandRoom }));
         for (const frame of frames) {
           if (runGeneration !== this.generation) return;
-          this.state = frame;
+          if (frame.room !== this.room) {
+            this.room = frame.room;
+            this.onRoomChange(this.room);
+          }
+          this.state = frame.state;
           this.onFrame(this.state, this.room);
           if (!instant) await wait(this.frameDelay);
         }
         this.state = simulation.final;
+        if (finalRoom !== this.room) {
+          this.room = finalRoom;
+          this.onRoomChange(this.room);
+        }
+        if (finalRoom !== commandRoom) {
+          this.initialState = cloneState(simulation.final);
+          this.history.length = 0;
+        }
         this.moves += 1;
         this.publish({ cycle: simulation.cycle });
         if (this.playerCount < 1) this.queue.length = 0;

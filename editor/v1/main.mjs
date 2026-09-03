@@ -5,8 +5,7 @@ import {
   eraseOneObjectAtCell,
   objectPaintsInsideClickedBody,
   objectsAtCell,
-  placeObjectInCell,
-  solidPlacementCoversBaseSurface
+  placeObjectInCell
 } from "../../render/v1/cell-objects-v2.mjs";
 import { renderToolboxPreviews } from "./toolbox-previews.mjs";
 import { isDirectionalTool, parserToolTokens, portraitToken } from "./directional-tools.mjs";
@@ -181,12 +180,7 @@ function placementFromHit(hit, strokeLayer = null) {
   if (coordinate.x < 0 || coordinate.y < 0 || coordinate.x >= currentRoom.width || coordinate.y >= currentRoom.height) {
     return null;
   }
-  const placement = voxelPlacementForTool(currentTool, coordinate, hit, renderer.cameraDirections());
-  return placement && !solidPlacementCoversBaseSurface(
-    currentRoom.objects,
-    placement,
-    world.blockDefinitions
-  ) ? placement : null;
+  return voxelPlacementForTool(currentTool, coordinate, hit, renderer.cameraDirections());
 }
 
 function updatePlacementPreview(hit = hoverHit) {
@@ -230,7 +224,7 @@ function paint(hit, gesture) {
 
   const placement = placementFromHit(hit, paintStrokeLayer);
   if (!placement) {
-    setStatus("That object cannot be placed here. Solid Row 0 cells must be empty; floor and ice are preserved.", true);
+    setStatus("That object cannot be placed on this face or outside the room.", true);
     return;
   }
   if (paintStrokeLayer === null) paintStrokeLayer = placement.z;
