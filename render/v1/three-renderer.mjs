@@ -166,10 +166,6 @@ export class ThreeMazeRendererV1 {
 
   installEvents() {
     this.canvas.addEventListener("contextmenu", (event) => event.preventDefault());
-    this.canvas.addEventListener("wheel", (event) => {
-      event.preventDefault();
-      this.zoomBy(event.deltaY < 0 ? 0.88 : 1 / 0.88);
-    }, { passive: false });
     this.canvas.addEventListener("pointerdown", (event) => {
       this.canvas.setPointerCapture(event.pointerId);
       if (this.mode === "editor" && event.button === 0 && !event.altKey) {

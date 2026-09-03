@@ -192,6 +192,8 @@ the edge of the world. Play suppresses the neighboring rooms' authored player
 objects so only the actual active player is shown. Do not render the entire
 256-room world in these live views: it contains roughly 95,000 authored objects
 and would be rebuilt during animation and editing. ASCII Mode remains room-local.
+Mouse-wheel and trackpad scrolling must not zoom any 3D view; zoom remains
+available through Q/E and the explicit map zoom buttons.
 
 ## Scope and Git safety
 
