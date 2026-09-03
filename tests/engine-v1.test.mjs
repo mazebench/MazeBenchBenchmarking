@@ -12,7 +12,10 @@ import {
   instantiateMazeBenchEngineV1
 } from "../engine/v1/engine.mjs";
 import { cameraRelativeMoveDirection } from "../play/v1/camera-relative-input.mjs";
-import { PlaySessionV1 } from "../play/v1/play-session.mjs";
+import {
+  DEFAULT_PLAY_FRAME_DELAY_MS,
+  PlaySessionV1
+} from "../play/v1/play-session.mjs";
 
 const blocks = [
   { id: "floor", roleId: "floor", visual: { kind: "floor" } },
@@ -44,6 +47,39 @@ test("play arrows rotate from screen space into world space at every camera head
   );
   assert.equal(cameraRelativeMoveDirection("unknown", 0), null);
   assert.equal(cameraRelativeMoveDirection("up", -1), "right");
+});
+
+test("play animation timing defaults to 105 ms and zero skips to the final frame", async () => {
+  assert.equal(DEFAULT_PLAY_FRAME_DELAY_MS, 105);
+  const room = {
+    width: 1,
+    height: 3,
+    objects: [{ x: 0, y: 2, z: 0, blockId: "player" }]
+  };
+  const middle = {
+    ...room,
+    objects: [{ x: 0, y: 1, z: 0, blockId: "player" }]
+  };
+  const final = {
+    ...room,
+    objects: [{ x: 0, y: 0, z: 0, blockId: "player" }]
+  };
+  const seen = [];
+  const fakeEngine = {
+    createState: (value) => structuredClone(value),
+    simulateCommand: async () => ({ frames: [middle, final], final, cycle: null })
+  };
+  const session = new PlaySessionV1(fakeEngine, blocks, {
+    frameDelay: 0,
+    onFrame: (state) => seen.push(state.objects[0].y)
+  });
+  session.open(room);
+  seen.length = 0;
+  await session.move("up");
+  assert.deepEqual(seen, [0]);
+  assert.equal(session.state.objects[0].y, 0);
+  assert.equal(session.setFrameDelay(105), 105);
+  assert.throws(() => session.setFrameDelay(-1), /non-negative number/);
 });
 
 test("engine v1 is the byte-identical UnitTest WebAssembly build", async () => {

@@ -13,12 +13,12 @@
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; overflow: hidden; }
 body { background: var(--bg); color: var(--text); }
-button, select { font: inherit; }
-button, select {
+button, input, select { font: inherit; }
+button, input, select {
   border: 1px solid var(--line); border-radius: 4px; background: var(--raised); color: var(--text);
 }
 button { cursor: pointer; }
-button:hover, button:focus-visible, select:focus-visible { border-color: #65717e; outline: none; }
+button:hover, button:focus-visible, input:focus-visible, select:focus-visible { border-color: #65717e; outline: none; }
 button:disabled { cursor: default; opacity: .38; }
 a { color: var(--cyan); font-size: 11px; text-decoration: none; }
 
@@ -71,6 +71,13 @@ a { color: var(--cyan); font-size: 11px; text-decoration: none; }
 .dpad .down { grid-column: 2; grid-row: 2; }
 .dpad .right { grid-column: 3; grid-row: 2; }
 .play-state { min-height: 28px; margin: 10px 0 0; color: var(--cyan); font-size: 9px; line-height: 1.45; text-align: center; }
+.playback-controls {
+  display: grid; gap: 7px;
+  margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line);
+}
+.timing-control { display: grid; gap: 4px; color: var(--muted); font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
+.timing-control input { width: 100%; height: 30px; padding: 0 7px; }
+.playback-controls small { color: var(--muted); font-size: 8px; }
 .engine-panel p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
 
 @media (max-width: 760px) {

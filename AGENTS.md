@@ -83,6 +83,15 @@ Do not describe the whole applications as one-to-one merely because the engine
 hashes match. State precisely whether parity refers to C++ source, WASM, adapter
 serialization, command/tick playback, input, or rendering.
 
+## Play animation timing
+
+Play Mode presents each C++ engine tick as one animation frame. Its default
+delay is 105 ms per engine frame (about 9.52 FPS). The Play sidebar can set the
+frame delay directly in milliseconds. A delay of 0 ms is Instant mode: it skips
+intermediate tick frames and renders only the command's final engine state.
+Camera motion is independent and continues to use `requestAnimationFrame` at
+the browser's display cadence.
+
 ## ASCII overlap and face-fixture contract
 
 The ASCII renderer resolves ordinary objects by exact `(x, y, z)` occupancy.

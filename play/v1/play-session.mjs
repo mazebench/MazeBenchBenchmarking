@@ -2,6 +2,8 @@ import { countActiveRoleV1 } from "../../engine/v1/adapter.mjs";
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+export const DEFAULT_PLAY_FRAME_DELAY_MS = 105;
+
 function cloneState(state) {
   return {
     width: state.width,
@@ -16,7 +18,7 @@ export class PlaySessionV1 {
     this.definitions = definitions;
     this.onFrame = callbacks.onFrame || (() => {});
     this.onChange = callbacks.onChange || (() => {});
-    this.frameDelay = callbacks.frameDelay ?? 105;
+    this.setFrameDelay(callbacks.frameDelay ?? DEFAULT_PLAY_FRAME_DELAY_MS);
     this.room = null;
     this.state = null;
     this.initialState = null;
@@ -71,6 +73,15 @@ export class PlaySessionV1 {
     return this.drain();
   }
 
+  setFrameDelay(milliseconds) {
+    const delay = Number(milliseconds);
+    if (!Number.isFinite(delay) || delay < 0) {
+      throw new RangeError("Animation frame delay must be a non-negative number.");
+    }
+    this.frameDelay = delay;
+    return this.frameDelay;
+  }
+
   get gemCount() {
     return this.state ? countActiveRoleV1(this.state, this.definitions, "goal") : 0;
   }
@@ -107,12 +118,15 @@ export class PlaySessionV1 {
           direction,
           this.definitions
         );
-        const frames = simulation.frames.length ? simulation.frames : [simulation.final];
+        const instant = this.frameDelay === 0;
+        const frames = instant
+          ? [simulation.final]
+          : simulation.frames.length ? simulation.frames : [simulation.final];
         for (const frame of frames) {
           if (runGeneration !== this.generation) return;
           this.state = frame;
           this.onFrame(this.state, this.room);
-          await wait(this.frameDelay);
+          if (!instant) await wait(this.frameDelay);
         }
         this.state = simulation.final;
         this.moves += 1;

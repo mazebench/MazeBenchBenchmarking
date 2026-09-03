@@ -3,7 +3,10 @@ import { AsciiMazeRendererV1 } from "../../render-ascii/v1/ascii-renderer.mjs";
 import { ThreeMazeRendererV1 } from "../../render/v1/three-renderer.mjs";
 import { loadMainWorldV2 } from "../../render/v1/voxel-world-v2.mjs";
 import { cameraRelativeMoveDirection } from "./camera-relative-input.mjs";
-import { PlaySessionV1 } from "./play-session.mjs";
+import {
+  DEFAULT_PLAY_FRAME_DELAY_MS,
+  PlaySessionV1
+} from "./play-session.mjs";
 import { installRoomControlsV1 } from "./room-controls.mjs";
 
 const elements = {
@@ -24,6 +27,8 @@ const elements = {
   moveCount: document.getElementById("move-count"),
   gemCount: document.getElementById("gem-count"),
   state: document.getElementById("play-state"),
+  animationDelay: document.getElementById("animation-delay"),
+  animationRate: document.getElementById("animation-rate"),
   reset: document.getElementById("reset"),
   undo: document.getElementById("undo"),
   viewToggle: document.getElementById("view-toggle"),
@@ -41,6 +46,19 @@ let markCurrentRoom;
 let viewMode = "3d";
 let asciiPitch = 1;
 let lastAsciiPitchStep = 0;
+
+const MIN_ANIMATION_DELAY_MS = 0;
+const MAX_ANIMATION_DELAY_MS = 10_000;
+const initialParams = new URL(location.href).searchParams;
+const requestedAnimationDelay = initialParams.has("animationMs")
+  ? Number(initialParams.get("animationMs"))
+  : Number.NaN;
+let animationDelayMs = initialParams.get("instantAnimations") === "1"
+  ? 0
+  : Number.isFinite(requestedAnimationDelay) &&
+    requestedAnimationDelay >= MIN_ANIMATION_DELAY_MS && requestedAnimationDelay <= MAX_ANIMATION_DELAY_MS
+    ? requestedAnimationDelay
+    : DEFAULT_PLAY_FRAME_DELAY_MS;
 
 const ASCII_VIEW_NAMES = Object.freeze([
   "top",
@@ -145,6 +163,33 @@ function updateSession(summary) {
   else elements.state.textContent = "Ready for arrow-key input.";
 }
 
+function formatAnimationDelay(value) {
+  return String(Number(value.toFixed(2)));
+}
+
+function updateAnimationSettings({ persist = true } = {}) {
+  const requestedDelay = Number(elements.animationDelay.value);
+  if (Number.isFinite(requestedDelay) &&
+      requestedDelay >= MIN_ANIMATION_DELAY_MS && requestedDelay <= MAX_ANIMATION_DELAY_MS) {
+    animationDelayMs = requestedDelay;
+  } else {
+    elements.animationDelay.value = formatAnimationDelay(animationDelayMs);
+  }
+  elements.animationRate.textContent = animationDelayMs === 0
+    ? "Intermediate engine frames skipped"
+    : `≈ ${(1000 / animationDelayMs).toFixed(2)} engine frames/second`;
+  session?.setFrameDelay(animationDelayMs);
+  if (!persist) return;
+  const url = new URL(location.href);
+  if (Math.abs(animationDelayMs - DEFAULT_PLAY_FRAME_DELAY_MS) < 0.001) {
+    url.searchParams.delete("animationMs");
+  } else {
+    url.searchParams.set("animationMs", formatAnimationDelay(animationDelayMs));
+  }
+  url.searchParams.delete("instantAnimations");
+  history.replaceState(null, "", url);
+}
+
 function openRoom(room) {
   currentRoom = room;
   const label = room.position.join("×");
@@ -167,6 +212,9 @@ elements.reset.addEventListener("click", () => session?.reset());
 elements.undo.addEventListener("click", () => session?.undo());
 elements.seededGlyphs.addEventListener("change", updateSeedOptions);
 elements.asciiSeed.addEventListener("change", updateSeedOptions);
+elements.animationDelay.value = formatAnimationDelay(animationDelayMs);
+elements.animationDelay.addEventListener("change", updateAnimationSettings);
+updateAnimationSettings({ persist: false });
 elements.directionButtons.forEach((button) => {
   button.addEventListener("click", () => moveFromCamera(button.dataset.direction));
 });
@@ -247,7 +295,8 @@ try {
   updateSeedOptions({ persist: false });
   session = new PlaySessionV1(engine, world.blocks, {
     onFrame: showFrame,
-    onChange: updateSession
+    onChange: updateSession,
+    frameDelay: animationDelayMs
   });
   new ResizeObserver(() => renderer.resize()).observe(elements.stage);
   openRoom(currentRoom);

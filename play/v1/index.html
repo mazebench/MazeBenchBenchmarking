@@ -68,6 +68,13 @@
             <button data-direction="right" class="right" type="button" aria-label="Move right">→</button>
           </div>
           <p id="play-state" class="play-state" role="status" aria-live="polite">Loading…</p>
+          <div class="playback-controls">
+            <label class="timing-control">
+              <span>Frame delay (ms)</span>
+              <input id="animation-delay" type="number" min="0" max="10000" step="0.1" value="105" inputmode="decimal">
+            </label>
+            <small id="animation-rate">≈ 9.52 engine frames/second</small>
+          </div>
         </section>
 
         <section class="panel engine-panel">
