@@ -62,6 +62,34 @@ void TestSimplePush() {
         "pushable should move one cell without changing Z");
 }
 
+void TestPlayerGateRisesWhenPlayerApproaches() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  voxelbench::Voxel voxels[] = {
+      {0, 5, 1, Role("player"), -1},
+      {0, 3, 1, Role("player-gate"), 0},
+      {0, 3, 0, Role("floor"), -1},
+      {0, 4, 0, Role("floor"), -1},
+      {0, 5, 0, Role("floor"), -1},
+  };
+  voxelbench::reset_workspace(&workspace);
+  voxelbench::reset_motion_state(&state);
+  Check(voxelbench::step_tick(
+            &workspace, &state, voxels, 5, 6, 6, 0) ==
+            voxelbench::TickResult::kMore,
+        "player-gate approach should schedule a mechanism tick");
+  Check(voxels[0].y == 4,
+        "player should approach a lowered player gate");
+  Check(voxels[1].generic_id == 0,
+        "player gate should remain lowered in the movement frame");
+  Check(voxelbench::step_tick(
+            &workspace, &state, voxels, 5, 6, 6, 0) ==
+            voxelbench::TickResult::kComplete,
+        "player-gate mechanism tick should complete the command");
+  Check(voxels[1].generic_id == 1,
+        "player gate should become a raised cube one tick later");
+}
+
 void TestPlayerIceSlide() {
   voxelbench::Voxel voxels[] = {
       {2, 4, 1, Role("player"), -1},
@@ -1858,10 +1886,219 @@ void TestSearchTracksOrangeWallDepth() {
         "exact search should hash linked orange-wall depth and solve through it");
 }
 
+void TestPuncherRedirectsPlayerAndResetsVisually() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  voxelbench::Voxel voxels[] = {
+      {1, 3, 1, Role("player"), -1},
+      {1, 2, 1, Role("puncher"), 2},  // Right-facing, unsprung.
+      {0, 2, 1, Role("wall"), -1},
+      {4, 2, 1, Role("wall"), -1},
+      {1, 3, 0, Role("floor"), -1},
+      {1, 2, 0, Role("floor"), -1},
+      {2, 2, 0, Role("floor"), -1},
+      {3, 2, 0, Role("floor"), -1},
+      {4, 2, 0, Role("floor"), -1},
+  };
+  voxelbench::reset_workspace(&workspace);
+  voxelbench::reset_motion_state(&state);
+  Check(voxelbench::simulate_command(
+            &workspace, &state, voxels, 9, 5, 5, 0) == 0,
+        "a player punch route should quiesce");
+  Check(voxels[0].x == 3 && voxels[0].y == 2,
+        "a puncher should redirect the player and preserve its impulse until blocked");
+  Check(voxels[1].generic_id == 2,
+        "a puncher should expose its sprung frame and reset before completion");
+}
+
+void TestPuncherMomentumMovesAWholeWeightlessConvoy() {
+  voxelbench::Voxel voxels[] = {
+      {1, 3, 1, Role("player"), -1},
+      {1, 2, 1, Role("puncher"), 2},  // Right-facing, unsprung.
+      {2, 2, 1, Role("weightless-pushable"), 0},
+      {0, 2, 1, Role("wall"), -1},
+      {5, 2, 1, Role("wall"), -1},
+      {1, 3, 0, Role("floor"), -1},
+      {1, 2, 0, Role("floor"), -1},
+      {2, 2, 0, Role("floor"), -1},
+      {3, 2, 0, Role("floor"), -1},
+      {4, 2, 0, Role("floor"), -1},
+      {5, 2, 0, Role("floor"), -1},
+  };
+  Check(voxelbench::simulate_turn(voxels, 11, 6, 5, 0) == 0,
+        "a punch-driven weightless convoy should quiesce");
+  Check(voxels[0].x == 3 && voxels[2].x == 4,
+        "every body pushed by a punch should retain the convoy impulse");
+}
+
+void TestFloatingFloorHasOneBoxPushWeight() {
+  voxelbench::Voxel one_platform[] = {
+      {0, 5, 1, Role("player"), -1},
+      {0, 4, 1, Role("floating-floor"), -1},
+      {0, 3, 0, Role("floor"), -1},
+      {0, 4, 0, Role("floor"), -1},
+      {0, 5, 0, Role("floor"), -1},
+  };
+  Check(voxelbench::simulate_turn(one_platform, 5, 6, 6, 0) == 0,
+        "pushing one Floating Floor should run");
+  Check(one_platform[0].y == 4 && one_platform[1].y == 3,
+        "one Floating Floor should push like one ordinary box");
+
+  voxelbench::Voxel two_platforms[] = {
+      {0, 5, 1, Role("player"), -1},
+      {0, 4, 1, Role("floating-floor"), -1},
+      {0, 3, 1, Role("floating-floor"), -1},
+      {0, 2, 0, Role("floor"), -1},
+      {0, 3, 0, Role("floor"), -1},
+      {0, 4, 0, Role("floor"), -1},
+      {0, 5, 0, Role("floor"), -1},
+  };
+  Check(voxelbench::simulate_turn(two_platforms, 7, 6, 6, 0) == 0,
+        "a blocked Floating Floor push should run");
+  Check(two_platforms[0].y == 5 && two_platforms[1].y == 4 &&
+            two_platforms[2].y == 3,
+        "two Floating Floors should be too heavy to push together");
+}
+
+void TestFloatingFloorFillsHoleOnFollowingTick() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  voxelbench::Voxel voxels[] = {
+      {0, 5, 1, Role("player"), -1},
+      {0, 4, 1, Role("floating-floor"), -1},
+      {0, 4, 0, Role("floor"), -1},
+      {0, 5, 0, Role("floor"), -1},
+  };
+  voxelbench::reset_workspace(&workspace);
+  voxelbench::reset_motion_state(&state);
+  Check(voxelbench::step_tick(
+            &workspace, &state, voxels, 4, 6, 6, 0) ==
+            voxelbench::TickResult::kMore,
+        "a Floating Floor over a hole should expose its horizontal frame");
+  Check(state.tick == 1 && voxels[0].y == 4 && voxels[1].y == 3 &&
+            voxels[1].z == 1 && voxels[1].role == Role("floating-floor"),
+        "the pushed platform should remain suspended for the movement tick");
+  Check(voxelbench::step_tick(
+            &workspace, &state, voxels, 4, 6, 6, 0) ==
+            voxelbench::TickResult::kComplete,
+        "the Floating Floor hole-fill tick should complete the command");
+  Check(state.tick == 2 && voxels[0].y == 4 && voxels[1].y == 3 &&
+            voxels[1].z == 0 && voxels[1].role == Role("floor"),
+        "the platform should become permanent Floor in the Row-0 hole");
+}
+
+void TestFloatingFloorSharesOneWeightBudgetWithWeightlessChains() {
+  voxelbench::Voxel voxels[] = {
+      {0, 5, 1, Role("player"), -1},
+      {0, 4, 1, Role("floating-floor"), -1},
+      {0, 3, 1, Role("weightless-pushable"), 0},
+      {0, 2, 1, Role("weightless-pushable"), 1},
+      {0, 1, 0, Role("floor"), -1},
+      {0, 2, 0, Role("floor"), -1},
+      {0, 3, 0, Role("floor"), -1},
+      {0, 4, 0, Role("floor"), -1},
+      {0, 5, 0, Role("floor"), -1},
+  };
+  Check(voxelbench::simulate_turn(voxels, 9, 6, 6, 0) == 0,
+        "a mixed Floating Floor and weightless chain push should run");
+  Check(voxels[0].y == 4 && voxels[1].y == 3 &&
+            voxels[2].y == 2 && voxels[3].y == 1,
+        "one weighted platform should transmit through any weightless chain");
+}
+
+void TestFloatingFloorIsNotWalkableOrPushableIntoHighVoid() {
+  voxelbench::Voxel walk[] = {
+      {0, 5, 2, Role("player"), -1},
+      {0, 5, 1, Role("solid"), -1},
+      {0, 4, 1, Role("floating-floor"), -1},
+      {0, 4, 0, Role("floor"), -1},
+      {0, 5, 0, Role("floor"), -1},
+  };
+  Check(voxelbench::simulate_turn(walk, 5, 6, 6, 0) == 0,
+        "walking toward a Floating Floor top should run");
+  Check(walk[0].y == 5,
+        "Floating Floor should not provide a walkable top surface");
+
+  voxelbench::Voxel high_push[] = {
+      {0, 4, 4, Role("player"), -1},
+      {0, 3, 4, Role("floating-floor"), -1},
+      {0, 3, 3, Role("solid"), -1},
+      {0, 4, 3, Role("solid"), -1},
+      {0, 2, 0, Role("floor"), -1},
+  };
+  Check(voxelbench::simulate_turn(high_push, 5, 6, 6, 0) == 0,
+        "an unsupported high Floating Floor push should run");
+  Check(high_push[0].y == 4 && high_push[1].y == 3 &&
+            high_push[1].z == 4,
+        "a deliberate push must not launch Floating Floor into high void");
+}
+
+void TestCloneDoesNotEnterPlayerCellWhenPlayerPushIsBlocked() {
+  voxelbench::Voxel voxels[] = {
+      {0, 4, 1, Role("player"), -1},
+      {0, 5, 1, Role("clone"), 0},
+      {0, 3, 1, Role("floating-floor"), -1},
+      {0, 2, 1, Role("floating-floor"), -1},
+      {0, 2, 0, Role("floor"), -1},
+      {0, 3, 0, Role("floor"), -1},
+      {0, 4, 0, Role("floor"), -1},
+      {0, 5, 0, Role("floor"), -1},
+  };
+  Check(voxelbench::simulate_turn(voxels, 8, 6, 6, 0) == 0,
+        "a blocked player and trailing clone command should run");
+  Check(voxels[0].y == 4 && voxels[1].y == 5 &&
+            voxels[2].y == 3 && voxels[3].y == 2,
+        "the clone must retain its cell when the player cannot vacate");
+}
+
+void TestAuthoredFloatingFloorHoversAndSlopeJamReflectsPlayer() {
+  voxelbench::Voxel voxels[] = {
+      {0, 4, 1, Role("player"), -1},
+      {0, 3, 2, Role("floating-floor"), -1},
+      {0, 3, 1, Role("ice-slope-up"), -1},
+      {0, 2, 1, Role("solid"), -1},
+      {0, 1, 2, Role("floating-floor"), -1},
+      {0, 1, 0, Role("floor"), -1},
+      {0, 2, 0, Role("floor"), -1},
+      {0, 3, 0, Role("floor"), -1},
+      {0, 4, 0, Role("floor"), -1},
+  };
+  Check(voxelbench::simulate_turn(voxels, 9, 6, 6, 0) == 0,
+        "a Floating Floor slope-jam command should run");
+  Check(voxels[0].y == 4 && voxels[0].z == 1 &&
+            voxels[1].y == 2 && voxels[1].z == 2 &&
+            voxels[4].y == 1 && voxels[4].z == 2,
+        "the authored platform should hover while the blocked slope actor recoils");
+}
+
+void TestSearchTracksFilledFloatingFloorState() {
+  static voxelbench::PhysicsWorkspace physics_workspace;
+  static voxelbench::SearchWorkspace search_workspace;
+  voxelbench::Voxel voxels[] = {
+      {0, 4, 1, Role("player"), -1},
+      {0, 3, 1, Role("floating-floor"), -1},
+      {0, 4, 0, Role("floor"), -1},
+      {0, 3, 0, Role("floor"), -1},
+      {0, 1, 0, Role("floor"), -1},
+      {0, 0, 0, Role("floor"), -1},
+      {0, 1, 1, Role("goal"), -1},
+  };
+  voxelbench::reset_workspace(&physics_workspace);
+  const auto result = voxelbench::search_shortest(
+      &search_workspace, &physics_workspace, voxels, 7, 3, 5, 1000);
+  Check(result.status == voxelbench::SearchStatus::kSolved &&
+            result.moves == 3 && result.solution_length == 3,
+        "search should retain a Floating Floor after it permanently fills a hole");
+  Check(result.solution[0] == 0 && result.solution[1] == 0 &&
+            result.solution[2] == 0,
+        "search should cross the filled hole and collect the gem");
+}
+
 }  // namespace
 
 int main() {
   TestSimplePush();
+  TestPlayerGateRisesWhenPlayerApproaches();
   TestPlayerIceSlide();
   TestPushableIceSlide();
   TestPlayerAndPushedBodySlideTogetherOnIce();
@@ -1936,10 +2173,19 @@ int main() {
   TestFloatingOrangeWallLowersAsACube();
   TestProjectedOrangeFaceTransitionsWithDepth();
   TestSearchTracksOrangeWallDepth();
+  TestPuncherRedirectsPlayerAndResetsVisually();
+  TestPuncherMomentumMovesAWholeWeightlessConvoy();
+  TestFloatingFloorHasOneBoxPushWeight();
+  TestFloatingFloorFillsHoleOnFollowingTick();
+  TestFloatingFloorSharesOneWeightBudgetWithWeightlessChains();
+  TestFloatingFloorIsNotWalkableOrPushableIntoHighVoid();
+  TestCloneDoesNotEnterPlayerCellWhenPlayerPushIsBlocked();
+  TestAuthoredFloatingFloorHoversAndSlopeJamReflectsPlayer();
+  TestSearchTracksFilledFloatingFloorState();
   if (failures != 0) {
     std::cerr << failures << " C++ physics test(s) failed\n";
     return EXIT_FAILURE;
   }
-  std::cout << "all 75 C++ physics/search tests passed\n";
+  std::cout << "all 85 C++ physics/search tests passed\n";
   return EXIT_SUCCESS;
 }

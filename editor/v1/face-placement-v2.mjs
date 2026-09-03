@@ -52,6 +52,13 @@ function groupNumber(token) {
   return match ? Number(match[1]) : undefined;
 }
 
+function normalizedPuncherDirection(target, cameraDirections) {
+  const faceOrientation = orientationFromPaintFace(target, false);
+  const aliases = { north: "up", east: "right", south: "down", west: "left" };
+  return aliases[faceOrientation] ||
+    (DIRECTION_INDEX[cameraDirections?.near] !== undefined ? cameraDirections.near : "right");
+}
+
 function placementIdentity(token) {
   if (token === ".") return { blockId: "floor" };
   if (token === "i") return { blockId: "ice-floor" };
@@ -69,7 +76,9 @@ function placementIdentity(token) {
   if (token === "l" || token === "L") return { blockId: "lift", lift: true, stateId: token === "L" ? 1 : 0 };
   if (token === "O") return { blockId: "orange-wall" };
   if (token === "o") return { blockId: "orange-button", button: true };
-  if (/^p[rlud]$/.test(token)) return { blockId: "puncher", puncher: true };
+  if (/^[pP][rlud]$/.test(token)) {
+    return { blockId: "puncher", puncher: true, stateId: token[0] === "P" ? 1 : 0 };
+  }
   if (token === "b") return { blockId: "crate" };
   if (token === "f") return { blockId: "floating-floor" };
   if (/^M\d+$/.test(token)) return { blockId: "weightless-box", groupId: groupNumber(token) };
@@ -97,8 +106,9 @@ export function voxelPlacementForTool(token, coordinate, target, cameraDirection
     placement.orientation = cameraDirections.far;
     placement.variantId = DIRECTION_INDEX[placement.orientation];
   } else if (identity.puncher) {
-    placement.orientation = orientationFromPaintFace(target, true);
-    placement.variantId = SIDE_ORIENTATION_INDEX[placement.orientation];
+    placement.orientation = normalizedPuncherDirection(target, cameraDirections);
+    placement.variantId = DIRECTION_INDEX[placement.orientation];
+    placement.stateId = identity.stateId;
   } else if (identity.lift) {
     const orientation = orientationFromPaintFace(target, false);
     if (!orientation) return null;

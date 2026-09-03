@@ -107,8 +107,10 @@ Orange Wall volumes never render. When an Orange Wall retracts completely under
 a floor surface or into another solid, omit it so the covering surface is
 exposed. Coincident visible Orange Wall records resolve deterministically.
 
-Gate and puncher face-fixture behavior is intentionally pending. Do not extend
-this contract to them until the user says their engine behavior is implemented.
+Gate and puncher physics are now implemented upstream, including lowered/raised
+gate states and unsprung/sprung puncher states. Their ASCII face-fixture rules
+remain intentionally pending at the user's request; do not extend this contract
+to them until the user resumes that renderer work.
 
 ## Scope and Git safety
 

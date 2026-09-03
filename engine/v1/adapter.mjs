@@ -9,6 +9,7 @@ const SLOPE_DIRECTIONS = ENGINE_V1_DIRECTIONS;
 const LIFT_ORIENTATIONS = ["top", "north", "east", "south", "west"];
 const BUTTON_ORIENTATIONS = [...LIFT_ORIENTATIONS, "bottom"];
 const GENERIC_ROLES = new Set(["weightless-pushable", "clone"]);
+const ENGINE_FALL_Z = -2_147_483_648;
 
 function definitionMap(definitions) {
   return definitions instanceof Map
@@ -63,6 +64,9 @@ export function engineRoleIdForObject(object, definitions) {
   if (block.visual?.kind === "slope") {
     return slopeRoleId(block.roleId, normalizeSlopeDirection(object));
   }
+  // Older v2 manifests called this role "gate". The canonical engine role is
+  // now "player-gate"; keying off the visual keeps those rooms compatible.
+  if (block.visual?.kind === "gate") return "player-gate";
   // Storage v2 treats floor/exit z=0 as a surface. Exit markers still need
   // ordinary support physics, not a full blocking cube at the player's z.
   if (block.visual?.kind === "exit") return "floor";
@@ -70,17 +74,26 @@ export function engineRoleIdForObject(object, definitions) {
 }
 
 function engineZForObject(object, block) {
-  return block?.visual?.kind === "floor" || block?.visual?.kind === "exit"
-    ? object.z - 1
-    : object.roleId === "orange-wall"
-      ? object.z + Math.max(0, Math.floor(Number(object.mechanismDepth) || 0))
-      : object.z;
+  // Storage v2 records a surface and an actor standing on it at the same z.
+  // The C++ engine records the surface at z and the actor at z + 1.
+  if (block?.visual?.kind === "floor" || block?.visual?.kind === "exit") {
+    return object.z;
+  }
+  if (block?.roleId === "orange-wall") {
+    return object.z + Math.max(0, Math.floor(Number(object.mechanismDepth) || 0)) + 1;
+  }
+  return object.z + 1;
 }
 
-function visualZForObject(engineZ, object, block, engineGenericId) {
-  if (block?.visual?.kind === "floor" || block?.visual?.kind === "exit") return engineZ + 1;
-  if (block?.roleId === "orange-wall") return engineZ - Math.max(0, engineGenericId);
-  return engineZ;
+function visualZForObject(engineZ, block, engineGenericId, filledFloatingFloor = false) {
+  if (engineZ === ENGINE_FALL_Z) return engineZ;
+  if (filledFloatingFloor || block?.visual?.kind === "floor" || block?.visual?.kind === "exit") {
+    return engineZ;
+  }
+  if (block?.roleId === "orange-wall") {
+    return engineZ - Math.max(0, engineGenericId) - 1;
+  }
+  return engineZ - 1;
 }
 
 function encodedLiftId(object) {
@@ -96,13 +109,29 @@ function encodedButtonId(object) {
   return Math.max(0, orientation) * 2;
 }
 
+function encodedGateId(object) {
+  if (Number.isInteger(object.engineGenericId)) return object.engineGenericId;
+  return object.stateId === 1 || object.genericId === 1 ? 1 : 0;
+}
+
+function encodedPuncherId(object) {
+  if (Number.isInteger(object.engineGenericId)) return object.engineGenericId;
+  const direction = SLOPE_DIRECTIONS.indexOf(normalizeSlopeDirection(object));
+  const sprung = object.stateId === 1 || object.genericId === 1;
+  return Math.max(0, direction) * 2 + (sprung ? 1 : 0);
+}
+
 export function engineGenericIdForObject(object, definitions) {
   const block = definitionMap(definitions).get(object.blockId);
   if (!block) return -1;
   if (block.roleId === "player-lift") return encodedLiftId(object);
+  if (block.visual?.kind === "gate" || block.roleId === "player-gate") return encodedGateId(object);
   if (block.roleId === "orange-button") return encodedButtonId(object);
   if (block.roleId === "orange-wall") {
     return Math.max(0, Math.floor(Number(object.mechanismDepth ?? object.stateId) || 0));
+  }
+  if (block.visual?.kind === "puncher" || block.roleId === "puncher") {
+    return encodedPuncherId(object);
   }
   if (GENERIC_ROLES.has(block.roleId)) {
     return Number.isInteger(object.groupId)
@@ -127,9 +156,7 @@ export function writeEngineStateV1(state, definitions, roleCode, buffer, stride)
     const offset = index * stride;
     buffer[offset] = object.x;
     buffer[offset + 1] = object.y;
-    buffer[offset + 2] = block?.roleId === "orange-wall"
-      ? object.z + Math.max(0, Math.floor(Number(object.mechanismDepth) || 0))
-      : engineZForObject(object, block);
+    buffer[offset + 2] = engineZForObject(object, block);
     buffer[offset + 3] = roleCode(engineRoleIdForObject(object, blocks));
     buffer[offset + 4] = engineGenericIdForObject(object, blocks);
   });
@@ -137,15 +164,18 @@ export function writeEngineStateV1(state, definitions, roleCode, buffer, stride)
 
 export function readEngineStateV1(template, definitions, buffer, stride) {
   const blocks = definitionMap(definitions);
+  const floorBlockId = [...blocks.values()].find((block) => block.roleId === "floor")?.id;
   const objects = template.objects.map((object, index) => {
     const block = blocks.get(object.blockId);
     const offset = index * stride;
     const engineGenericId = buffer[offset + 4];
+    const filledFloatingFloor = block?.roleId === "floating-floor" && engineGenericId === 1;
     const next = {
       ...object,
+      ...(filledFloatingFloor && floorBlockId ? { blockId: floorBlockId } : {}),
       x: buffer[offset],
       y: buffer[offset + 1],
-      z: visualZForObject(buffer[offset + 2], object, block, engineGenericId)
+      z: visualZForObject(buffer[offset + 2], block, engineGenericId, filledFloatingFloor)
     };
     if (block?.roleId === "player-lift") {
       const id = Math.max(0, Math.min(9, engineGenericId));
@@ -161,9 +191,22 @@ export function readEngineStateV1(template, definitions, buffer, stride) {
       next.orientation = BUTTON_ORIENTATIONS[Math.floor(id / 2)];
       next.variantId = Math.floor(id / 2);
       next.engineHidden = (id & 1) === 1;
+    } else if (block?.visual?.kind === "gate" || block?.roleId === "player-gate") {
+      const id = engineGenericId === 1 ? 1 : 0;
+      next.engineGenericId = id;
+      next.genericId = id;
+      next.stateId = id;
     } else if (block?.roleId === "orange-wall") {
       next.mechanismDepth = Math.max(0, engineGenericId);
       next.stateId = 1;
+    } else if (block?.visual?.kind === "puncher" || block?.roleId === "puncher") {
+      const id = Math.max(0, Math.min(7, engineGenericId));
+      const direction = Math.floor(id / 2);
+      next.engineGenericId = id;
+      next.genericId = id % 2;
+      next.orientation = SLOPE_DIRECTIONS[direction];
+      next.variantId = direction;
+      next.stateId = id % 2;
     } else if (GENERIC_ROLES.has(block?.roleId)) {
       next.genericId = engineGenericId;
       next.groupId = engineGenericId;
@@ -202,4 +245,3 @@ export function normalizeEngineDirectionV1(direction) {
   if (index < 0) throw new Error(`Unknown engine direction: ${direction}`);
   return index;
 }
-

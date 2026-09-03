@@ -48,6 +48,7 @@ function addDefinition(type, tokens, options = {}) {
       shape: tokenOptions.shape || options.shape || null,
       groupId: tokenOptions.groupId || options.groupId || null,
       initialRaised: tokenOptions.initialRaised === true || options.initialRaised === true,
+      initialSprung: tokenOptions.initialSprung === true || options.initialSprung === true,
       modelUrl: options.model ? ASSET_URL(options.model) : null
     }));
   });
@@ -78,7 +79,11 @@ addDefinition("puncher", [
   { token: "pr", label: "Puncher", direction: "right" },
   { token: "pl", label: "Puncher Left", direction: "left" },
   { token: "pu", label: "Puncher Up", direction: "up" },
-  { token: "pd", label: "Puncher Down", direction: "down" }
+  { token: "pd", label: "Puncher Down", direction: "down" },
+  { token: "Pr", label: "Sprung Puncher", direction: "right", initialSprung: true },
+  { token: "Pl", label: "Sprung Puncher Left", direction: "left", initialSprung: true },
+  { token: "Pu", label: "Sprung Puncher Up", direction: "up", initialSprung: true },
+  { token: "Pd", label: "Sprung Puncher Down", direction: "down", initialSprung: true }
 ], { label: "Puncher" });
 addDefinition("box", "b");
 addDefinition("floating_floor", "f");
@@ -256,6 +261,7 @@ export function parseCellState(rawCell) {
         color: colorForDefinition(definition),
         elevation,
         groupId,
+        sprung: definition.type === "puncher" && definition.initialSprung === true,
         shape: visualShape(definition)
       });
       surfaceHeight = elevation + 1;

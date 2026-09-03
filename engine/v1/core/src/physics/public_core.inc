@@ -25,9 +25,12 @@ void reset_workspace(PhysicsWorkspace* workspace) {
   data->prepared_has_ice_slopes = false;
   data->prepared_has_player_lifts = false;
   data->prepared_has_orange_mechanisms = false;
+  data->prepared_has_punchers = false;
+  data->prepared_has_floating_floors = false;
   data->prepared_has_clones = false;
   data->prepared_has_player_polycube = false;
   data->scene_has_orange_mechanisms = false;
+  data->scene_has_player_gates = false;
   data->clone_command_tick_active = false;
   data->assume_quiescent_start = false;
   data->motion_voxel_count = -1;
@@ -63,8 +66,9 @@ bool prepare_scene(
     const uint32_t role = voxels[index].role;
     if (role == kPlayerRole || IsCloneObjectRole(role) ||
         role == kPushableRole || IsWeightlessObjectRole(role) ||
-        role == kPlayerLiftRole ||
-        role == kOrangeButtonRole || role == kOrangeWallRole) {
+        role == kPlayerLiftRole || role == kPlayerGateRole ||
+        role == kOrangeButtonRole || role == kOrangeWallRole ||
+        role == kPuncherRole || role == kFloatingFloorRole) {
       data.prepared_dynamic_voxel_count = -1;
       return false;
     }
@@ -75,6 +79,8 @@ bool prepare_scene(
   data.prepared_has_ice_slopes = false;
   data.prepared_has_player_lifts = false;
   data.prepared_has_orange_mechanisms = false;
+  data.prepared_has_punchers = false;
+  data.prepared_has_floating_floors = false;
   data.prepared_has_clones = false;
   data.prepared_has_player_polycube = false;
   int32_t player_count = 0;
@@ -84,6 +90,9 @@ bool prepare_scene(
     data.prepared_has_orange_mechanisms |=
         voxels[index].role == kOrangeButtonRole ||
         voxels[index].role == kOrangeWallRole;
+    data.prepared_has_punchers |= voxels[index].role == kPuncherRole;
+    data.prepared_has_floating_floors |=
+        voxels[index].role == kFloatingFloorRole;
     data.prepared_has_clones |= IsCloneObjectRole(voxels[index].role);
     player_count += voxels[index].role == kPlayerRole ? 1 : 0;
     if (voxels[index].role == kGoalRole) {
@@ -165,6 +174,12 @@ bool prepare_quiescent_snapshot(
   WorkspaceScope workspace_scope(workspace);
   if (!IsPreparedScene(voxels, count, width, height)) return false;
   ResetObjectMotion();
+  if (ActiveWorkspace().prepared_has_floating_floors) {
+    // Filling a hole changes a Floating Floor entity into static Floor. Search
+    // restores both forms into the same prepared buffer, so rebuild the small
+    // dynamic object map before each restored candidate.
+    BuildObjects(voxels, count);
+  }
   BuildSpatialIndex(voxels, count, width, height);
   return true;
 }

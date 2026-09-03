@@ -95,9 +95,13 @@
       "demo": { "layout": ["p .+o . .+O ."], "moves": "RRRR" }
     },
     "pr": {
-      "name": "Puncher",
-      "description": "Punches whatever stops in front of it, launching the target away as far as possible. It points outward from whichever highlighted surface you place it on.",
+      "name": "Unsprung Puncher",
+      "description": "A ready puncher. When something stops in front of it, it springs and launches the target in its facing direction.",
       "demo": { "layout": [".+# $ . . p .+#"], "moves": "LLLLLL" }
+    },
+    "Pr": {
+      "name": "Sprung Puncher",
+      "description": "The extended visual state of a puncher. It resets to unsprung at the beginning of the next engine tick."
     },
     "f": {
       "name": "Floating Floor",

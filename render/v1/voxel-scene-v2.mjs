@@ -56,12 +56,15 @@ export function voxelPieceDefinition(object, block) {
   }
   if (kind === "slope") return { kind: "slope", bottom, top: bottom + 1, color };
   if (kind === "gate") {
-    return {
-      kind: "gate",
-      bottom: bottom + PLATE_OFFSET - PLATE_THICKNESS,
-      top: bottom + PLATE_OFFSET,
-      color
-    };
+    return object.stateId === 1
+      ? { kind: "gate", bottom, top: bottom + 1, color, raised: true }
+      : {
+          kind: "gate",
+          bottom: bottom + PLATE_OFFSET - PLATE_THICKNESS,
+          top: bottom + PLATE_OFFSET,
+          color,
+          raised: false
+        };
   }
   if (kind === "lift") {
     const orientation = object.orientation || "top";
@@ -82,7 +85,9 @@ export function voxelPieceDefinition(object, block) {
   if (kind === "button") {
     return { kind: "orange_button", bottom, top: bottom + 1, color, orientation: object.orientation || "top" };
   }
-  if (kind === "puncher") return { kind: "puncher", bottom, top: bottom + 0.88, color };
+  if (kind === "puncher") {
+    return { kind: "puncher", bottom, top: bottom + 0.88, color, sprung: object.stateId === 1 };
+  }
   if (kind === "platform") {
     return { kind: "floating_floor", bottom, top: bottom + FLOATING_FLOOR_HEIGHT, color };
   }

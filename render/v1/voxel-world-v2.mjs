@@ -31,7 +31,7 @@ export const V2_BLOCK_CATALOG = Object.freeze([
   { id: "player", name: "Player", color: "#5aa95c", roleId: "player", occupancy: "solid", category: "actor", visual: { kind: "cube" } },
   { id: "clone", name: "Clone", color: "#b59a2a", roleId: "clone", occupancy: "solid", category: "actor", visual: { kind: "cube" } },
   { id: "gem", name: "Gem", color: "#6cd7ff", roleId: "goal", occupancy: "sensor", category: "actor", visual: MODEL("gem.glb", "gem") },
-  { id: "gate", name: "Player Gate", color: "#c75652", roleId: "gate", occupancy: "sensor", category: "terrain", visual: { kind: "gate" } },
+  { id: "gate", name: "Player Gate", color: "#c75652", roleId: "player-gate", occupancy: "sensor", category: "terrain", visual: { kind: "gate" } },
   { id: "lift", name: "Player Lift", color: "#8a63d2", roleId: "player-lift", occupancy: "sensor", category: "terrain", visual: { kind: "lift" } },
   { id: "orange-wall", name: "Orange Wall", color: "#b85f16", roleId: "orange-wall", occupancy: "sensor", category: "terrain", visual: { kind: "cube" } },
   { id: "orange-button", name: "Orange Button", color: "#f59e0b", roleId: "orange-button", occupancy: "sensor", category: "actor", visual: { kind: "button" } },

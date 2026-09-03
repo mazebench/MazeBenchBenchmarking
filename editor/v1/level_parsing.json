@@ -123,6 +123,33 @@
      "label": "Puncher Down",
      "direction": "down",
      "selectable": false
+    },
+    {
+     "token": "Pr",
+     "label": "Sprung Puncher",
+     "direction": "right",
+     "initial_sprung": true
+    },
+    {
+     "token": "Pl",
+     "label": "Sprung Puncher Left",
+     "direction": "left",
+     "initial_sprung": true,
+     "selectable": false
+    },
+    {
+     "token": "Pu",
+     "label": "Sprung Puncher Up",
+     "direction": "up",
+     "initial_sprung": true,
+     "selectable": false
+    },
+    {
+     "token": "Pd",
+     "label": "Sprung Puncher Down",
+     "direction": "down",
+     "initial_sprung": true,
+     "selectable": false
     }
    ],
    "label": "Puncher"

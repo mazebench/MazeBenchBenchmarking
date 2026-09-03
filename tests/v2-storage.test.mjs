@@ -25,6 +25,7 @@ import {
   V2_ROOM_FORMAT,
   V2_WORLD_FORMAT
 } from "../render/v1/voxel-world-v2.mjs";
+import { legacyCellsToVoxelObjects } from "../render/v1/v1-to-v2.mjs";
 import {
   CAMERA_CENTER_DURATION_MS,
   CAMERA_PAN_ACCEL_MULTIPLIER,
@@ -51,6 +52,7 @@ import {
 } from "../render/v1/voxel-scene-v2.mjs";
 import {
   puncherDirectionVector,
+  puncherPartLayout,
   slopeGeometry
 } from "../render/v1/special-piece-renderers.mjs";
 import {
@@ -274,6 +276,15 @@ test("v2 rooms preserve stacked, overlapping, and oriented objects", () => {
   assert.deepEqual(decodeVoxelRoom(encoded).objects, objects);
 });
 
+test("legacy puncher tokens preserve unsprung and sprung states during v2 migration", () => {
+  const [unsprung, sprung] = legacyCellsToVoxelObjects([[".+pr", ".+Pr"]])
+    .filter((object) => object.blockId === "puncher");
+  assert.deepEqual(
+    [unsprung.orientation, unsprung.stateId, sprung.orientation, sprung.stateId],
+    ["right", 0, "right", 1]
+  );
+});
+
 test("side-face placement uses the adjacent 3D cell and records the face orientation", () => {
   const hit = {
     kind: "terrain",
@@ -302,8 +313,9 @@ test("side-face placement uses the adjacent 3D cell and records the face orienta
   assert.equal(lift.stateId, 1);
 
   const puncher = voxelPlacementForTool("pr", coordinate, hit, { near: "down", far: "up" });
-  assert.equal(puncher.orientation, "east");
-  assert.equal(puncher.variantId, 2);
+  assert.equal(puncher.orientation, "right");
+  assert.equal(puncher.variantId, 1);
+  assert.equal(puncher.stateId, 0);
 });
 
 test("editor paint drags stay on their starting layer and base floors stay on zero", () => {
@@ -336,7 +348,7 @@ test("an erase drag cannot fall through a z-zero block into its z-zero floor", (
   assert.equal(resolveEditorEraseTargetV2(floorHit, strokeRow), null);
 });
 
-test("punchers point out from horizontal, top, and bottom highlighted faces", () => {
+test("punchers use wall normals and stay horizontal on top or bottom faces", () => {
   const coordinate = { x: 3, y: 4, z: 2 };
   const camera = { near: "left", far: "right" };
   const top = voxelPlacementForTool("pr", coordinate, {
@@ -345,10 +357,20 @@ test("punchers point out from horizontal, top, and bottom highlighted faces", ()
   const bottom = voxelPlacementForTool("pr", coordinate, {
     dx: 0, dy: 0, dz: -1, face: "bottom-face"
   }, camera);
-  assert.equal(top.orientation, "top");
-  assert.equal(top.variantId, 0);
-  assert.equal(bottom.orientation, "bottom");
-  assert.equal(bottom.variantId, 5);
+  assert.equal(top.orientation, "left");
+  assert.equal(top.variantId, 3);
+  assert.equal(bottom.orientation, "left");
+  assert.equal(bottom.variantId, 3);
+  const sprung = voxelPlacementForTool("Pr", coordinate, {
+    dx: 1, dy: 0, dz: 0, face: "side-face"
+  }, camera);
+  assert.deepEqual(sprung, {
+    ...coordinate,
+    blockId: "puncher",
+    orientation: "right",
+    variantId: 1,
+    stateId: 1
+  });
   assert.deepEqual(puncherDirectionVector("top").toArray(), [0, 1, 0]);
   assert.deepEqual(puncherDirectionVector("bottom").toArray(), [0, -1, 0]);
   assert.deepEqual(puncherDirectionVector("west").toArray(), [-1, 0, 0]);
@@ -369,6 +391,20 @@ test("placement previews use the real oriented button and slope definitions", ()
   const slopeObject = { x: 4, y: 5, z: 3, blockId: slope.id, orientation: "up" };
   assert.equal(voxelPieceDefinition(slopeObject, slope).kind, "slope");
   assert.equal(voxelRenderSource(slopeObject, slope).direction, "up");
+
+  const gate = definitions.get("gate");
+  assert.equal(voxelPieceDefinition({ x: 0, y: 0, z: 0, blockId: "gate", stateId: 0 }, gate).raised, false);
+  assert.deepEqual(
+    voxelPieceDefinition({ x: 0, y: 0, z: 0, blockId: "gate", stateId: 1 }, gate),
+    { kind: "gate", bottom: 0, top: 1, color: gate.color, raised: true }
+  );
+
+  const puncher = definitions.get("puncher");
+  assert.equal(
+    voxelPieceDefinition({ x: 0, y: 0, z: 0, blockId: "puncher", stateId: 1 }, puncher).sprung,
+    true
+  );
+  assert.ok(puncherPartLayout(true)[2].offset > puncherPartLayout(false)[2].offset);
 });
 
 test("shareable face objects coexist with solid objects at one coordinate", () => {
@@ -383,6 +419,11 @@ test("shareable face objects coexist with solid objects at one coordinate", () =
   assert.equal(puncherResult.changed, true);
   assert.deepEqual(puncherResult.objects, [floor, button, puncher]);
   assert.equal(objectPaintsInsideClickedBody(definitions.get("puncher")), true);
+
+  const sprungPuncher = { ...puncher, stateId: 1 };
+  const replaced = placeObjectInCell(puncherResult.objects, sprungPuncher, definitions);
+  assert.equal(replaced.changed, true);
+  assert.deepEqual(replaced.objects, [floor, button, sprungPuncher]);
 });
 
 test("floor surfaces survive solid placement and can be replaced independently", () => {

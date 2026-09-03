@@ -38,10 +38,10 @@ struct MotionState {
   uint8_t reserved[2];
   int32_t cycle_start_tick;
   int32_t cycle_repeat_tick;
-  // Zero means stationary; 1..4 encode active horizontal direction 0..3 and
-  // 5..8 encode the same direction while momentum is latent during a fall or
-  // in a supported stack. Keeping direction with each voxel lets independent
-  // polycubes traverse and turn on different parts of a slope network.
+  // Zero means stationary; 1..4 encode active Ice direction 0..3, 5..8 encode
+  // latent Ice direction, 9..12 encode active punch direction, and 13..16
+  // encode latent punch direction. Keeping direction with each voxel lets
+  // independent polycubes traverse and turn on different paths.
   uint8_t horizontal_momentum[kVoxelCapacity];
   uint8_t falling[kVoxelCapacity];
   uint8_t gravity_armed[kVoxelCapacity];

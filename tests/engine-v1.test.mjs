@@ -19,7 +19,10 @@ const blocks = [
   { id: "ice-floor", roleId: "ice", visual: { kind: "floor" } },
   { id: "wall", roleId: "solid", visual: { kind: "cube" } },
   { id: "player", roleId: "player", visual: { kind: "cube" } },
-  { id: "gem", roleId: "goal", visual: { kind: "model" } }
+  { id: "gem", roleId: "goal", visual: { kind: "model" } },
+  { id: "gate", roleId: "player-gate", visual: { kind: "gate" } },
+  { id: "puncher", roleId: "puncher", visual: { kind: "puncher" } },
+  { id: "floating-floor", roleId: "floating-floor", visual: { kind: "platform" } }
 ];
 
 async function loadEngine() {
@@ -124,6 +127,80 @@ test("storage-v2 surface Ice produces the engine's multi-tick slide", async () =
   const result = await engine.simulateCommand(room, "up", blocks);
   assert.deepEqual(result.frames.map((frame) => frame.objects[0].y), [3, 2, 1, 0]);
   assert.equal(result.final.objects[0].y, 0);
+});
+
+test("player gates rise one frame after the player approaches", async () => {
+  const { engine } = await loadEngine();
+  const room = {
+    width: 6,
+    height: 6,
+    objects: [
+      { x: 0, y: 5, z: 0, blockId: "player" },
+      { x: 0, y: 3, z: 0, blockId: "gate", stateId: 0 },
+      { x: 0, y: 3, z: 0, blockId: "floor" },
+      { x: 0, y: 4, z: 0, blockId: "floor" },
+      { x: 0, y: 5, z: 0, blockId: "floor" }
+    ]
+  };
+  const result = await engine.simulateCommand(room, "up", blocks);
+  assert.equal(result.frames.length, 2);
+  assert.equal(result.frames[0].objects[0].y, 4);
+  assert.equal(result.frames[0].objects[1].stateId, 0);
+  assert.equal(result.frames[1].objects[1].stateId, 1);
+  assert.equal(result.final.objects[1].stateId, 1);
+});
+
+test("punchers encode direction, expose their sprung frame, and reset", async () => {
+  const { engine } = await loadEngine();
+  const room = {
+    width: 5,
+    height: 5,
+    objects: [
+      { x: 1, y: 3, z: 0, blockId: "player" },
+      { x: 1, y: 2, z: 0, blockId: "puncher", orientation: "right", stateId: 0 },
+      { x: 0, y: 2, z: 0, blockId: "wall" },
+      { x: 4, y: 2, z: 0, blockId: "wall" },
+      { x: 1, y: 3, z: 0, blockId: "floor" },
+      { x: 1, y: 2, z: 0, blockId: "floor" },
+      { x: 2, y: 2, z: 0, blockId: "floor" },
+      { x: 3, y: 2, z: 0, blockId: "floor" },
+      { x: 4, y: 2, z: 0, blockId: "floor" }
+    ]
+  };
+  const result = await engine.simulateCommand(room, "up", blocks);
+  assert.equal(result.frames.some((frame) => frame.objects[1].stateId === 1), true);
+  assert.deepEqual(
+    { x: result.final.objects[0].x, y: result.final.objects[0].y },
+    { x: 3, y: 2 }
+  );
+  assert.equal(result.final.objects[1].orientation, "right");
+  assert.equal(result.final.objects[1].stateId, 0);
+});
+
+test("a floating floor fills a Row-0 hole on the following tick", async () => {
+  const { engine } = await loadEngine();
+  const room = {
+    width: 6,
+    height: 6,
+    objects: [
+      { x: 0, y: 5, z: 0, blockId: "player" },
+      { x: 0, y: 4, z: 0, blockId: "floating-floor" },
+      { x: 0, y: 4, z: 0, blockId: "floor" },
+      { x: 0, y: 5, z: 0, blockId: "floor" }
+    ]
+  };
+  const result = await engine.simulateCommand(room, "up", blocks);
+  assert.equal(result.frames.length, 2);
+  assert.deepEqual(
+    { y: result.frames[0].objects[1].y, z: result.frames[0].objects[1].z,
+      blockId: result.frames[0].objects[1].blockId },
+    { y: 3, z: 0, blockId: "floating-floor" }
+  );
+  assert.deepEqual(
+    { y: result.final.objects[1].y, z: result.final.objects[1].z,
+      blockId: result.final.objects[1].blockId },
+    { y: 3, z: 0, blockId: "floor" }
+  );
 });
 
 test("play v1 undo restores the prior engine state and reset clears history", async () => {

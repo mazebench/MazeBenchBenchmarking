@@ -17,6 +17,7 @@ void BuildObjects(Voxel* voxels, int32_t count) {
   g_object_count = 0;
   g_weightless_object_count = 0;
   ActiveWorkspace().scene_has_orange_mechanisms = false;
+  ActiveWorkspace().scene_has_player_gates = false;
   ResetHash();
   int32_t player_count = 0;
   for (int32_t index = 0; index < count; ++index) {
@@ -32,12 +33,14 @@ void BuildObjects(Voxel* voxels, int32_t count) {
       AddVoxelToObject(index, player_object);
       continue;
     }
-    if (voxels[index].role == kPushableRole) {
+    if (voxels[index].role == kPushableRole ||
+        voxels[index].role == kFloatingFloorRole) {
       AddVoxelToObject(index, CreateObject(kNormalObject));
       continue;
     }
     if (voxels[index].role == kPlayerLiftRole ||
-        voxels[index].role == kOrangeButtonRole) {
+        voxels[index].role == kOrangeButtonRole ||
+        voxels[index].role == kPuncherRole) {
       // A lift is an independently stateful fixture, but it is still a body:
       // when a moving polycube carries it, it translates and falls with that
       // support. It is not directly player-pushable.
@@ -48,6 +51,10 @@ void BuildObjects(Voxel* voxels, int32_t count) {
     }
     if (voxels[index].role == kOrangeWallRole) {
       ActiveWorkspace().scene_has_orange_mechanisms = true;
+      continue;
+    }
+    if (voxels[index].role == kPlayerGateRole) {
+      ActiveWorkspace().scene_has_player_gates = true;
       continue;
     }
     if (!IsWeightlessObjectRole(voxels[index].role) &&
@@ -116,8 +123,30 @@ int32_t MechanismAttachmentVoxel(
   if (member < 0) return -1;
   const Voxel& mechanism = voxels[member];
   if (mechanism.role != kPlayerLiftRole &&
-      mechanism.role != kOrangeButtonRole) {
+      mechanism.role != kOrangeButtonRole &&
+      mechanism.role != kPuncherRole) {
     return -1;
+  }
+  if (mechanism.role == kPuncherRole) {
+    const int32_t direction = mechanism.generic_id >= 0
+        ? mechanism.generic_id / 2
+        : 0;
+    int32_t support_x = mechanism.x;
+    int32_t support_y = mechanism.y;
+    if (direction == 0) {
+      ++support_y;
+    } else if (direction == 1) {
+      --support_x;
+    } else if (direction == 2) {
+      --support_y;
+    } else if (direction == 3) {
+      ++support_x;
+    } else {
+      return -1;
+    }
+    const int32_t support = FindVoxelAt(
+        voxels, support_x, support_y, mechanism.z, width, height);
+    return support == g_ignored_support_voxel ? -1 : support;
   }
   const int32_t orientation = mechanism.generic_id >= 0
       ? mechanism.generic_id / 2
@@ -239,7 +268,11 @@ bool AttachedPlayerLiftHasDirectSupport(
     bool require_stable) {
   for (int32_t lift_object = 0; lift_object < g_object_count; ++lift_object) {
     const int32_t fixture = g_object_head[lift_object];
-    if (fixture >= 0 && voxels[fixture].role == kOrangeButtonRole) {
+    if (fixture >= 0 &&
+        (voxels[fixture].role == kOrangeButtonRole ||
+         voxels[fixture].role == kPuncherRole)) {
+      // Pass-through sensors ride their mount, but do not become a rigid
+      // foothold for that mount when another body occupies the sensor cell.
       continue;
     }
     if (!PlayerLiftIsAttachedToObject(
@@ -277,7 +310,9 @@ bool AddAttachedPlayerLiftIceSupports(
     bool& found_support) {
   for (int32_t lift_object = 0; lift_object < g_object_count; ++lift_object) {
     const int32_t fixture = g_object_head[lift_object];
-    if (fixture >= 0 && voxels[fixture].role == kOrangeButtonRole) {
+    if (fixture >= 0 &&
+        (voxels[fixture].role == kOrangeButtonRole ||
+         voxels[fixture].role == kPuncherRole)) {
       continue;
     }
     if (!PlayerLiftIsAttachedToObject(
@@ -316,7 +351,13 @@ void ResetObjectMotion() {
 
 bool ObjectIsActive(Voxel* voxels, int32_t object, int32_t width, int32_t height) {
   const int32_t head = g_object_head[object];
-  return head >= 0 && IsInsideRoom(voxels[head].x, voxels[head].y, width, height);
+  return head >= 0 && g_voxel_object[head] == object &&
+      IsInsideRoom(voxels[head].x, voxels[head].y, width, height);
+}
+
+bool ObjectIsFloatingFloor(Voxel* voxels, int32_t object) {
+  const int32_t head = object >= 0 ? g_object_head[object] : -1;
+  return head >= 0 && voxels[head].role == kFloatingFloorRole;
 }
 
 int32_t FindNearestVoxelBelow(
@@ -653,6 +694,25 @@ bool SettleObject(
     return false;
   }
 
+  const int32_t head = g_object_head[object];
+  if (head >= 0 && voxels[head].role == kFloatingFloorRole &&
+      voxels[head].z == 1 &&
+      FindVoxelAt(
+          voxels, voxels[head].x, voxels[head].y, 0, width, height) < 0) {
+    // Floating Floor is a one-cell, one-weight platform. It spends one
+    // horizontal frame suspended over a Row-0 hole, then settles into that
+    // hole as permanent Floor on the following gravity tick.
+    voxels[head].z = 0;
+    voxels[head].role = kFloorRole;
+    voxels[head].generic_id = kFilledFloatingFloor;
+    g_voxel_object[head] = -1;
+    g_object_gravity_armed[object] = 0;
+    g_object_falling[object] = 0;
+    g_moving_objects_fell = true;
+    g_fell_objects[object] = 1;
+    return true;
+  }
+
   int64_t drop = INT64_MAX;
   for (int32_t member = g_object_head[object]; member >= 0;
        member = g_next_object_voxel[member]) {
@@ -763,7 +823,7 @@ int32_t BuildVerticalComponent(
   g_object_queue[queue_end++] = first_object;
   while (queue_begin < queue_end) {
     const int32_t object = g_object_queue[queue_begin++];
-    const int32_t attachment = PlayerLiftSideAttachmentVoxel(
+    const int32_t attachment = MechanismAttachmentVoxel(
         voxels, object, width, height);
     if (attachment >= 0) {
       const int32_t other = g_voxel_object[attachment];
@@ -784,7 +844,8 @@ int32_t BuildVerticalComponent(
     }
     const int32_t object_fixture = g_object_head[object];
     if (object_fixture >= 0 &&
-        voxels[object_fixture].role == kOrangeButtonRole) {
+        (voxels[object_fixture].role == kOrangeButtonRole ||
+         voxels[object_fixture].role == kPuncherRole)) {
       // A sensor joins a vertical fall component only through its encoded
       // face attachment. Its pass-through face may overlap or sit beside a
       // body without mechanically latching onto that body.
@@ -846,10 +907,10 @@ bool SettleSupportComponent(
     for (int32_t member = g_object_head[object]; member >= 0;
          member = g_next_object_voxel[member]) {
       const Voxel& voxel = voxels[member];
-      if (voxel.role == kOrangeButtonRole) {
-        // A button is attached to the falling component and translates with
-        // it, but its zero-volume face cannot prop the component up when it
-        // overlaps terrain below.
+      if (voxel.role == kOrangeButtonRole || voxel.role == kPuncherRole) {
+        // A pass-through sensor is attached to the falling component and
+        // translates with it, but its zero-volume face cannot prop the
+        // component up when it overlaps terrain below.
         continue;
       }
       const int32_t support = FindNearestVoxelBelowComponent(

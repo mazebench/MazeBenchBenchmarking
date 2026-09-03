@@ -28,6 +28,7 @@ struct CommandCycleTracker {
   bool pending_rollback;
   bool wait_for_orange_transition;
   bool orange_transition_started;
+  bool has_puncher;
   int64_t last_orange_depth_sum;
 };
 
@@ -44,6 +45,35 @@ uint64_t CycleHashMix(uint64_t hash, uint32_t value) {
   return hash;
 }
 
+void BuildCanonicalPunchCycleDirections(
+    const Voxel* voxels,
+    int32_t count,
+    int32_t* directions) {
+  for (int32_t object = 0; object < g_object_count; ++object) {
+    directions[object] = -1;
+  }
+  for (int32_t puncher_index = 0; puncher_index < count; ++puncher_index) {
+    const Voxel& puncher = voxels[puncher_index];
+    const int32_t direction = PuncherDirection(puncher);
+    if (direction < 0 || PuncherIsSprung(puncher)) continue;
+    for (int32_t object = 0; object < g_object_count; ++object) {
+      if (!ObjectCanBePunched(object)) continue;
+      for (int32_t member = g_object_head[object]; member >= 0;
+           member = g_next_object_voxel[member]) {
+        if (voxels[member].x == puncher.x &&
+            voxels[member].y == puncher.y &&
+            voxels[member].z == puncher.z) {
+          // Contact with an unsprung puncher deterministically replaces any
+          // incoming momentum on the following tick. Normalize that obsolete
+          // value so the visible contact frame is the cycle boundary.
+          directions[object] = direction;
+          break;
+        }
+      }
+    }
+  }
+}
+
 int64_t OrangeDepthSum(const Voxel* voxels, int32_t count) {
   int64_t total = 0;
   for (int32_t index = 0; index < count; ++index) {
@@ -58,6 +88,8 @@ uint64_t CycleStateHash(
     const Voxel* voxels,
     int32_t count,
     const MotionState* state) {
+  BuildCanonicalPunchCycleDirections(
+      voxels, count, g_component_indegree);
   uint64_t hash = UINT64_C(1469598103934665603);
   for (int32_t index = 0; index < count; ++index) {
     hash = CycleHashMix(hash, static_cast<uint32_t>(voxels[index].x));
@@ -74,7 +106,14 @@ uint64_t CycleStateHash(
   hash = CycleHashMix(hash, state->reserved[0]);
   hash = CycleHashMix(hash, state->reserved[1]);
   for (int32_t index = 0; index < count; ++index) {
-    const uint32_t flags = state->horizontal_momentum[index] |
+    const int32_t object = g_voxel_object[index];
+    const int32_t punch_direction = object >= 0
+        ? g_component_indegree[object]
+        : -1;
+    const uint8_t horizontal_momentum = punch_direction >= 0
+        ? static_cast<uint8_t>(kPunchMomentumBase + punch_direction)
+        : state->horizontal_momentum[index];
+    const uint32_t flags = horizontal_momentum |
         (static_cast<uint32_t>(state->falling[index]) << 8u) |
         (static_cast<uint32_t>(state->gravity_armed[index]) << 16u);
     hash = CycleHashMix(hash, flags);
@@ -88,13 +127,29 @@ bool SameCycleState(
     const Voxel* right_voxels,
     const MotionState* right_state,
     int32_t count) {
+  BuildCanonicalPunchCycleDirections(
+      left_voxels, count, g_component_indegree);
+  BuildCanonicalPunchCycleDirections(
+      right_voxels, count, g_object_queue);
   for (int32_t index = 0; index < count; ++index) {
     const Voxel& left = left_voxels[index];
     const Voxel& right = right_voxels[index];
+    const int32_t object = g_voxel_object[index];
+    const int32_t left_punch_direction = object >= 0
+        ? g_component_indegree[object]
+        : -1;
+    const int32_t right_punch_direction = object >= 0
+        ? g_object_queue[object]
+        : -1;
+    const uint8_t left_momentum = left_punch_direction >= 0
+        ? static_cast<uint8_t>(kPunchMomentumBase + left_punch_direction)
+        : left_state->horizontal_momentum[index];
+    const uint8_t right_momentum = right_punch_direction >= 0
+        ? static_cast<uint8_t>(kPunchMomentumBase + right_punch_direction)
+        : right_state->horizontal_momentum[index];
     if (left.x != right.x || left.y != right.y || left.z != right.z ||
         left.role != right.role || left.generic_id != right.generic_id ||
-        left_state->horizontal_momentum[index] !=
-            right_state->horizontal_momentum[index] ||
+        left_momentum != right_momentum ||
         left_state->falling[index] != right_state->falling[index] ||
         left_state->gravity_armed[index] !=
             right_state->gravity_armed[index]) {
@@ -116,7 +171,8 @@ bool BaselineCycleStateMatches(
     const MotionState* state) {
   if (state->direction != tracker.initial_direction ||
       (state->phase != kMotionPlayerIce &&
-       state->phase != kMotionObjectIce) ||
+       state->phase != kMotionObjectIce &&
+       !IsPlayerPunchPhase(state->phase)) ||
       state->player_falling != 0) {
     return false;
   }
@@ -145,6 +201,7 @@ void BeginCommandCycleTracking(
   tracker.pending_rollback = false;
   tracker.wait_for_orange_transition = false;
   tracker.orange_transition_started = false;
+  tracker.has_puncher = false;
   tracker.last_orange_depth_sum = OrangeDepthSum(voxels, count);
   tracker.source_voxels = voxels;
   tracker.source_state = state;
@@ -155,6 +212,7 @@ void BeginCommandCycleTracking(
 
   bool has_slope = false;
   bool has_orange_mechanism = false;
+  bool has_puncher = false;
   const WorkspaceData* workspace_data = workspace == nullptr
       ? nullptr
       : WorkspaceStorage(workspace);
@@ -165,16 +223,20 @@ void BeginCommandCycleTracking(
     has_slope = workspace_data->prepared_has_ice_slopes;
     has_orange_mechanism =
         workspace_data->prepared_has_orange_mechanisms;
+    has_puncher = workspace_data->prepared_has_punchers;
   } else {
     for (int32_t index = 0; index < count; ++index) {
       has_slope |= IsIceSlopeRole(voxels[index].role);
       has_orange_mechanism |=
           voxels[index].role == kOrangeButtonRole ||
           voxels[index].role == kOrangeWallRole;
+      has_puncher |= voxels[index].role == kPuncherRole;
     }
   }
-  if (!has_slope && !has_orange_mechanism) return;
-  tracker.wait_for_orange_transition = has_orange_mechanism && !has_slope;
+  if (!has_slope && !has_orange_mechanism && !has_puncher) return;
+  tracker.wait_for_orange_transition =
+      has_orange_mechanism && !has_slope && !has_puncher;
+  tracker.has_puncher = has_puncher;
 
   for (int32_t index = 0; index < count; ++index) {
     tracker.baseline[index] = voxels[index];
@@ -231,7 +293,7 @@ int32_t FindOrRecordCycleState(
     Voxel* voxels,
     MotionState* state) {
   if (BaselineCycleStateMatches(tracker, voxels, state)) return 0;
-  if (state->tick == 1) {
+  if (state->tick == 1 && !tracker.has_puncher) {
     // Tick one contains the commanded actor transition. A level-wide
     // autonomous cycle begins only after that input has seeded the motion;
     // otherwise an actuator which revisits the post-input state reports a

@@ -208,6 +208,20 @@ export function puncherDirectionVector(direction) {
   return vectors[normalized] || vectors.right;
 }
 
+export function puncherPartLayout(sprung = false) {
+  return sprung
+    ? [
+        { radius: PUNCHER_RADIUS, depth: PUNCHER_DEPTH, offset: 0, color: "#ef4444" },
+        { radius: PUNCHER_RADIUS * 0.47, depth: 0.58, offset: 0.34, color: "#f8fafc" },
+        { radius: PUNCHER_RADIUS * 0.88, depth: 0.15, offset: 0.73, color: "#b91c1c" }
+      ]
+    : [
+        { radius: PUNCHER_RADIUS, depth: PUNCHER_DEPTH, offset: 0, color: "#ef4444" },
+        { radius: PUNCHER_RADIUS * 0.66, depth: PUNCHER_DEPTH * 0.45, offset: PUNCHER_DEPTH * 0.58, color: "#f8fafc" },
+        { radius: PUNCHER_RADIUS * 0.34, depth: PUNCHER_DEPTH * 0.5, offset: PUNCHER_DEPTH * 0.72, color: "#b91c1c" }
+      ];
+}
+
 function addPuncher(content, record, dimensions) {
   const cell = centerFor(record, dimensions);
   const vector = puncherDirectionVector(record.source.direction);
@@ -220,11 +234,7 @@ function addPuncher(content, record, dimensions) {
   const rotation = new THREE.Euler().setFromQuaternion(
     new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), vector)
   );
-  [
-    { radius: PUNCHER_RADIUS, depth: PUNCHER_DEPTH, offset: 0, color: "#ef4444" },
-    { radius: PUNCHER_RADIUS * 0.66, depth: PUNCHER_DEPTH * 0.45, offset: PUNCHER_DEPTH * 0.58, color: "#f8fafc" },
-    { radius: PUNCHER_RADIUS * 0.34, depth: PUNCHER_DEPTH * 0.5, offset: PUNCHER_DEPTH * 0.72, color: "#b91c1c" }
-  ].forEach((part) => {
+  puncherPartLayout(record.definition.sprung).forEach((part) => {
     const geometry = cachedGeometry(`puncher:${part.radius}:${part.depth}`, () =>
       new THREE.CylinderGeometry(part.radius, part.radius, part.depth, 40, 1, false));
     addOutlinedMesh(content, geometry, part.color, {

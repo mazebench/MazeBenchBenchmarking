@@ -5,11 +5,34 @@ constexpr int32_t kMotionGravity = 3;
 constexpr int32_t kMotionComplete = 4;
 constexpr int32_t kMotionPlayerLift = 5;
 constexpr int32_t kMotionOrangeMechanisms = 6;
+constexpr int32_t kMotionPlayerPunch = 7;
+constexpr int32_t kMotionPlayerPunchUp = 8;
+constexpr int32_t kMotionPlayerPunchDown = 9;
+constexpr int32_t kMotionPlayerGates = 10;
 constexpr uint8_t kResumeNothing = 0;
 constexpr uint8_t kResumePlayerIce = 1;
 constexpr uint8_t kResumeObjectIce = 2;
 constexpr uint8_t kResumeCommand = 3;
 constexpr uint8_t kResumeVacatedLift = 4;
+
+constexpr uint8_t kPunchMomentumBase = 9;
+constexpr uint8_t kLatentPunchMomentumBase = 13;
+
+bool IsPunchMomentum(uint8_t momentum) {
+  return momentum >= kPunchMomentumBase &&
+      momentum < kLatentPunchMomentumBase + 4;
+}
+
+bool IsPlayerPunchPhase(int32_t phase) {
+  return phase == kMotionPlayerPunch ||
+      phase == kMotionPlayerPunchUp ||
+      phase == kMotionPlayerPunchDown;
+}
+
+bool IsLatentMomentum(uint8_t momentum) {
+  return (momentum >= 5 && momentum <= 8) ||
+      momentum >= kLatentPunchMomentumBase;
+}
 
 uint8_t ReadObjectFlag(
     const uint8_t* flags,
@@ -98,6 +121,39 @@ void StoreMandatoryMomentum(
   }
 }
 
+bool FloatingFloorHasIceDrivenActorBehind(
+    Voxel* voxels,
+    int32_t object,
+    int32_t width,
+    int32_t height) {
+  if (!ObjectIsFloatingFloor(voxels, object) ||
+      g_object_direction[object] > 3) {
+    return false;
+  }
+  constexpr int32_t kDx[] = {0, 1, 0, -1};
+  constexpr int32_t kDy[] = {-1, 0, 1, 0};
+  const int32_t direction = g_object_direction[object];
+  for (int32_t member = g_object_head[object]; member >= 0;
+       member = g_next_object_voxel[member]) {
+    const int32_t behind = FindVoxelAt(
+        voxels,
+        voxels[member].x - kDx[direction],
+        voxels[member].y - kDy[direction],
+        voxels[member].z,
+        width,
+        height);
+    if (behind < 0 ||
+        (voxels[behind].role != kPlayerRole &&
+         !IsCloneObjectRole(voxels[behind].role))) {
+      continue;
+    }
+    if (IsSupportedByIce(voxels, voxels[behind], width, height)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool StoreSupportedMandatoryMomentum(
     MotionState* state,
     Voxel* voxels,
@@ -120,12 +176,17 @@ bool StoreSupportedMandatoryMomentum(
         !ObjectIsActive(voxels, object, width, height)) {
       continue;
     }
+    const bool punch_momentum = IsPunchMomentum(g_object_redirected[object]);
+    const bool ice_driven_floating_floor =
+        FloatingFloorHasIceDrivenActorBehind(
+            voxels, object, width, height);
     const bool supported_momentum =
         (g_inherited_support_motion[object] != 0 ||
          g_mandatory_objects[object] != 0 ||
          g_object_redirected[object] != 0) &&
-        (g_inherited_support_motion[object] != 0 ||
-         ObjectIsFullyOnIce(voxels, object, width, height));
+        (punch_momentum || g_inherited_support_motion[object] != 0 ||
+         ObjectIsFullyOnIce(voxels, object, width, height) ||
+         ice_driven_floating_floor);
     bool supported_by_momentum_body = false;
     bool supported_by_nonfalling_momentum_body = false;
     uint8_t supporting_momentum_direction = UINT8_MAX;
@@ -177,9 +238,11 @@ bool StoreSupportedMandatoryMomentum(
           : g_object_direction[object] <= 3
               ? g_object_direction[object]
               : fallback_direction;
-      state->horizontal_momentum[member] = static_cast<uint8_t>(
-          direction +
-          ((supported_momentum || moved_with_momentum_body) ? 1 : 5));
+      const bool moving = supported_momentum || moved_with_momentum_body;
+      state->horizontal_momentum[member] = static_cast<uint8_t>(direction +
+          (punch_momentum
+              ? moving ? kPunchMomentumBase : kLatentPunchMomentumBase
+              : moving ? 1 : 5));
     }
   }
   return stored;
@@ -201,7 +264,7 @@ void RestoreMandatoryMomentum(
     g_mandatory_objects[object] = 1;
     g_moving_objects[object] = 1;
     g_object_direction[object] = static_cast<uint8_t>((momentum - 1) & 3);
-    if ((momentum > 4 &&
+    if ((IsLatentMomentum(momentum) && !IsPunchMomentum(momentum) &&
          !ObjectIsFullyOnIce(voxels, object, width, height)) ||
         g_object_falling[object] != 0) {
       // Momentum remains serialized while a body falls toward a lower slope,
@@ -332,6 +395,13 @@ void InitializeMotion(
       continue;
     }
     if (ObjectIsActive(voxels, object, width, height)) {
+      if (ObjectIsFloatingFloor(voxels, object)) {
+        // A Floating Floor authored in mid-air remains at that elevation.
+        // Once translated, the movement kernels arm it so subsequent support
+        // loss is animated normally. This is what distinguishes an authored
+        // hovering platform from an accidentally airborne ordinary body.
+        continue;
+      }
       // Dynamic bodies are never allowed to begin a command suspended in the
       // editor volume. Arm them even over the abyss so they settle or leave
       // the world before the requested horizontal input is evaluated.
@@ -1122,8 +1192,11 @@ int32_t TrySimulatePassiveQuiescentTurn(
   if (ActiveWorkspace().prepared_has_ice_slopes ||
       ActiveWorkspace().prepared_has_player_lifts ||
       ActiveWorkspace().prepared_has_orange_mechanisms ||
+      ActiveWorkspace().prepared_has_punchers ||
+      ActiveWorkspace().prepared_has_floating_floors ||
       ActiveWorkspace().prepared_has_clones ||
-      ActiveWorkspace().prepared_has_player_polycube) return 0;
+      ActiveWorkspace().prepared_has_player_polycube ||
+      ActiveWorkspace().scene_has_player_gates) return 0;
   const int32_t player_index = ActiveWorkspace().prepared_player_index;
   if (player_index < 0 || player_index >= count ||
       voxels[player_index].role != kPlayerRole) {

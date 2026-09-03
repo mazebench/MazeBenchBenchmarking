@@ -11,6 +11,9 @@ import {
   buttonIsHiddenMechanismId,
   buttonMechanismId,
   normalizeButtonOrientation,
+  normalizeSlopeDirection,
+  puncherIsSprungMechanismId,
+  puncherMechanismId,
 } from "../../apps/web/app/visualVariants.mjs";
 import {
   normalizeOrangeWallFrame,
@@ -46,6 +49,7 @@ for (const direction of ["up", "right", "down", "left"]) {
   }
 }
 const blocksById = new Map(project.blocks.map((block) => [block.id, block]));
+const floorBlockId = project.blocks.find((block) => block.roleId === "floor")?.id;
 const buttonBlockIds = {
   visible: project.blocks.find((block) =>
     block.visual?.kind === "button" && block.visual.buttonForm !== "hidden")?.id,
@@ -83,6 +87,12 @@ function voxelMechanismId(voxel) {
   }
   if (block?.visual?.kind === "orange-wall") {
     return orangeWallMechanismValue(voxel, blocksById);
+  }
+  if (block?.visual?.kind === "puncher") {
+    return puncherMechanismId(
+      normalizeSlopeDirection(voxel.orientation, voxel.variantId),
+      Number(voxel.genericId) === 1,
+    );
   }
   return genericBlocks.has(voxel.blockId)
     ? Math.max(0, Math.floor(voxel.genericId ?? 0))
@@ -122,6 +132,8 @@ function simulateFrames(voxels, direction, world) {
               ? buttonBlockIds.hidden ?? voxel.blockId
               : buttonBlockIds.visible ?? voxel.blockId,
           }
+        : visualKind === "floating-floor" && mechanismId === 1
+          ? { blockId: floorBlockId ?? voxel.blockId }
         : {}),
       x: buffer[index * stride],
       y: buffer[index * stride + 1],
@@ -132,7 +144,9 @@ function simulateFrames(voxels, direction, world) {
           ? { mechanismDepth: orangeWallDepthFromMechanismValue(mechanismId) }
           : {}),
       ...(genericBlocks.has(voxel.blockId)
-        ? { genericId: mechanismId }
+        ? { genericId: visualKind === "puncher"
+          ? Number(puncherIsSprungMechanismId(mechanismId))
+          : mechanismId }
         : {}),
       });
     }),
@@ -205,6 +219,8 @@ function simulateFinal(voxels, direction, world) {
               ? buttonBlockIds.hidden ?? voxel.blockId
               : buttonBlockIds.visible ?? voxel.blockId,
           }
+        : visualKind === "floating-floor" && mechanismId === 1
+          ? { blockId: floorBlockId ?? voxel.blockId }
         : {}),
       x: buffer[index * stride],
       y: buffer[index * stride + 1],
@@ -215,7 +231,9 @@ function simulateFinal(voxels, direction, world) {
           ? { mechanismDepth: orangeWallDepthFromMechanismValue(mechanismId) }
           : {}),
       ...(genericBlocks.has(voxel.blockId)
-        ? { genericId: mechanismId }
+        ? { genericId: visualKind === "puncher"
+          ? Number(puncherIsSprungMechanismId(mechanismId))
+          : mechanismId }
         : {}),
       });
     }),

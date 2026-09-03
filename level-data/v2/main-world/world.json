@@ -139,7 +139,7 @@
       "id": "gate",
       "name": "Player Gate",
       "color": "#c75652",
-      "roleId": "gate",
+      "roleId": "player-gate",
       "occupancy": "sensor",
       "category": "terrain",
       "visual": {

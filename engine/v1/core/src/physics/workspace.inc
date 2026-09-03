@@ -28,8 +28,12 @@ constexpr uint32_t kYellowCloneSlopeLeftRole =
 constexpr uint32_t kFloorRole = HashRoleLiteral("floor");
 constexpr uint32_t kGoalRole = HashRoleLiteral("goal");
 constexpr uint32_t kPlayerLiftRole = HashRoleLiteral("player-lift");
+constexpr uint32_t kPlayerGateRole = HashRoleLiteral("player-gate");
 constexpr uint32_t kOrangeButtonRole = HashRoleLiteral("orange-button");
 constexpr uint32_t kOrangeWallRole = HashRoleLiteral("orange-wall");
+constexpr uint32_t kPuncherRole = HashRoleLiteral("puncher");
+constexpr uint32_t kFloatingFloorRole = HashRoleLiteral("floating-floor");
+constexpr int32_t kFilledFloatingFloor = 1;
 
 // Spatial and rigid-object indexes contain at most kVoxelCapacity entries.
 // The 2x backing table preserves a <= 0.5 load factor at maximum scene size.
@@ -86,8 +90,13 @@ bool IsLoweredPlayerLift(const Voxel& voxel) {
   return voxel.role == kPlayerLiftRole && !PlayerLiftIsRaised(voxel);
 }
 
+bool IsLoweredPlayerGate(const Voxel& voxel) {
+  return voxel.role == kPlayerGateRole && voxel.generic_id != 1;
+}
+
 bool IsOrdinaryPassThroughVoxel(const Voxel& voxel) {
-  return voxel.role == kGoalRole || IsLoweredPlayerLift(voxel);
+  return voxel.role == kGoalRole || voxel.role == kPuncherRole ||
+      IsLoweredPlayerLift(voxel) || IsLoweredPlayerGate(voxel);
 }
 
 bool IsPassThroughVoxel(const Voxel& voxel) {
@@ -335,9 +344,12 @@ struct WorkspaceData {
   bool prepared_has_ice_slopes;
   bool prepared_has_player_lifts;
   bool prepared_has_orange_mechanisms;
+  bool prepared_has_punchers;
+  bool prepared_has_floating_floors;
   bool prepared_has_clones;
   bool prepared_has_player_polycube;
   bool scene_has_orange_mechanisms;
+  bool scene_has_player_gates;
   bool clone_command_tick_active;
   bool assume_quiescent_start;
   int32_t motion_voxel_count;

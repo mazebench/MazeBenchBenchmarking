@@ -6,6 +6,90 @@ bool IsCommandActorObject(int32_t object) {
        g_object_kind[object] == kPlayerObject);
 }
 
+// Clone components resolve from front to back, so one may reach the player's
+// current cell before the player's own command is evaluated. Validate the
+// player's straight, non-slope proposal without committing it; a clone may
+// treat that cell as vacated only when the complete push transaction can
+// actually succeed.
+bool PlayerWillVacateForCloneCommand(
+    Voxel* voxels,
+    int32_t count,
+    int32_t player_index,
+    int32_t direction,
+    int32_t width,
+    int32_t height) {
+  if (player_index < 0 ||
+      !ObjectIsActive(voxels, g_voxel_object[player_index], width, height)) {
+    // A one-voxel player intentionally has no rigid-object record.
+    if (player_index < 0 ||
+        !IsInsideRoom(
+            voxels[player_index].x, voxels[player_index].y, width, height)) {
+      return false;
+    }
+  } else if (g_object_kind[g_voxel_object[player_index]] == kPlayerObject) {
+    return true;
+  }
+  // Directional slope commands have their own simultaneous proposal graph.
+  // Existing clone/slope behavior remains authoritative there.
+  if (SceneHasIceSlopes(voxels, count, width, height)) return true;
+
+  constexpr int32_t kDx[] = {0, 1, 0, -1};
+  constexpr int32_t kDy[] = {-1, 0, 1, 0};
+  const Voxel& player = voxels[player_index];
+  const int32_t dx = kDx[direction];
+  const int32_t dy = kDy[direction];
+  const int32_t target_x = player.x + dx;
+  const int32_t target_y = player.y + dy;
+  if (!IsInsideRoom(target_x, target_y, width, height)) return false;
+
+  const int32_t target = FindVoxelAt(
+      voxels, target_x, target_y, player.z, width, height);
+  if (target >= 0) {
+    const int32_t object = g_voxel_object[target];
+    if (object < 0) return false;
+    if (IsCommandActorObject(object)) return true;
+    if (g_object_kind[object] != kNormalObject &&
+        g_object_kind[object] != kWeightlessObject) {
+      return false;
+    }
+    ClearMovingObjects();
+    g_mandatory_objects[object] = 1;
+    g_moving_objects[object] = 1;
+    g_object_direction[object] = static_cast<uint8_t>(direction);
+    const bool can_move = TranslateMovingObjects(
+        voxels,
+        count,
+        player_index,
+        dx,
+        dy,
+        0,
+        width,
+        height,
+        true,
+        true,
+        true,
+        false,
+        false);
+    ClearMovingObjects();
+    return can_move;
+  }
+
+  if (player.z == INT32_MIN) return false;
+  const int32_t direct_support = FindVoxelAt(
+      voxels, target_x, target_y, player.z - 1, width, height);
+  if (direct_support >= 0) {
+    return voxels[direct_support].role != kFloatingFloorRole;
+  }
+  const int32_t current_support = FindVoxelAt(
+      voxels, player.x, player.y, player.z - 1, width, height);
+  const int32_t lower_support = FindNearestVoxelBelow(
+      voxels, count, target_x, target_y, player.z, -1, width);
+  return current_support >= 0 &&
+      (voxels[current_support].role == kFloorRole ||
+       IsIceRole(voxels[current_support].role)) &&
+      lower_support < 0;
+}
+
 // Clone IDs and a multi-voxel player are command-controlled rigid polycubes.
 // They all receive the input, but a blocked actor must not cancel another
 // actor. Destination-linked actors form one simultaneous
@@ -35,6 +119,8 @@ bool AdvanceCloneCommandObjects(
     ActiveWorkspace().clone_command_tick_active = false;
     return false;
   }
+  const bool player_will_vacate = PlayerWillVacateForCloneCommand(
+      voxels, count, player_index, direction, width, height);
 
   bool advanced = false;
   for (;;) {
@@ -131,6 +217,7 @@ bool AdvanceCloneCommandObjects(
             ? g_voxel_object[destination_support]
             : -1;
         if (destination_support >= 0 && destination_support != player_index &&
+            voxels[destination_support].role != kFloatingFloorRole &&
             support_object != object &&
             (support_object < 0 || g_component_objects[support_object] == 0)) {
           has_destination_support = true;
@@ -158,7 +245,7 @@ bool AdvanceCloneCommandObjects(
               true,
               false,
               true,
-              true,
+              player_will_vacate,
               player_was_pushed)
         : TranslateMovingObjects(
               voxels,
@@ -171,7 +258,7 @@ bool AdvanceCloneCommandObjects(
               height,
               false,
               true,
-              true,
+              player_will_vacate,
               false);
     if (!moved) continue;
     advanced = true;
@@ -229,9 +316,11 @@ bool HasSupportedObjectMomentum(
   for (int32_t object = 0; object < g_object_count; ++object) {
     const uint8_t momentum = ReadObjectMomentum(
         state->horizontal_momentum, object);
-    if (momentum > 0 && momentum <= 4 &&
+    if ((IsPunchMomentum(momentum) ||
+         (momentum > 0 && momentum <= 4 &&
+          ObjectIsFullyOnIce(voxels, object, width, height))) &&
         ObjectIsActive(voxels, object, width, height) &&
-        ObjectIsFullyOnIce(voxels, object, width, height)) {
+        g_object_kind[object] != kMechanismObject) {
       return true;
     }
   }
@@ -320,6 +409,27 @@ TickResult step_tick(
     BuildSpatialIndex(voxels, count, width, height);
     LoadObjectMotion(state);
   }
+  bool puncher_visual_advanced = false;
+  bool player_punch_activated_this_tick = false;
+  if (!initialized_this_call) {
+    puncher_visual_advanced = ResetSprungPunchers(voxels, count);
+  }
+  if (state->phase == kMotionReady ||
+      IsPlayerPunchPhase(state->phase) ||
+      state->phase == kMotionObjectIce) {
+    const PuncherContact activated = ActivatePunchers(
+        state, voxels, count, state->player_index, width, height);
+    puncher_visual_advanced |= activated.player || activated.object;
+    if (activated.player) {
+      player_punch_activated_this_tick = true;
+      state->phase = kMotionPlayerPunch;
+      state->direction = activated.player_direction;
+      dx = kDx[state->direction];
+      dy = kDy[state->direction];
+    } else if (activated.object) {
+      state->phase = kMotionObjectIce;
+    }
+  }
   const int32_t player_object = g_voxel_object[player_index];
   const bool player_is_rigid_object =
       player_object >= 0 && g_object_kind[player_object] == kPlayerObject;
@@ -336,10 +446,12 @@ TickResult step_tick(
           height);
 
   bool orange_advanced_this_tick = false;
+  bool gate_advanced_this_tick = false;
   auto store_and_finish = [&](int32_t phase,
                               bool advanced,
                               bool gravity_already_checked = false) {
-    advanced |= orange_advanced_this_tick || clone_command_advanced;
+    advanced |= orange_advanced_this_tick || clone_command_advanced ||
+        puncher_visual_advanced || gate_advanced_this_tick;
     if (clone_command_tick) {
       (void)AppendCloneCommandMomentum(
           state, voxels, state->direction, width, height);
@@ -364,11 +476,47 @@ TickResult step_tick(
       state->reserved[0] = kResumeNothing;
     }
     if (phase == kMotionComplete &&
+        PlayerGatesNeedTick(voxels, count, width, height)) {
+      phase = kMotionPlayerGates;
+    }
+    if (phase == kMotionComplete &&
         OrangeMechanismsNeedTick(voxels, count, width, height)) {
       if (state->phase != kMotionOrangeMechanisms) {
         state->reserved[1] = static_cast<uint8_t>(phase);
       }
       phase = kMotionOrangeMechanisms;
+    }
+    const PuncherContact pending_punch = FindPuncherContacts(
+        voxels,
+        count,
+        state->player_index,
+        width,
+        height,
+        phase != kMotionComplete);
+    if (pending_punch.player) {
+      phase = kMotionPlayerPunch;
+      state->direction = pending_punch.player_direction;
+    } else if (pending_punch.object) {
+      phase = kMotionObjectIce;
+    }
+    if (phase == kMotionComplete && IsPlayerPunchPhase(state->phase) &&
+        !player_is_rigid_object) {
+      const Voxel& punched_player = voxels[state->player_index];
+      if (IsInsideRoom(
+              punched_player.x, punched_player.y, width, height) &&
+          punched_player.z != INT32_MIN &&
+          FindVoxelAt(
+              voxels,
+              punched_player.x,
+              punched_player.y,
+              punched_player.z - 1,
+              width,
+              height) < 0 &&
+          state->player_gravity_armed != 0) {
+        state->player_falling = 1;
+        state->reserved[0] = kResumeNothing;
+        phase = kMotionGravity;
+      }
     }
     state->phase = phase;
     if (advanced) ++state->tick;
@@ -475,6 +623,26 @@ TickResult step_tick(
     state->player_falling = 1;
     return true;
   };
+
+  // Gate proximity is sampled from the previous animation frame. During
+  // continuous Ice/gravity motion, the gate update shares the following
+  // movement tick. Once other motion stops, a dedicated final mechanism tick
+  // exposes the same one-frame delay.
+  if (!initialized_this_call &&
+      (state->phase == kMotionPlayerGates ||
+       PlayerGatesNeedTick(voxels, count, width, height))) {
+    const bool dedicated_gate_tick = state->phase == kMotionPlayerGates;
+    gate_advanced_this_tick = RefreshPlayerGates(
+        voxels, count, width, height);
+    if (gate_advanced_this_tick) {
+      BuildSpatialIndex(voxels, count, width, height);
+      MarkObjectsForDeferredGravity(voxels, width, height, false);
+      state->player_gravity_armed = 1;
+    }
+    if (dedicated_gate_tick) {
+      return store_and_finish(kMotionComplete, false);
+    }
+  }
 
   // Orange walls react one tick after the pressure change. While another
   // motion phase is still active (Ice, gravity, or a lift), their one-row
@@ -784,6 +952,8 @@ TickResult step_tick(
   }
 
   if (state->phase == kMotionObjectIce) {
+    const bool punch_object_momentum = HasPunchObjectMomentum(
+        state, voxels, width, height);
     RestoreMandatoryMomentum(state, voxels, width, height);
     for (int32_t object = 0; object < g_object_count; ++object) {
       // Deferred activation is a one-tick scheduling aid. Once it has been
@@ -793,13 +963,15 @@ TickResult step_tick(
     }
     const bool slope_scene = SceneHasIceSlopes(
         voxels, count, width, height);
-    if (!slope_scene) {
+    const bool directional_object_motion =
+        slope_scene || punch_object_momentum;
+    if (!directional_object_motion) {
       state->direction = RedirectMovingObjectSlopeDirection(
           voxels, state->direction, width, height);
       dx = kDx[state->direction];
       dy = kDy[state->direction];
     }
-    const int32_t object_dz = slope_scene
+    const int32_t object_dz = directional_object_motion
         ? 0
         : MovingObjectSlopeVerticalDelta(
               voxels, state->direction, width, height);
@@ -868,7 +1040,7 @@ TickResult step_tick(
     }
     g_ignored_support_voxel = player_index;
     bool player_was_pushed = false;
-    const bool translated = slope_scene
+    const bool translated = directional_object_motion
         ? TranslateSlopeMomentumObjects(
               voxels,
               count,
@@ -911,6 +1083,21 @@ TickResult step_tick(
           gravity_continues ? kMotionGravity : kMotionComplete,
           ObjectsAdvancedThisTick(),
           true);
+    }
+
+    if (punch_object_momentum) {
+      // A punch is an inertial horizontal impulse, not an Ice-only slide.
+      // Unsupported punched bodies keep advancing horizontally at one cell
+      // per tick and begin falling only when their horizontal proposal is
+      // blocked. This also gives simultaneous horizontal and vertical motion
+      // a deterministic priority: the punch owns the cell first.
+      for (int32_t object = 0; object < g_object_count; ++object) {
+        if (!IsPunchMomentum(ReadObjectMomentum(
+                state->horizontal_momentum, object))) {
+          continue;
+        }
+        g_object_falling[object] = 0;
+      }
     }
 
     if (player_has_ice_momentum && player_ice_leader_object >= 0 &&
@@ -1009,6 +1196,12 @@ TickResult step_tick(
       return store_and_finish(kMotionObjectIce, true);
     }
 
+    if (punch_object_momentum) {
+      StoreSupportedMandatoryMomentum(
+          state, voxels, count, width, height, state->direction);
+      return store_and_finish(kMotionObjectIce, true);
+    }
+
     const bool object_momentum_remains = StoreSupportedMandatoryMomentum(
         state, voxels, count, width, height, state->direction);
     MarkObjectsForDeferredGravity(voxels, width, height, false);
@@ -1049,6 +1242,9 @@ TickResult step_tick(
   }
 
   const bool automatic_ice_motion = state->phase == kMotionPlayerIce;
+  const bool automatic_punch_motion = IsPlayerPunchPhase(state->phase);
+  const bool automatic_player_motion =
+      automatic_ice_motion || automatic_punch_motion;
   const bool records_initial_tick =
       state->phase == kMotionReady && state->tick == 0;
   if (player_is_rigid_object && state->phase == kMotionReady) {
@@ -1060,17 +1256,21 @@ TickResult step_tick(
         true);
   }
   Voxel& player = voxels[player_index];
-  if (automatic_ice_motion) {
+  if (automatic_ice_motion || state->phase == kMotionPlayerPunch) {
     state->direction = RedirectSlopeDirection(
         voxels, player, state->direction, width, height);
     dx = kDx[state->direction];
     dy = kDy[state->direction];
   }
-  const int32_t player_dz = automatic_ice_motion
-      ? SlopeVerticalDelta(
-            voxels, player, state->direction, width, height)
-      : DeliberateSlopeVerticalDelta(
-            voxels, player, state->direction, width, height, false);
+  const int32_t player_dz = state->phase == kMotionPlayerPunchUp
+      ? 1
+      : state->phase == kMotionPlayerPunchDown
+          ? -1
+          : automatic_player_motion
+              ? SlopeVerticalDelta(
+                    voxels, player, state->direction, width, height)
+              : DeliberateSlopeVerticalDelta(
+                    voxels, player, state->direction, width, height, false);
   if (SlopeEntryIsBlocked(
           voxels,
           player,
@@ -1083,7 +1283,7 @@ TickResult step_tick(
   const int32_t player_from_x = player.x;
   const int32_t player_from_y = player.y;
   const int32_t player_from_z = player.z;
-  const bool vacated_lift_retry_pending = !automatic_ice_motion &&
+  const bool vacated_lift_retry_pending = !automatic_player_motion &&
       player_dz == 0 &&
       VacatedUpwardPlayerLiftNeedsRetry(
           voxels, count, player_index, width, height);
@@ -1112,7 +1312,8 @@ TickResult step_tick(
   }
   bool downhill_underfoot_push = false;
   bool diagonal_slope_contact = false;
-  if (target_index < 0 && !automatic_ice_motion && player.z != INT32_MIN) {
+  if (target_index < 0 && !automatic_player_motion &&
+      player.z != INT32_MIN) {
     const int32_t current_slope = SlopeSupportingVoxel(
         voxels, player, width, height);
     if (current_slope >= 0 && state->direction == OppositeDirection(
@@ -1135,7 +1336,7 @@ TickResult step_tick(
       }
     }
   }
-  if (target_index < 0 && !automatic_ice_motion) {
+  if (target_index < 0 && !automatic_player_motion) {
     Voxel target_cell = player;
     target_cell.x = target_x;
     target_cell.y = target_y;
@@ -1243,6 +1444,14 @@ TickResult step_tick(
         g_object_kind[object] == kWeightlessObject;
     if ((automatic_ice_motion && !descending_slope_impact) || object < 0) {
       return store_and_finish(kMotionComplete, records_initial_tick);
+    }
+    if (automatic_punch_motion && !player_punch_activated_this_tick) {
+      const uint8_t target_momentum = ReadObjectMomentum(
+          state->horizontal_momentum, object);
+      if (!IsPunchMomentum(target_momentum) ||
+          ((target_momentum - 1) & 3) != state->direction) {
+        return store_and_finish(kMotionComplete, records_initial_tick);
+      }
     }
     const int32_t target_support = target_z == INT32_MIN ? -1 : FindVoxelAt(
         voxels, target_x, target_y, target_z - 1, width, height);
@@ -1435,6 +1644,12 @@ TickResult step_tick(
         const bool deferred = has_deferred && PromoteDeferredSlopeMomentum(
             voxels, player_index, width, height);
         (void)deferred;
+        if (automatic_punch_motion) {
+          // Every rigid body advanced by the punch contact belongs to the
+          // same convoy. Give the complete train the persistent impulse so
+          // it keeps its spacing on subsequent ticks.
+          SeedMovingObjectsWithPunchMomentum(state, state->direction);
+        }
         object_keeps_sliding = StoreSupportedMandatoryMomentum(
             state, voxels, count, width, height, state->direction);
       }
@@ -1447,12 +1662,17 @@ TickResult step_tick(
   } else if (target_z != INT32_MIN) {
     const int32_t direct_support = FindVoxelAt(
         voxels, target_x, target_y, target_z - 1, width, height);
+    if (direct_support >= 0 &&
+        voxels[direct_support].role == kFloatingFloorRole) {
+      return store_and_finish(kMotionComplete, records_initial_tick);
+    }
     if (direct_support < 0) {
       const int32_t lower_support = FindNearestVoxelBelow(
           voxels, count, target_x, target_y, target_z, -1, width);
       const int32_t current_support = FindVoxelAt(
           voxels, player.x, player.y, player.z - 1, width, height);
-      const bool may_leave_support = automatic_ice_motion || started_on_ice ||
+      const bool may_leave_support = automatic_player_motion ||
+          started_on_ice ||
           (current_support >= 0 && voxels[current_support].role == kFloorRole &&
            lower_support < 0);
       if (!may_leave_support) {
@@ -1491,6 +1711,9 @@ TickResult step_tick(
         const bool deferred = PromoteDeferredSlopeMomentum(
             voxels, player_index, width, height);
         (void)deferred;
+        if (automatic_punch_motion) {
+          SeedMovingObjectsWithPunchMomentum(state, state->direction);
+        }
         object_keeps_sliding = StoreSupportedMandatoryMomentum(
             state, voxels, count, width, height, state->direction);
       } else {
@@ -1570,6 +1793,19 @@ TickResult step_tick(
     return store_and_finish(kMotionPlayerLift, true, true);
   }
 
+  if (automatic_punch_motion) {
+    // Punch motion postpones gravity rather than disarming it. Keeping the
+    // body armed makes the contact frame canonical for cycle detection and
+    // lets a blocked airborne trajectory begin falling immediately.
+    state->player_gravity_armed = 1;
+    const int32_t next_punch_phase = player_dz > 0
+        ? kMotionPlayerPunchUp
+        : player_dz < 0
+            ? kMotionPlayerPunchDown
+            : kMotionPlayerPunch;
+    return store_and_finish(next_punch_phase, true, true);
+  }
+
   if (object_keeps_sliding) {
     return store_and_finish(kMotionObjectIce, true);
   }
@@ -1594,6 +1830,17 @@ TickResult step_tick(
 
   if (!downhill_underfoot_push &&
       IsSupportedByIce(voxels, player, width, height)) {
+    // A displaced Floating Floor which did not retain momentum is stationary
+    // on the following player phase. Clear only that stale proposal so slope
+    // redirection sees it as the obstruction it is; other established convoy
+    // proposals retain their synchronized timing.
+    for (int32_t object = 0; object < g_object_count; ++object) {
+      if (ObjectIsFloatingFloor(voxels, object) &&
+          ReadObjectMomentum(state->horizontal_momentum, object) == 0) {
+        g_mandatory_objects[object] = 0;
+        g_moving_objects[object] = 0;
+      }
+    }
     return store_and_finish(kMotionPlayerIce, true);
   }
   if (!automatic_ice_motion && !pushed && !downhill_underfoot_push &&

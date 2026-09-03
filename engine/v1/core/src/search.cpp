@@ -34,9 +34,13 @@ constexpr uint32_t kYellowCloneSlopeDownRole =
 constexpr uint32_t kYellowCloneSlopeLeftRole =
     HashRoleLiteral("yellow-clone-slope-left");
 constexpr uint32_t kGoalRole = HashRoleLiteral("goal");
+constexpr uint32_t kFloorRole = HashRoleLiteral("floor");
 constexpr uint32_t kPlayerLiftRole = HashRoleLiteral("player-lift");
+constexpr uint32_t kPlayerGateRole = HashRoleLiteral("player-gate");
 constexpr uint32_t kOrangeButtonRole = HashRoleLiteral("orange-button");
 constexpr uint32_t kOrangeWallRole = HashRoleLiteral("orange-wall");
+constexpr uint32_t kFloatingFloorRole = HashRoleLiteral("floating-floor");
+constexpr int32_t kFilledFloatingFloor = 1;
 
 int32_t SearchOrangeWallDepth(int32_t value) {
   if (value <= -2) {
@@ -162,7 +166,47 @@ bool IsDynamic(uint32_t role) {
   return role == kPlayerRole || IsCloneObjectRole(role) ||
       role == kPushableRole || IsWeightlessObjectRole(role) ||
       role == kPlayerLiftRole ||
-      role == kOrangeButtonRole;
+      role == kOrangeButtonRole || role == kFloatingFloorRole;
+}
+
+bool SearchGateBlockingActor(uint32_t role) {
+  return role == kPushableRole || IsWeightlessObjectRole(role);
+}
+
+bool IsSearchPlayerGateTrigger(uint32_t role) {
+  return role == kPlayerRole || IsCloneObjectRole(role);
+}
+
+void RefreshSearchPlayerGates(Voxel* voxels, int32_t count) {
+  for (int32_t gate_index = 0; gate_index < count; ++gate_index) {
+    Voxel& gate = voxels[gate_index];
+    if (gate.role != kPlayerGateRole) continue;
+    bool same_level_block = false;
+    for (int32_t index = 0; index < count; ++index) {
+      const Voxel& candidate = voxels[index];
+      if (!SearchGateBlockingActor(candidate.role) || candidate.x < 0) continue;
+      same_level_block |= candidate.x == gate.x && candidate.y == gate.y &&
+          candidate.z == gate.z;
+    }
+    bool raised = false;
+    for (int32_t index = 0; index < count && !raised; ++index) {
+      const Voxel& actor = voxels[index];
+      if (!IsSearchPlayerGateTrigger(actor.role) || actor.x < 0) continue;
+      const int64_t delta_x = static_cast<int64_t>(actor.x) - gate.x;
+      const int64_t delta_y = static_cast<int64_t>(actor.y) - gate.y;
+      const int64_t distance =
+          (delta_x < 0 ? -delta_x : delta_x) +
+          (delta_y < 0 ? -delta_y : delta_y);
+      const int64_t height_above_gate =
+          static_cast<int64_t>(actor.z) - gate.z;
+      const bool overlaps_lowered_plate =
+          distance == 0 && height_above_gate == 0;
+      raised = distance <= 1 && height_above_gate >= 0 &&
+          height_above_gate <= 1 && !overlaps_lowered_plate &&
+          (height_above_gate != 0 || !same_level_block);
+    }
+    gate.generic_id = raised ? 1 : 0;
+  }
 }
 
 bool EncodeCoordinate(int32_t value, int16_t* output) {
@@ -391,7 +435,16 @@ void LoadNode(SearchData* data, const SearchNode& node) {
     data->scene[dynamic].z =
         DecodeCoordinate(node.coordinates[entity][2]) +
         data->base_offsets[dynamic][2];
-    if (data->scene[dynamic].role == kPlayerLiftRole) {
+    if (data->entity_roles[entity] == kFloatingFloorRole) {
+      const bool filled =
+          (node.lift_states & (uint64_t{1} << entity)) != 0;
+      data->scene[dynamic].role = filled
+          ? kFloorRole
+          : kFloatingFloorRole;
+      data->scene[dynamic].generic_id = filled
+          ? kFilledFloatingFloor
+          : data->entity_generic_ids[entity];
+    } else if (data->scene[dynamic].role == kPlayerLiftRole) {
       const int32_t authored_id = data->entity_generic_ids[entity];
       const int32_t orientation_base = authored_id >= 0
           ? authored_id - authored_id % 2
@@ -414,6 +467,7 @@ void LoadNode(SearchData* data, const SearchNode& node) {
     voxel.y = data->goal_coordinates[goal][1];
     voxel.z = data->goal_coordinates[goal][2];
   }
+  RefreshSearchPlayerGates(data->scene, data->count);
 }
 
 bool CaptureCandidate(SearchData* data) {
@@ -423,6 +477,11 @@ bool CaptureCandidate(SearchData* data) {
     const Voxel& anchor = data->scene[data->entity_anchors[entity]];
     if (anchor.role == kPlayerLiftRole && anchor.generic_id >= 0 &&
         anchor.generic_id % 2 != 0) {
+      data->candidate_lift_states |= uint64_t{1} << entity;
+    }
+    if (data->entity_roles[entity] == kFloatingFloorRole &&
+        anchor.role == kFloorRole &&
+        anchor.generic_id == kFilledFloatingFloor) {
       data->candidate_lift_states |= uint64_t{1} << entity;
     }
     const int32_t x = anchor.x < 0 ? -1 : anchor.x;
@@ -523,6 +582,13 @@ SearchResult InvalidResult() {
 
 bool SceneIsSettled(const SearchData* data, int32_t width, int32_t height) {
   for (int32_t entity = 0; entity < data->entity_count; ++entity) {
+    if (data->entity_roles[entity] == kFloatingFloorRole) {
+      const Voxel& anchor = data->scene[data->entity_anchors[entity]];
+      if (anchor.role == kFloorRole &&
+          anchor.generic_id == kFilledFloatingFloor) {
+        continue;
+      }
+    }
     bool supported = false;
     for (int32_t member = 0;
          member < data->dynamic_voxel_count && !supported; ++member) {
@@ -1070,11 +1136,12 @@ SearchResult search_shortest(
       }
     }
   }
-  // Orange-wall anchors never translate, but their compact lowering depth is
-  // mutable. Keep them in physics' rebuilt prefix without spending a search
-  // coordinate entity per wall; one global depth value identifies the state.
+  // Orange-wall anchors and player gates never translate, but their mechanism
+  // values are mutable. Keep them in physics' rebuilt prefix without spending
+  // a search coordinate entity for each fixed fixture.
   for (int32_t source = 0; source < count; ++source) {
-    if (voxels[source].role != kOrangeWallRole) continue;
+    if (voxels[source].role != kOrangeWallRole &&
+        voxels[source].role != kPlayerGateRole) continue;
     const int32_t target = data->dynamic_voxel_count++;
     data->scene[target] = voxels[source];
     data->voxel_entities[target] = -1;
@@ -1082,7 +1149,8 @@ SearchResult search_shortest(
   static_count = data->dynamic_voxel_count;
   for (int32_t source = 0; source < count; ++source) {
     if (IsDynamic(voxels[source].role) ||
-        voxels[source].role == kOrangeWallRole) continue;
+        voxels[source].role == kOrangeWallRole ||
+        voxels[source].role == kPlayerGateRole) continue;
     const int32_t target = static_count++;
     data->scene[target] = voxels[source];
     if (voxels[source].role == kGoalRole) {

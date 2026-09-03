@@ -40,12 +40,15 @@ export function terrainPieceDefinition(layer) {
     return { kind: "slope", bottom: elevation, top: elevation + 1, color };
   }
   if (layer.type === "player_gate") {
-    return {
-      kind: "gate",
-      bottom: elevation + PLATE_OFFSET - PLATE_THICKNESS,
-      top: elevation + PLATE_OFFSET,
-      color
-    };
+    return layer.raised
+      ? { kind: "gate", bottom: elevation, top: elevation + 1, color, raised: true }
+      : {
+          kind: "gate",
+          bottom: elevation + PLATE_OFFSET - PLATE_THICKNESS,
+          top: elevation + PLATE_OFFSET,
+          color,
+          raised: false
+        };
   }
   if (layer.type === "player_lift") {
     return layer.raised
@@ -69,7 +72,13 @@ export function actorPieceDefinition(actor) {
     return { kind: "orange_button", bottom: elevation, top: elevation + ORANGE_BUTTON_HEIGHT, color };
   }
   if (actor.type === "puncher") {
-    return { kind: "puncher", bottom: elevation, top: elevation + 0.88, color };
+    return {
+      kind: "puncher",
+      bottom: elevation,
+      top: elevation + 0.88,
+      color,
+      sprung: actor.sprung === true
+    };
   }
   if (actor.shape === "slope") {
     return { kind: "slope", bottom: elevation, top: elevation + 1, color };
@@ -83,12 +92,15 @@ export function actorPieceDefinition(actor) {
     };
   }
   if (actor.type === "attached_gate") {
-    return {
-      kind: "gate",
-      bottom: elevation + PLATE_OFFSET - PLATE_THICKNESS,
-      top: elevation + PLATE_OFFSET,
-      color
-    };
+    return actor.raised
+      ? { kind: "gate", bottom: elevation, top: elevation + 1, color, raised: true }
+      : {
+          kind: "gate",
+          bottom: elevation + PLATE_OFFSET - PLATE_THICKNESS,
+          top: elevation + PLATE_OFFSET,
+          color,
+          raised: false
+        };
   }
   if (actor.type === "attached_lift") {
     return actor.raised

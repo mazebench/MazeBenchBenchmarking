@@ -22,6 +22,8 @@ test("toolbox exposes one cube and one slope tool for each numbered family", () 
   assert.ok(tokens.includes("c0"));
   assert.ok(tokens.includes("SrM0"));
   assert.ok(tokens.includes("Src0"));
+  assert.ok(tokens.includes("pr"));
+  assert.ok(tokens.includes("Pr"));
   assert.equal(tokens.includes("M1"), false);
   assert.equal(tokens.includes("c1"), false);
 });

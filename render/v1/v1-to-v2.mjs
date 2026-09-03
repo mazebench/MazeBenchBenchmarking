@@ -58,6 +58,9 @@ function metadataFor(source) {
   if (["player_lift", "attached_lift"].includes(source.type)) {
     object.stateId = source.raised === true ? 1 : 0;
   }
+  if (source.type === "puncher") {
+    object.stateId = source.sprung === true ? 1 : 0;
+  }
   return object;
 }
 

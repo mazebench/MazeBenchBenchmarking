@@ -362,8 +362,8 @@ function buildToolbox() {
     const displayToken = generic
       ? concreteGenericToolToken(token, selectedGenericIds[generic.family])
       : token;
-    const placementHint = /^p[rlud]$/.test(token)
-      ? " — faces highlighted surface"
+    const placementHint = /^[pP][rlud]$/.test(token)
+      ? " — faces a highlighted wall, or the camera on a horizontal surface"
       : isDirectionalTool(parser, token) ? " — faces camera when placed" : "";
     button.title = `${toolName(displayToken)} — ${displayToken}${placementHint}`;
     button.setAttribute("aria-label", `${toolName(displayToken)}${generic ? "; choose numeric ID" : placementHint}`);

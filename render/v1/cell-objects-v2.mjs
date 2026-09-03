@@ -52,6 +52,8 @@ export function placeObjectInCell(objects, placement, definitions) {
   const block = definitions.get(placement.blockId);
   const placementSurface = objectIsSurface(block);
   const placementShareable = objectCanShareCell(block);
+  const fixtureKind = block?.visual?.kind;
+  const replacesFixture = ["button", "gate", "lift", "puncher"].includes(fixtureKind);
   const kept = placementSurface
     ? objects.filter((object) =>
         cellCoordinateKey(object) !== coordinate ||
@@ -60,6 +62,11 @@ export function placeObjectInCell(objects, placement, definitions) {
     ? block?.roleId === "orange-wall"
       ? objects.filter((object) =>
           cellCoordinateKey(object) !== coordinate || object.blockId !== placement.blockId)
+      : replacesFixture
+        ? objects.filter((object) =>
+            cellCoordinateKey(object) !== coordinate ||
+            object.blockId !== placement.blockId ||
+            (object.orientation || "top") !== (placement.orientation || "top"))
       : objects
     : objects.filter((object) =>
         cellCoordinateKey(object) !== coordinate ||
