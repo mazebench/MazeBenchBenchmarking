@@ -152,6 +152,15 @@ room state. Coincident markers must not be collapsed when their exact board
 states differ. Circular transitions may point to an existing node but remain
 reviewable as transitions.
 
+World Solver v1 is rooted at authored room H×I. Its start and every reached
+room are green on the world map. Exact player, exit, and entry coordinates form
+clickable graph edges; choosing an edge replays its complete master route from
+H×I with the canonical engine. Search scheduling prioritizes the first pending
+state in a newly reached room before alternate states in already explored
+rooms, and each newly reached-room graph is published and saved immediately.
+The 16×16 world map uses matching explicit row and column tracks so every room
+tile remains square at every viewport size.
+
 ## ASCII overlap and face-fixture contract
 
 The ASCII renderer resolves ordinary objects by exact `(x, y, z)` occupancy.

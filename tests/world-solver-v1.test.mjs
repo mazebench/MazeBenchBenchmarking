@@ -8,10 +8,16 @@ import {
   WORLD_SOLVER_FORMAT_V1,
   invalidateAnalysisForRoomV1,
   masterRouteForNodeV1,
+  nextWorldNodeV1,
   roomRevisionV1,
   stateFingerprintV1,
   worldAnalysisStatsV1
 } from "../world-solver/v1/analysis.mjs";
+import {
+  graphPointForRoomV1,
+  transitionGraphPathV1,
+  WORLD_SOLVER_START_POSITION_V1
+} from "../world-solver/v1/graph.mjs";
 import { findRoomTransitionsV1, tagSolverObjectsV1 } from "../world-solver/v1/runtime.mjs";
 
 test("world state identity keeps coincident entries with different board states", () => {
@@ -58,6 +64,46 @@ test("editing a routed room removes that branch and every downstream route", () 
     reachableGems: 0,
     bestRouteGems: 0
   });
+});
+
+test("world exploration prioritizes the first state in a newly reached room", () => {
+  const analysis = { nodes: [
+    { id: 0, roomFileName: "H-I", analyzed: true, searchStatus: "solved" },
+    { id: 1, roomFileName: "H-H", analyzed: true, searchStatus: "limit-hit", searchMaximumNodes: 12000 },
+    { id: 2, roomFileName: "H-H", analyzed: false },
+    { id: 3, roomFileName: "H-G", analyzed: false }
+  ] };
+  assert.equal(nextWorldNodeV1(analysis, 12000).id, 3);
+  assert.equal(nextWorldNodeV1(analysis, 180000).id, 3);
+  analysis.nodes[3].analyzed = true;
+  assert.equal(nextWorldNodeV1(analysis, 12000).id, 2);
+});
+
+test("world graph paths connect exact player, exit, and entry positions", () => {
+  assert.deepEqual(WORLD_SOLVER_START_POSITION_V1, ["H", "I"]);
+  const rooms = [
+    { fileName: "left", columnIndex: 0, rowIndex: 0, width: 2, height: 2 },
+    { fileName: "right", columnIndex: 1, rowIndex: 0, width: 2, height: 2 }
+  ];
+  const analysis = { nodes: [
+    { id: 0, roomFileName: "left", state: { width: 2, height: 2, objects: [
+      { x: 0, y: 1, z: 0, blockId: "player" }
+    ] } },
+    { id: 1, roomFileName: "right", state: { width: 2, height: 2, objects: [
+      { x: 1, y: 0, z: 0, blockId: "player" }
+    ] } }
+  ] };
+  const transition = { fromNodeId: 0, toNodeId: 1, hops: [{
+    fromRoomFileName: "left",
+    toRoomFileName: "right",
+    exit: { x: 1, y: 1 },
+    entry: { x: 0, y: 1 }
+  }] };
+  assert.deepEqual(graphPointForRoomV1(rooms[0], { x: 0, y: 1 }), { x: 0.25, y: 0.75 });
+  assert.equal(
+    transitionGraphPathV1(analysis, transition, rooms),
+    "M0.25 0.75 L0.75 0.75 L1.25 0.75 L1.75 0.25"
+  );
 });
 
 test("edge witnesses replay through connected-world transitions", async () => {
