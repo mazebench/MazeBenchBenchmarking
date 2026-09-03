@@ -84,6 +84,37 @@ test("play animation timing defaults to 105 ms and zero skips to the final frame
   assert.throws(() => session.setFrameDelay(-1), /non-negative number/);
 });
 
+test("play v1 leaves ineffective commands out of moves and undo history", async () => {
+  const { engine } = await loadEngine();
+  const room = {
+    width: 2,
+    height: 1,
+    objects: [
+      { x: 0, y: 0, z: 0, blockId: "player" },
+      { x: 0, y: 0, z: 0, blockId: "floor" },
+      { x: 1, y: 0, z: 0, blockId: "floor" }
+    ]
+  };
+  const changes = [];
+  const session = new PlaySessionV1(engine, blocks, {
+    frameDelay: 0,
+    onChange: (summary) => changes.push(summary)
+  });
+  session.open(room);
+
+  await session.move("left");
+  assert.equal(session.moves, 0);
+  assert.equal(session.history.length, 0);
+  assert.equal(changes.at(-1).canUndo, false);
+
+  await session.move("right");
+  await session.move("right");
+  assert.equal(session.moves, 1);
+  assert.equal(session.history.length, 1);
+  assert.equal(session.undo(), true);
+  assert.equal(session.state.objects[0].x, 0);
+});
+
 test("connected play reloads rooms normally and undo crosses back with exact state", async () => {
   const { engine } = await loadEngine();
   const roomA = {

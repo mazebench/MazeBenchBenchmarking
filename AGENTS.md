@@ -92,6 +92,10 @@ intermediate tick frames and renders only the command's final engine state.
 Camera motion is independent and continues to use `requestAnimationFrame` at
 the browser's display cadence.
 
+Play history records only commands that change the canonical engine state or
+move the player to another room. A blocked or otherwise ineffective command
+must not create an undo snapshot or increment the move counter.
+
 ## Connected-world Play transitions
 
 World topology and reset-on-leave policy belong to Play Mode, not the vendored
@@ -153,8 +157,9 @@ reviewable as transitions.
 The ASCII renderer resolves ordinary objects by exact `(x, y, z)` occupancy.
 When multiple ordinary objects occupy one voxel, render only the deterministic
 highest-priority object. A full occupant such as the player, a clone, a crate,
-or a weightless body hides a button, gem, or other face fixture at that voxel.
-Do not use source-array order as a visibility rule.
+or a weightless body hides a button, gem, or other face fixture at that voxel,
+but a floor or Ice surface remains rendered beneath the occupant at pitched
+camera angles. Do not use source-array order as a visibility rule.
 
 Buttons and lowered lifts are face fixtures rather than full cubes:
 

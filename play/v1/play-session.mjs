@@ -1,4 +1,4 @@
-import { countActiveRoleV1 } from "../../engine/v1/adapter.mjs";
+import { countActiveRoleV1, engineStatesEqualV1 } from "../../engine/v1/adapter.mjs";
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -118,13 +118,12 @@ export class PlaySessionV1 {
     try {
       while (this.queue.length && runGeneration === this.generation) {
         const direction = this.queue.shift();
-        this.history.push({
+        const previous = {
           state: cloneState(this.state),
           initialState: cloneState(this.initialState),
           moves: this.moves,
           room: this.room
-        });
-        if (this.history.length > 256) this.history.shift();
+        };
         this.publish();
         const commandRoom = this.room;
         const simulation = await this.resolveCommand(
@@ -159,7 +158,12 @@ export class PlaySessionV1 {
         if (finalRoom !== commandRoom) {
           this.initialState = cloneState(simulation.final);
         }
-        this.moves += 1;
+        if (finalRoom !== commandRoom ||
+            !engineStatesEqualV1(previous.state, simulation.final, this.definitions)) {
+          this.history.push(previous);
+          if (this.history.length > 256) this.history.shift();
+          this.moves += 1;
+        }
         this.publish({ cycle: simulation.cycle });
         if (this.playerCount < 1) this.queue.length = 0;
       }

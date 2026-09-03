@@ -141,6 +141,21 @@ export function engineGenericIdForObject(object, definitions) {
   return Number.isInteger(object.genericId) ? object.genericId : -1;
 }
 
+export function engineStatesEqualV1(left, right, definitions) {
+  if (left.width !== right.width || left.height !== right.height ||
+      left.objects.length !== right.objects.length) return false;
+  const blocks = definitionMap(definitions);
+  return left.objects.every((object, index) => {
+    const other = right.objects[index];
+    const block = blocks.get(object.blockId);
+    const otherBlock = blocks.get(other.blockId);
+    return object.x === other.x && object.y === other.y &&
+      engineZForObject(object, block) === engineZForObject(other, otherBlock) &&
+      engineRoleIdForObject(object, blocks) === engineRoleIdForObject(other, blocks) &&
+      engineGenericIdForObject(object, blocks) === engineGenericIdForObject(other, blocks);
+  });
+}
+
 export function createEngineStateV1(room) {
   return {
     width: room.width,

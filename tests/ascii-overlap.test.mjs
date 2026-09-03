@@ -48,6 +48,28 @@ test("every full occupant hides a button at the same voxel", async () => {
   }
 });
 
+test("pitched ASCII keeps floor and ice visible beneath full occupants", async () => {
+  const cases = [
+    ["floor", "player", "aaaa"],
+    ["ice-floor", "crate", "iiii"],
+    ["floor", "wall", "aaaa"],
+    ["ice-floor", "weightless-box", "iiii"]
+  ];
+  for (const [surface, occupant, exposedSide] of cases) {
+    const frame = await renderAsciiFrameV1({
+      width: 1,
+      height: 1,
+      objects: [
+        { x: 0, y: 0, z: 0, blockId: surface },
+        { x: 0, y: 0, z: 0, blockId: occupant }
+      ]
+    }, definitions, { pitch: 1 });
+    assert.equal(frame.rows.at(-1), exposedSide, `${surface} under ${occupant}`);
+    assert.equal(pixelsNamed(frame, surface).length, 4, `${surface} under ${occupant}`);
+    assert.equal(pixelsNamed(frame, occupant).length, 16, occupant);
+  }
+});
+
 test("a non-collecting solid wins over both a gem and a face fixture", async () => {
   const frame = await renderAsciiFrameV1(topRoomWith(
     { blockId: "gem" },

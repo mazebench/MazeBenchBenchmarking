@@ -361,14 +361,15 @@ function renderableObjects(room, definitions) {
     const ordinary = occupants.filter((entry) =>
       !faceFixtureKind(entry.object) && !isBaseSurface(entry.definition));
     const winner = selectWinner(ordinary);
+    const surface = selectWinner(surfaces);
     if (winner) {
-      // A full occupant owns the whole voxel and occludes every surface or
-      // face fixture there. Fixtures only compose when no ordinary body wins.
+      // The winner hides fixtures at its logical voxel, but its supporting
+      // surface remains available to the pitched projection underneath it.
+      if (surface) retained.push(surface);
       retained.push(winner);
       return;
     }
 
-    const surface = selectWinner(surfaces);
     if (surface) retained.push(surface);
     const uniqueFaces = new Map();
     fixtures.forEach((entry) => {
