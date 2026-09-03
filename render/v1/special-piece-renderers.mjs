@@ -27,7 +27,7 @@ function addCuboid(content, record, dimensions) {
     new THREE.BoxGeometry(1, height, 1));
   addOutlinedMesh(content, geometry, record.definition.color, {
     position: new THREE.Vector3(center.x, record.definition.bottom + height / 2, center.z)
-  });
+  }, 18, { dimmed: record.dimmed });
 }
 
 // Closed wedge with outward winding on every face. Each direction is a rigid
@@ -64,7 +64,7 @@ function addSlope(content, record, dimensions) {
   const center = centerFor(record, dimensions);
   addOutlinedMesh(content, slopeGeometry(record.source.direction), record.definition.color, {
     position: new THREE.Vector3(center.x, record.definition.bottom, center.z)
-  });
+  }, 18, { dimmed: record.dimmed });
 }
 
 function addLiftTriangle(content, record, dimensions) {
@@ -81,7 +81,7 @@ function addLiftTriangle(content, record, dimensions) {
     triangle.computeVertexNormals();
     return triangle;
   });
-  const marker = new THREE.Mesh(geometry, renderMaterial("#050608"));
+  const marker = new THREE.Mesh(geometry, renderMaterial("#050608", record.dimmed));
   marker.position.set(center.x, record.definition.top + 0.012, center.z);
   marker.userData.liftMarker = true;
   content.add(marker);
@@ -124,7 +124,14 @@ function addOrangeButton(content, record, dimensions) {
     position.y = record.definition.bottom + 0.5;
     rotation.z = Math.PI / 2;
   }
-  addOutlinedMesh(content, geometry, record.definition.color, { position, rotation }, 24);
+  addOutlinedMesh(
+    content,
+    geometry,
+    record.definition.color,
+    { position, rotation },
+    24,
+    { dimmed: record.dimmed }
+  );
 }
 
 function sideLiftTriangleGeometry(raised) {
@@ -166,7 +173,7 @@ function addSideLift(content, record, dimensions) {
     new THREE.BoxGeometry(width, 1, depth));
   addOutlinedMesh(content, geometry, record.definition.color, {
     position: new THREE.Vector3(x, record.definition.bottom + 0.5, z)
-  });
+  }, 18, { dimmed: record.dimmed });
 
   const marker = new THREE.Mesh(
     sideLiftTriangleGeometry(record.definition.raised),
@@ -244,7 +251,7 @@ function addPuncher(content, record, dimensions) {
         center.z + vector.z * part.offset
       ),
       rotation
-    });
+    }, 18, { dimmed: record.dimmed });
   });
 }
 
@@ -253,7 +260,7 @@ function addExitMarker(content, record, dimensions) {
   const geometry = cachedGeometry("exit-cube", () => new THREE.BoxGeometry(0.34, 0.34, 0.34));
   addOutlinedMesh(content, geometry, "#ff7b72", {
     position: new THREE.Vector3(center.x, record.definition.bottom + 0.17, center.z)
-  });
+  }, 18, { dimmed: record.dimmed });
 }
 
 export function addSpecialPiece(content, record, dimensions) {

@@ -148,6 +148,17 @@ gate states and unsprung/sprung puncher states. Their ASCII face-fixture rules
 remain intentionally pending at the user's request; do not extend this contract
 to them until the user resumes that renderer work.
 
+## 3D room context
+
+Play Mode's 3D view and the editor render the active room at full brightness
+with the surrounding 3x3 neighborhood as dimmed spatial context. Neighbor rooms
+use immutable authored data, do not participate in Play physics, and are not
+paintable or selectable in the editor. The active room stays centered even at
+the edge of the world. Play suppresses the neighboring rooms' authored player
+objects so only the actual active player is shown. Do not render the entire
+256-room world in these live views: it contains roughly 95,000 authored objects
+and would be rebuilt during animation and editing. ASCII Mode remains room-local.
+
 ## Scope and Git safety
 
 When asked to "sync the engine," the expected scope is the local rebuild,

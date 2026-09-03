@@ -1,5 +1,6 @@
 import { loadMazeBenchEngineV1 } from "../../engine/v1/engine.mjs";
 import { AsciiMazeRendererV1 } from "../../render-ascii/v1/ascii-renderer.mjs";
+import { roomContextWorld } from "../../render/v1/room-context.mjs";
 import { ThreeMazeRendererV1 } from "../../render/v1/three-renderer.mjs";
 import { loadMainWorldV2 } from "../../render/v1/voxel-world-v2.mjs";
 import { cameraRelativeMoveDirection } from "./camera-relative-input.mjs";
@@ -77,20 +78,15 @@ function isEditableTarget(target) {
   return !["button", "checkbox", "radio", "range"].includes(target.type);
 }
 
-function roomWorld(room) {
-  return {
-    ...world,
-    columns: [room.position[0]],
-    rows: [room.position[1]],
-    roomWidth: room.width,
-    roomHeight: room.height,
-    rooms: [{ ...room, columnIndex: 0, rowIndex: 0 }]
-  };
+function roomWorld(room, renderedRoom = room) {
+  return roomContextWorld(world, room, renderedRoom, {
+    omitDimmedRoleIds: ["player"]
+  });
 }
 
 function showFrame(state, room) {
   const renderedRoom = engine.roomFromState(state, room);
-  renderer.setRoom(renderedRoom, { preserveCamera: true });
+  renderer.setWorld(roomWorld(room, renderedRoom), { preserveCamera: true });
   asciiRenderer.setRoom(renderedRoom);
 }
 

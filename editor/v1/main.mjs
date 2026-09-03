@@ -1,4 +1,5 @@
 import { ThreeMazeRendererV1 } from "../../render/v1/three-renderer.mjs";
+import { roomContextWorld } from "../../render/v1/room-context.mjs";
 import { cellForTool, describeCell } from "../../render/v1/world-renderer.mjs";
 import { encodeVoxelRoom, loadMainWorldV2 } from "../../render/v1/voxel-world-v2.mjs";
 import {
@@ -91,6 +92,10 @@ let toolboxPreviewEntries = [];
 const cloneObjects = (objects) => objects.map((object) => ({ ...object }));
 const countBlock = (objects, blockId) => objects.filter((object) => object.blockId === blockId).length;
 const coordinateLabel = ({ x, y, z }) => `${x}, ${y}, ${z}`;
+
+function renderEditorRoom(renderedRoom = currentRoom, options = {}) {
+  renderer.setWorld(roomContextWorld(world, currentRoom, renderedRoom), options);
+}
 
 function setStatus(message, error = false) {
   elements.status.textContent = message;
@@ -216,7 +221,7 @@ function paint(hit, gesture) {
     if (!result.changed) return;
     if (eraseStrokeRow === null) eraseStrokeRow = editorEraseRowKey(hit);
     currentRoom.objects = result.objects;
-    renderer.setRoom(currentRoom, { preserveCamera: true });
+    renderEditorRoom(currentRoom, { preserveCamera: true });
     inspectCoordinate(coordinate);
     markDirty(`Erased ${result.removed.blockId} at ${coordinateLabel(coordinate)}.`);
     return;
@@ -234,7 +239,7 @@ function paint(hit, gesture) {
   const result = placeObjectInCell(currentRoom.objects, placement, world.blockDefinitions);
   if (!result.changed) return;
   currentRoom.objects = result.objects;
-  renderer.setRoom(currentRoom, { preserveCamera: true });
+  renderEditorRoom(currentRoom, { preserveCamera: true });
   inspectCoordinate(placement);
   markDirty(`Placed ${toolName(currentTool)} at ${coordinateLabel(placement)}.`);
 }
@@ -442,7 +447,7 @@ function switchRoom(room) {
   elements.cellValue.disabled = true;
   elements.applyCell.disabled = true;
   elements.cellPosition.textContent = "—";
-  renderer.setRoom(room);
+  renderEditorRoom(room);
   updateRoomChrome();
   elements.save.textContent = "Saved";
   elements.save.classList.remove("primary");
@@ -453,7 +458,7 @@ function transformRoom(transform) {
   pushUndo();
   currentRoom.objects = currentRoom.objects.map((object) =>
     rotateVoxelObject(object, transform, currentRoom.width, currentRoom.height));
-  renderer.setRoom(currentRoom, { preserveCamera: true });
+  renderEditorRoom(currentRoom, { preserveCamera: true });
   selectedCell = null;
   elements.cellValue.disabled = true;
   elements.applyCell.disabled = true;
@@ -517,7 +522,7 @@ async function replaySolution() {
       currentRoom,
       world.blocks,
       lastSolution.solution,
-      (room) => renderer.setRoom(room, { preserveCamera: true }),
+      (room) => renderEditorRoom(room, { preserveCamera: true }),
       { isCancelled: () => generation !== replayGeneration }
     );
     if (generation === replayGeneration) {
@@ -528,7 +533,7 @@ async function replaySolution() {
     setStatus(error?.message || "Replay failed.", true);
   } finally {
     if (generation === replayGeneration) {
-      renderer.setRoom(currentRoom, { preserveCamera: true });
+      renderEditorRoom(currentRoom, { preserveCamera: true });
       setSolverBusy(false);
     }
   }
@@ -555,7 +560,7 @@ elements.exactSolve.addEventListener("click", () => runSolver(EDITOR_SOLVER_PRES
 elements.cancelSolve.addEventListener("click", () => {
   replayGeneration += 1;
   if (solvers.cancel()) setStatus("Solver cancelled.");
-  if (renderer && currentRoom) renderer.setRoom(currentRoom, { preserveCamera: true });
+  if (renderer && currentRoom) renderEditorRoom(currentRoom, { preserveCamera: true });
   setSolverBusy(false);
 });
 elements.replaySolution.addEventListener("click", replaySolution);
@@ -563,7 +568,7 @@ elements.undo.addEventListener("click", () => {
   const previous = undoStack.pop();
   if (!previous) return;
   currentRoom.objects = previous;
-  renderer.setRoom(currentRoom, { preserveCamera: true });
+  renderEditorRoom(currentRoom, { preserveCamera: true });
   elements.undo.disabled = undoStack.length === 0;
   markDirty("Undid the last edit.");
 });
@@ -584,7 +589,7 @@ elements.applyCell.addEventListener("click", () => {
       ...currentRoom.objects.filter((object) => coordinateLabel(object) !== selectedKey),
       ...replacements
     ];
-    renderer.setRoom(currentRoom, { preserveCamera: true });
+    renderEditorRoom(currentRoom, { preserveCamera: true });
     inspectCoordinate(selectedCell);
     markDirty(`Applied ${replacements.length} object${replacements.length === 1 ? "" : "s"} at ${coordinateLabel(selectedCell)}.`);
   } catch (error) {
@@ -631,14 +636,7 @@ try {
   const requested = new URL(location.href).searchParams.get("room")?.toUpperCase();
   currentRoom = world.rooms.find((room) => room.position.join("X") === requested) || world.rooms[0];
   savedObjects = cloneObjects(currentRoom.objects);
-  renderer = new ThreeMazeRendererV1(elements.canvas, {
-    ...world,
-    columns: [currentRoom.position[0]],
-    rows: [currentRoom.position[1]],
-    roomWidth: currentRoom.width,
-    roomHeight: currentRoom.height,
-    rooms: [{ ...currentRoom, columnIndex: 0, rowIndex: 0 }]
-  }, {
+  renderer = new ThreeMazeRendererV1(elements.canvas, roomContextWorld(world, currentRoom), {
     mode: "editor",
     onInspect: inspect,
     onSelect: inspect,

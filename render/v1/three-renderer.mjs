@@ -22,6 +22,7 @@ import { addSpecialPiece } from "./special-piece-renderers.mjs";
 import { MAZE_COLORS, parseCellState } from "./world-renderer.mjs";
 import { cellObjectSelectionKey } from "./cell-objects-v2.mjs";
 import { collectVoxelSceneV2 } from "./voxel-scene-v2.mjs";
+import { roomObjectInContext } from "./room-context.mjs";
 import { V2_WORLD_FORMAT } from "./voxel-world-v2.mjs";
 import {
   clearPlacementPreview,
@@ -51,6 +52,7 @@ import { MazeFuzzyOverlayV1 } from "./fuzzy-overlay.mjs";
 const CARDINAL_STEP = Math.PI * 0.5;
 const DEFAULT_HEADING = 0;
 const DEFAULT_PITCH = 0.72;
+const CONTEXT_VIEW_SCALE = 1.55;
 const DRAG_HEADING_THRESHOLD = 48;
 const OUTLINE_LAYER = 1;
 const OUTLINE_PIXEL_OFFSETS = Object.freeze([
@@ -418,8 +420,10 @@ export class ThreeMazeRendererV1 {
     clearPlacementPreview(this.placementPreview);
     this.canvas.dataset.placementPreview = "";
     this.world = world;
-    this.totalWidth = this.mode === "editor" ? world.roomWidth : world.columns.length * world.roomWidth;
-    this.totalHeight = this.mode === "editor" ? world.roomHeight : world.rows.length * world.roomHeight;
+    this.totalWidth = world.columns.length * world.roomWidth;
+    this.totalHeight = world.rows.length * world.roomHeight;
+    this.canvas.dataset.contextRoomCount = String(world.rooms.filter((room) => room.renderDimmed).length);
+    this.canvas.dataset.activeRoom = world.contextActiveRoom?.fileName || "";
     this.configureShadows();
     this.setSelection(null);
     const modelUrls = this.rebuild();
@@ -456,7 +460,7 @@ export class ThreeMazeRendererV1 {
   setPlacementPreview(object) {
     const block = object ? this.world.blockDefinitions?.get(object.blockId) : null;
     this.canvas.dataset.placementPreview = object ? JSON.stringify(object) : "";
-    renderPlacementPreview(this.placementPreview, object, block, {
+    renderPlacementPreview(this.placementPreview, roomObjectInContext(this.world, object), block, {
       totalWidth: this.totalWidth,
       totalHeight: this.totalHeight
     });
@@ -603,7 +607,7 @@ export class ThreeMazeRendererV1 {
     const halfHeight = this.totalHeight / 2;
     groups.forEach((group) => {
       const geometry = geometryFromFaces(floorFaces(group.cells, halfWidth, halfHeight));
-      const mesh = new THREE.Mesh(geometry, renderMaterial(group.color));
+      const mesh = new THREE.Mesh(geometry, renderMaterial(group.color, group.dimmed));
       mesh.receiveShadow = true;
       this.content.add(mesh);
     });
@@ -616,11 +620,14 @@ export class ThreeMazeRendererV1 {
       const faces = voxelFaces(group.voxels, occupied, halfWidth, halfHeight);
       if (!faces.length) return;
       const geometry = geometryFromFaces(faces);
-      const mesh = new THREE.Mesh(geometry, renderMaterial(group.color));
+      const mesh = new THREE.Mesh(geometry, renderMaterial(group.color, group.dimmed));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.content.add(mesh);
-      const edges = new THREE.LineSegments(edgeGeometryFromFaces(faces), edgeMaterial());
+      const edges = new THREE.LineSegments(
+        edgeGeometryFromFaces(faces),
+        group.dimmed ? edgeMaterial(0x111820, 0.58) : edgeMaterial()
+      );
       edges.renderOrder = 10;
       this.content.add(edges);
     });
@@ -747,9 +754,16 @@ export class ThreeMazeRendererV1 {
 
   fitDistance() {
     const fov = THREE.MathUtils.degToRad(this.camera.fov);
-    const vertical = (this.totalHeight / 2) / Math.tan(fov / 2);
-    const horizontal = (this.totalWidth / 2) / (Math.tan(fov / 2) * Math.max(this.camera.aspect, 0.1));
-    return Math.max(vertical, horizontal, Math.max(this.totalWidth, this.totalHeight) * 1.15) * 1.18;
+    const contextScale = this.world.contextActiveRoom ? CONTEXT_VIEW_SCALE : 1;
+    const viewWidth = this.world.contextActiveRoom
+      ? this.world.roomWidth * contextScale
+      : this.totalWidth;
+    const viewHeight = this.world.contextActiveRoom
+      ? this.world.roomHeight * contextScale
+      : this.totalHeight;
+    const vertical = (viewHeight / 2) / Math.tan(fov / 2);
+    const horizontal = (viewWidth / 2) / (Math.tan(fov / 2) * Math.max(this.camera.aspect, 0.1));
+    return Math.max(vertical, horizontal, Math.max(viewWidth, viewHeight) * 1.15) * 1.18;
   }
 
   updateCamera() {
@@ -898,11 +912,11 @@ export class ThreeMazeRendererV1 {
     const globalX = Math.floor(point.x + this.totalWidth / 2);
     const globalY = Math.floor(point.z + this.totalHeight / 2);
     if (globalX < 0 || globalY < 0 || globalX >= this.totalWidth || globalY >= this.totalHeight) return null;
-    const columnIndex = this.mode === "editor" ? 0 : Math.floor(globalX / this.world.roomWidth);
-    const rowIndex = this.mode === "editor" ? 0 : Math.floor(globalY / this.world.roomHeight);
+    const columnIndex = Math.floor(globalX / this.world.roomWidth);
+    const rowIndex = Math.floor(globalY / this.world.roomHeight);
     const room = this.world.rooms.find((candidate) =>
       candidate.columnIndex === columnIndex && candidate.rowIndex === rowIndex);
-    if (!room) return null;
+    if (!room || (this.mode === "editor" && room.renderDimmed)) return null;
     const cellX = globalX % this.world.roomWidth;
     const cellY = globalY % this.world.roomHeight;
     if (this.world.storageFormat === V2_WORLD_FORMAT) {

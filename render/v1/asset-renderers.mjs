@@ -80,15 +80,18 @@ function terrainModelScale(type) {
   return TREE_MODEL_SCALE;
 }
 
-function addPartWithEdges(content, part, color, transform, threshold = 28) {
-  const mesh = new THREE.Mesh(part.geometry, renderMaterial(part.color || color));
+function addPartWithEdges(content, part, color, transform, threshold = 28, dimmed = false) {
+  const mesh = new THREE.Mesh(part.geometry, renderMaterial(part.color || color, dimmed));
   mesh.position.copy(transform.position);
   mesh.scale.copy(transform.scale);
   mesh.rotation.copy(transform.rotation);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   content.add(mesh);
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(part.geometry, threshold), edgeMaterial());
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(part.geometry, threshold),
+    dimmed ? edgeMaterial(0x111820, 0.58) : edgeMaterial()
+  );
   edges.position.copy(transform.position);
   edges.scale.copy(transform.scale);
   edges.rotation.copy(transform.rotation);
@@ -118,7 +121,7 @@ export function addTerrainAsset(content, record, dimensions) {
     )
   };
   model.parts.forEach((part) =>
-    addPartWithEdges(content, part, colorForDefinition(record.source), transform));
+    addPartWithEdges(content, part, colorForDefinition(record.source), transform, 28, record.dimmed));
 }
 
 // Exact authored gem silhouette extracted from gem.glb: eleven unique points,
@@ -167,12 +170,15 @@ export function addGemAsset(content, record, dimensions) {
   group.scale.setScalar(scale);
   group.rotation.y = seededRotation(record.x, record.z, record.definition.bottom, record.source.modelUrl);
   model.parts.forEach((part) => {
-    const mesh = new THREE.Mesh(part.geometry, renderMaterial(part.color || "#00e7e6"));
+    const mesh = new THREE.Mesh(part.geometry, renderMaterial(part.color || "#00e7e6", record.dimmed));
     mesh.position.set(-center.x, -model.bounds.min.y, -center.z);
     mesh.castShadow = true;
     mesh.receiveShadow = false;
     group.add(mesh);
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(part.geometry, 28), edgeMaterial());
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(part.geometry, 28),
+      record.dimmed ? edgeMaterial(0x111820, 0.58) : edgeMaterial()
+    );
     edges.position.copy(mesh.position);
     edges.renderOrder = 10;
     group.add(edges);

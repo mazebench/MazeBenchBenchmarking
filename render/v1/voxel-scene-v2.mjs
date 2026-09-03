@@ -126,6 +126,7 @@ export function collectVoxelSceneV2(renderer) {
   };
 
   renderer.world.rooms.forEach((room) => {
+    const dimmed = room.renderDimmed === true;
     room.objects.forEach((object) => {
       const block = renderer.world.blockDefinitions.get(object.blockId);
       if (!block) return;
@@ -134,18 +135,20 @@ export function collectVoxelSceneV2(renderer) {
       const source = voxelRenderSource(object, block);
       const definition = voxelPieceDefinition(object, block);
       recordTop(x, y, definition.top);
-      pickRecords.push({
-        room,
-        object,
-        block,
-        globalX: x,
-        globalY: y,
-        bottom: definition.bottom,
-        top: definition.kind === "terrain_asset" ? definition.top : Math.max(definition.top, definition.bottom + 0.04),
-        height: block.visual?.height || 1,
-        surfaceFloor: definition.kind === "floor"
-      });
-      if ((block.roleId === "weightless-pushable" || block.roleId === "clone") &&
+      if (!dimmed) {
+        pickRecords.push({
+          room,
+          object,
+          block,
+          globalX: x,
+          globalY: y,
+          bottom: definition.bottom,
+          top: definition.kind === "terrain_asset" ? definition.top : Math.max(definition.top, definition.bottom + 0.04),
+          height: block.visual?.height || 1,
+          surfaceFloor: definition.kind === "floor"
+        });
+      }
+      if (!dimmed && (block.roleId === "weightless-pushable" || block.roleId === "clone") &&
           Number.isInteger(object.groupId ?? object.genericId)) {
         genericLabels.push({
           block,
@@ -159,13 +162,14 @@ export function collectVoxelSceneV2(renderer) {
       }
 
       if (definition.kind === "floor") {
-        const key = `v2-floor:${block.id}:${definition.color}`;
-        if (!floorGroups.has(key)) floorGroups.set(key, { color: definition.color, cells: [] });
+        const key = `v2-floor:${dimmed ? "context" : "active"}:${block.id}:${definition.color}`;
+        if (!floorGroups.has(key)) floorGroups.set(key, { color: definition.color, dimmed, cells: [] });
         const floor = { x, z: y, bottom: definition.bottom, top: definition.top };
         floorGroups.get(key).cells.push(floor);
-        editorGridCells.push(floor);
+        if (!dimmed) editorGridCells.push(floor);
         if (definition.exitMarker) {
           specialPieces.push({
+            dimmed,
             x,
             z: y,
             source,
@@ -177,11 +181,11 @@ export function collectVoxelSceneV2(renderer) {
       if (definition.kind === "terrain_asset") {
         modelUrls.add(source.modelUrl);
         if (assetReady(source.modelUrl)) {
-          terrainAssets.push({ x, z: y, localX: object.x, localZ: object.y, source, definition });
+          terrainAssets.push({ dimmed, x, z: y, localX: object.x, localZ: object.y, source, definition });
         } else {
           addVoxelColumn(
-            `v2-asset-fallback:${block.id}:${definition.color}`,
-            { color: definition.color },
+            `v2-asset-fallback:${dimmed ? "context" : "active"}:${block.id}:${definition.color}`,
+            { color: definition.color, dimmed },
             x,
             y,
             definition.bottom,
@@ -192,14 +196,14 @@ export function collectVoxelSceneV2(renderer) {
       }
       if (definition.kind === "gem_asset") {
         modelUrls.add(source.modelUrl);
-        gems.push({ x, z: y, source, definition });
+        gems.push({ dimmed, x, z: y, source, definition });
         return;
       }
       if (definition.kind === "cube") {
         const identity = object.groupId ?? object.genericId ?? "";
         addVoxelColumn(
-          `v2-cube:${block.id}:${identity}:${definition.color}`,
-          { color: definition.color },
+          `v2-cube:${dimmed ? "context" : "active"}:${block.id}:${identity}:${definition.color}`,
+          { color: definition.color, dimmed },
           x,
           y,
           definition.bottom,
@@ -207,7 +211,7 @@ export function collectVoxelSceneV2(renderer) {
         );
         return;
       }
-      specialPieces.push({ x, z: y, source, definition });
+      specialPieces.push({ dimmed, x, z: y, source, definition });
     });
   });
 

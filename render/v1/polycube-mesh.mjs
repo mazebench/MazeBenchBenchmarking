@@ -10,6 +10,7 @@ export const FLOOR_DROP = 4 / 64;
 const materialCache = new Map();
 const lineMaterialCache = new Map();
 const geometryCache = new Map();
+const CONTEXT_DIM_FACTOR = 0.38;
 
 export function persistentGeometry(geometry) {
   geometry.userData.persistentGeometry = true;
@@ -21,16 +22,19 @@ export function cachedGeometry(key, create) {
   return geometryCache.get(key);
 }
 
-export function renderMaterial(color) {
-  if (!materialCache.has(color)) {
-    materialCache.set(color, new THREE.MeshLambertMaterial({
-      color,
-      emissive: color,
-      emissiveIntensity: color === MAZE_COLORS.orange ? 0.28 : 0.12,
+export function renderMaterial(color, dimmed = false) {
+  const key = `${color}:${dimmed ? "dimmed" : "active"}`;
+  if (!materialCache.has(key)) {
+    const renderedColor = new THREE.Color(color);
+    if (dimmed) renderedColor.multiplyScalar(CONTEXT_DIM_FACTOR);
+    materialCache.set(key, new THREE.MeshLambertMaterial({
+      color: renderedColor,
+      emissive: renderedColor,
+      emissiveIntensity: dimmed ? 0.035 : color === MAZE_COLORS.orange ? 0.28 : 0.12,
       flatShading: true
     }));
   }
-  return materialCache.get(color);
+  return materialCache.get(key);
 }
 
 export function edgeMaterial(color = 0x000000, opacity = 1) {
@@ -184,15 +188,19 @@ export function floorFaces(cells, halfWidth, halfHeight) {
   return faces;
 }
 
-export function addOutlinedMesh(content, geometry, color, transform = {}, threshold = 18) {
-  const mesh = new THREE.Mesh(geometry, renderMaterial(color));
+export function addOutlinedMesh(content, geometry, color, transform = {}, threshold = 18, options = {}) {
+  const dimmed = options.dimmed === true;
+  const mesh = new THREE.Mesh(geometry, renderMaterial(color, dimmed));
   if (transform.position) mesh.position.copy(transform.position);
   if (transform.rotation) mesh.rotation.copy(transform.rotation);
   if (transform.scale) mesh.scale.copy(transform.scale);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   content.add(mesh);
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, threshold), edgeMaterial());
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geometry, threshold),
+    dimmed ? edgeMaterial(0x111820, 0.58) : edgeMaterial()
+  );
   if (transform.position) edges.position.copy(transform.position);
   if (transform.rotation) edges.rotation.copy(transform.rotation);
   if (transform.scale) edges.scale.copy(transform.scale);
