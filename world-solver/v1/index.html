@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="MazeBench random-agent world explorer.">
+    <title>MazeBench — Random World Agent</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header>
+      <nav><a href="../../">← World</a><a href="../../editor/v1/">Editor</a></nav>
+      <div><strong>Random World Agent</strong><span>connected-world / v1</span></div>
+      <output id="status" aria-live="polite">Loading H×I…</output>
+    </header>
+    <main>
+      <section class="map-panel">
+        <div class="pixel-map">
+          <canvas id="world-canvas" width="256" height="256" aria-label="256 by 256 random-agent visit map"></canvas>
+        </div>
+        <div class="legend">
+          <span><i class="room-swatch"></i> reached room</span>
+          <span><i class="old-swatch"></i> visit older than 50 ticks</span>
+          <span><i class="recent-swatch"></i> last 50 ticks</span>
+          <span><i class="current-swatch"></i> current</span>
+        </div>
+      </section>
+      <aside>
+        <section class="panel intro">
+          <span>Starter room</span>
+          <strong>H×I</strong>
+          <p>Randomly presses only ↑ → ↓ ←. A death immediately undoes that action; every 10,000 moves it teleports to a random reached room to escape softlocks.</p>
+        </section>
+        <section class="panel stats">
+          <div><span>Actions / sec</span><strong id="actions-per-second">0</strong></div>
+          <div><span>Actions</span><strong id="actions">0</strong></div>
+          <div><span>Rooms reached</span><strong id="rooms">0</strong></div>
+          <div><span>Gems collected</span><strong id="gems">0</strong></div>
+          <div><span>Death undos</span><strong id="undos">0</strong></div>
+          <div><span>Softlock teleports</span><strong id="teleports">0</strong></div>
+          <div><span>Current room</span><strong id="current-room">H×I</strong></div>
+        </section>
+        <section class="panel actions">
+          <button id="restart" class="primary" type="button">Restart at H×I</button>
+          <button id="stop" type="button">Stop</button>
+        </section>
+      </aside>
+    </main>
+    <script type="module" src="./main.mjs"></script>
+  </body>
+</html>

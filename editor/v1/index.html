@@ -66,13 +66,7 @@
 
         <section class="panel solver-panel edge-panel">
           <div class="panel-heading"><div><span>Engine v1 solvers</span><strong>Edge Finder</strong></div></div>
-          <p class="description">Find exact board states that can cross into neighboring rooms. Saved world entries can also be used as starts.</p>
-          <label class="edge-start">Starts
-            <select id="edge-start-mode">
-              <option value="authored">Authored player</option>
-              <option value="saved">Authored + saved entries</option>
-            </select>
-          </label>
+          <p class="description">Find exact board states that can cross into neighboring rooms from the authored player start.</p>
           <div class="solver-actions">
             <button id="edge-find" type="button">Quick · 12k</button>
             <button id="edge-exact" type="button">Exact · 180k</button>

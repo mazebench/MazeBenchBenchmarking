@@ -55,7 +55,7 @@ export class EditorSolversV1 {
   findEdges(room, preset = EDITOR_SOLVER_PRESETS_V1.quick, options = {}) {
     this.cancel();
     const id = ++this.requestId;
-    this.worker = new Worker(new URL("../../world-solver/v1/worker.mjs", import.meta.url), {
+    this.worker = new Worker(new URL("./edge-worker.mjs", import.meta.url), {
       type: "module",
       name: `mazebench-edge-finder-v1-${preset.id}`
     });
@@ -91,8 +91,7 @@ export class EditorSolversV1 {
           objects: room.objects.map((object) => ({ ...object }))
         },
         maximumNodes: preset.maximumNodes,
-        maximumEdges: preset.maximumEdges,
-        includeSavedEntries: options.includeSavedEntries === true
+        maximumEdges: preset.maximumEdges
       });
     });
   }

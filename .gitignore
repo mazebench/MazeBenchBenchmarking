@@ -1,4 +1,5 @@
 .DS_Store
 outputs/
 work/
-
+.zig-cache/
+.zig-global-cache/

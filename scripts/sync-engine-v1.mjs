@@ -72,7 +72,8 @@ function command(commandName, arguments_, cwd, options = {}) {
   return execFileSync(commandName, arguments_, {
     cwd,
     encoding: Object.hasOwn(options, "encoding") ? options.encoding : "utf8",
-    stdio: options.stdio ?? ["ignore", "pipe", "pipe"]
+    stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
+    env: options.env ?? process.env
   });
 }
 
@@ -320,8 +321,17 @@ async function main() {
   const failures = await verifyManagedTarget(manifest);
   if (failures.length) throw new Error(`Post-sync verification failed:\n- ${failures.join("\n- ")}`);
 
+  console.log("Building the project-owned random-agent accelerator...");
+  command("sh", ["scripts/build-random-agent-v1.sh"], repositoryRoot, {
+    stdio: "inherit",
+    env: { ...process.env, MAZEBENCH_UNIT_TEST_REPO: sourceRoot }
+  });
   console.log("Running MazeBenchBenchmarking integration tests...");
-  command(process.execPath, ["--test", "tests/engine-v1.test.mjs"], repositoryRoot, { stdio: "inherit" });
+  command(process.execPath, [
+    "--test",
+    "tests/engine-v1.test.mjs",
+    "tests/world-solver-v1.test.mjs"
+  ], repositoryRoot, { stdio: "inherit" });
   console.log(
     `Synced engine v1 from UnitTesting ${manifest.sourceCommit.slice(0, 12)} ` +
     `(${manifest.files.length} core files, WASM ${manifest.wasm.sha256}).`

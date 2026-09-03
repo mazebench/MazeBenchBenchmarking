@@ -7,6 +7,10 @@
   truth for the C++ engine and its compiled WebAssembly binary.
 - Do not hand-edit files under `engine/v1/core/` or
   `engine/v1/voxel_physics.wasm`. Update them through the sync command.
+- World Solver acceleration is project-owned code under
+  `world-solver/v1/native/`. Never add its exports to UnitTesting or to the
+  synced `engine/v1` snapshot. `scripts/build-random-agent-v1.sh` compiles its
+  wrapper against the currently synced engine source.
 - `engine/v1/adapter.mjs`, the public engine wrapper, Play Mode, input handling,
   and renderers belong to this repository and are not copied from UnitTesting.
 
@@ -53,6 +57,8 @@ plan a new versioned adapter with the user.
 - checks ABI v4, voxel stride 5, and the exports required by the target adapter;
 - writes `engine/v1/upstream.json` and `engine/v1/upstream.mjs` with exact
   repository, commit, tree, file, and WASM provenance;
+- rebuilds `world-solver/v1/random-agent.wasm` from the project-owned wrapper
+  after the byte-identical engine copy is complete;
 - refuses to overwrite a locally modified vendored snapshot; and
 - runs the target engine integration tests.
 
@@ -123,43 +129,38 @@ be projected into room state or rendered. Do not eagerly combine a complete
 row, column, or world: a room is attached only after the trace expresses intent
 to cross its shared edge.
 
-## Edge Finder and world solver v1
+## Edge Finder and Random World Agent v1
 
-The canonical engine exposes an additive exact reachability API through
+The canonical engine exposes an exact reachability API through
 `search_edges`, `search_edge_count`, and `search_edge_solution`. It enumerates
 boundary-reachable states without requiring a gem and preserves distinct
 dynamic board states even when the player coordinates coincide. Keep ordinary
-gem solving on `search_solve`; do not fold connected-world topology into C++.
+gem solving on `search_solve`. Edge Finder is editor-local and independent of
+the Random World Agent.
 
-`world-solver/v1/worker.mjs` replays each C++ boundary witness through
-`ConnectedWorldSessionV1`. This replay is authoritative for deciding whether a
-route really crosses a seam, including a multi-room Ice slide or redirected
-punch. Only settled destination states become search nodes. Rooms crossed in
-the middle of one command remain transition hops and dependencies, not places
-where a new command may begin.
+`world-solver/v1/` is deliberately a simple random walk across the complete
+256×256 pixel world, rooted at authored room H×I. It chooses only Up, Right,
+Down, and Left. It retains exactly one reusable pre-action snapshot and invokes
+undo only when that action kills the player. Every 10,000 directional moves it
+teleports to a randomly selected reached room, using that room's latest visited
+player coordinate and fresh authored room state, so a softlock cannot trap the
+run forever.
 
-Saved analysis lives in ignored `work/world-solver-v1.json`. Nodes retain exact
-room state, collected-gem identity, parent route, and incoming transition.
-Transitions retain their local command witness, every room hop, and every room
-whose authored data was used. Saving a v2 room through the editor must remove
-nodes in that room, transitions depending on that room, and all downstream
-descendants while leaving unrelated branches reusable. A surviving upstream
-node whose outgoing route was removed must be marked for re-search.
+The page-owned `native/random-agent-wasm.cpp` includes the synced canonical
+`wasm_api.cpp` in its own translation unit and adds batching/world coordination
+there. The resulting `random-agent.wasm` is separate from
+`engine/v1/voxel_physics.wasm`; the canonical binary and all copied engine
+source must remain byte-identical to UnitTesting. Ordinary floor-to-floor room
+crossings, visit pixels, reached-room bits, gem identity, death rollback, and
+teleports stay in the native batch. Complex Ice/punch/mechanism seams may stop
+the batch and use `ConnectedWorldSessionV1` as the exact fallback.
 
-World-solver markers are semantic: opaque green is the authored start,
-transparent blue is a reachable exit, and transparent green is an entered
-room state. Coincident markers must not be collapsed when their exact board
-states differ. Circular transitions may point to an existing node but remain
-reviewable as transitions.
-
-World Solver v1 is rooted at authored room H×I. Its start and every reached
-room are green on the world map. Exact player, exit, and entry coordinates form
-clickable graph edges; choosing an edge replays its complete master route from
-H×I with the canonical engine. Search scheduling prioritizes the first pending
-state in a newly reached room before alternate states in already explored
-rooms, and each newly reached-room graph is published and saved immediately.
-The 16×16 world map uses matching explicit row and column tracks so every room
-tile remains square at every viewport size.
+The UI displays the full 256×256 grid. Reached room backgrounds are green,
+every visited `(x,y)` pixel (dropping z) is yellow, and the most recent 50
+distinct player positions fade from yellow toward red with the current pixel
+red. It reports live actions/sec, directional actions, reached rooms, unique
+gems, death undos, softlock teleports, and the current room. There is no saved
+route graph, BFS database, invalidation tree, or playback UI in World Solver v1.
 
 ## ASCII overlap and face-fixture contract
 

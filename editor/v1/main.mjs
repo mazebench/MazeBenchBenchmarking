@@ -59,7 +59,6 @@ const elements = {
   replaySolution: document.getElementById("replay-solution"),
   solverResult: document.getElementById("solver-result"),
   solverPath: document.getElementById("solver-path"),
-  edgeStartMode: document.getElementById("edge-start-mode"),
   edgeFind: document.getElementById("edge-find"),
   edgeExact: document.getElementById("edge-exact"),
   edgeResult: document.getElementById("edge-result"),
@@ -118,7 +117,6 @@ function invalidateSolution({ cancel = true } = {}) {
   elements.replaySolution.disabled = true;
   elements.edgeFind.disabled = false;
   elements.edgeExact.disabled = false;
-  elements.edgeStartMode.disabled = false;
   elements.solverResult.textContent = "Room changed; run a solver again.";
   elements.solverPath.textContent = "";
   elements.edgeResult.textContent = "Room changed; run Edge Finder again.";
@@ -133,7 +131,6 @@ function setSolverBusy(busy, label = "") {
   elements.replaySolution.disabled = busy || !lastSolution?.solution?.length;
   elements.edgeFind.disabled = busy;
   elements.edgeExact.disabled = busy;
-  elements.edgeStartMode.disabled = busy;
   if (label) elements.solverResult.textContent = label;
 }
 
@@ -491,10 +488,6 @@ async function saveRoom() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Save failed.");
     markSaved();
-    if (payload.invalidatedWorldSolverNodes > 0 ||
-        payload.invalidatedWorldSolverTransitions > 0) {
-      setStatus(`Saved ${currentRoom.fileName}; removed ${payload.invalidatedWorldSolverNodes} dependent world-solver states and ${payload.invalidatedWorldSolverTransitions} routes.`);
-    }
   } catch (error) {
     setStatus(error.message || "Save failed.", true);
   } finally {
@@ -564,7 +557,6 @@ async function runEdgeFinder(preset) {
   setStatus(`Finding connected-world exits from ${currentRoom.position.join("×")}…`);
   try {
     const result = await solvers.findEdges(currentRoom, preset, {
-      includeSavedEntries: elements.edgeStartMode.value === "saved",
       onProgress: (message) => { elements.edgeResult.textContent = message; }
     });
     const entries = result.results.length;
@@ -583,7 +575,7 @@ async function runEdgeFinder(preset) {
       elements.edgeList.append(button);
     }
     if (transitions.length > 200) {
-      elements.edgeList.append(`Showing 200 of ${transitions.length}; use World Solver to review the complete saved graph.`);
+      elements.edgeList.append(`Showing 200 of ${transitions.length} room-crossing states.`);
     }
     setStatus(transitions.length
       ? `Edge Finder found ${transitions.length} connected-world entry states.`

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "742ebf49235cafad37ce7f2732fc180c5acf5250",
+  "sourceCommit": "dc3a01b9c63a858bddf9b848e14f568cd043de84",
   "sourceTree": "0d003d78b0e0f461f9c0614ff1e3000d881c1003",
   "abiVersion": 4,
   "voxelStride": 5,
