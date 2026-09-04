@@ -33,6 +33,10 @@
           </div>
           <div class="goal-chip"><span>Objective</span><strong>Collect 100 gems</strong></div>
         </div>
+        <div class="runtime-status" role="status" aria-live="polite">
+          <div><strong id="codex-version">Checking Codex…</strong><span id="codex-update-status"></span></div>
+          <button id="check-codex" type="button">Check for updates</button>
+        </div>
         <form id="launch-form" class="launch-controls">
           <label><span>Codex model</span><select id="model" required></select></label>
           <label><span>Reasoning</span><select id="effort" required></select></label>

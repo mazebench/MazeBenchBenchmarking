@@ -1,11 +1,37 @@
 const elements = Object.fromEntries([
   "connection-status", "launch-form", "model", "effort", "action-limit",
   "tools-enabled", "tools-label", "launch-single", "launch-pair",
-  "launch-status", "refresh", "run-list", "record-count"
+  "launch-status", "refresh", "run-list", "record-count", "codex-version", "codex-update-status", "check-codex"
 ].map((id) => [id, document.getElementById(id)]));
 
 let models = [];
 let polling = false;
+let launching = false;
+let codexReady = false;
+
+async function checkCodex(force = false) {
+  elements["check-codex"].disabled = true;
+  try {
+    const status = await api(`/api/benchmark/v1/status${force ? "?force=1" : ""}`);
+    codexReady = status.available && status.tested;
+    elements["codex-version"].textContent = status.version || "Codex unavailable";
+    const labels = {
+      "up-to-date": "Up to date",
+      "update-available": `Update available: ${status.latest_version}. Run codex update, then restart the benchmark server.`,
+      "newer-than-release": "Installed version is newer than the current stable release",
+      unknown: "Could not check the latest release"
+    };
+    elements["codex-update-status"].textContent = `${labels[status.update_status] || "Unknown version"} · ${status.tested ? "Benchmark checks supported" : "Launch blocked: this version needs benchmark validation"}${status.error ? ` · ${status.error}` : ""}`;
+    elements["codex-version"].title = status.executable || "";
+  } catch (error) {
+    codexReady = false;
+    elements["codex-update-status"].textContent = error.message;
+  } finally {
+    elements["check-codex"].disabled = false;
+    elements["launch-single"].disabled = launching || !codexReady;
+    elements["launch-pair"].disabled = launching || !codexReady;
+  }
+}
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -170,8 +196,9 @@ function launchPayload(toolsEnabled = elements["tools-enabled"].checked) {
 }
 
 function setLaunching(active, message) {
-  elements["launch-single"].disabled = active;
-  elements["launch-pair"].disabled = active;
+  launching = active;
+  elements["launch-single"].disabled = active || !codexReady;
+  elements["launch-pair"].disabled = active || !codexReady;
   elements["launch-status"].textContent = message;
 }
 
@@ -230,6 +257,7 @@ async function poll() {
 }
 
 elements["launch-form"].addEventListener("submit", launchSingle);
+elements["check-codex"].addEventListener("click", () => checkCodex(true));
 elements["launch-pair"].addEventListener("click", launchPair);
 elements.refresh.addEventListener("click", () => poll());
 elements["run-list"].addEventListener("click", async (event) => {
@@ -257,9 +285,11 @@ elements["tools-enabled"].addEventListener("change", () => {
 });
 
 try {
-  await loadModels();
+  setLaunching(false, elements["launch-status"].textContent);
+  await Promise.all([loadModels(), checkCodex()]);
   await poll();
   setInterval(poll, 2000);
+  setInterval(() => checkCodex(), 15 * 60_000);
 } catch (error) {
   showError(error);
   elements["launch-status"].textContent = error.message;

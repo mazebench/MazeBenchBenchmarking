@@ -49,6 +49,12 @@
 
         <section id="pair-compare" class="pair-compare" aria-label="Matched evaluation pair" hidden></section>
 
+        <div id="run-failure" class="run-failure" role="alert" hidden>
+          <strong>Run failed</strong>
+          <p id="run-failure-reason"></p>
+          <button id="retry-new-run" type="button">Start a new run with these settings</button>
+        </div>
+
         <section class="stat-grid" aria-label="Run statistics">
           <div><span>Actions</span><strong id="stat-actions">—</strong></div>
           <div><span>Gems</span><strong id="stat-gems">—</strong></div>

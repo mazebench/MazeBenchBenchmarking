@@ -1,6 +1,41 @@
 import os
 import sys
-import time
+
+
+def _lock_os_sandbox():
+    # Install an irreversible Seatbelt profile before executing any
+    # agent code. Python audit hooks can be modified from Python; this cannot.
+    # This profile restricts
+    # reads to Python/system libraries and this workspace, and forbids all
+    # process creation, exec, network and IPC even through native extensions.
+    if sys.platform != "darwin":
+        raise RuntimeError("Python isolation requires the verified macOS Seatbelt backend")
+    import ctypes
+    import json
+
+    workspace = os.path.realpath(os.getcwd())
+    roots = {os.path.realpath(p) for p in [sys.base_prefix, sys.exec_prefix, *sys.path] if p}
+    roots.update({"/System/Library", "/usr/lib"})
+    read_rules = " ".join(f"(subpath {json.dumps(p)})" for p in sorted(roots | {workspace}))
+    executable_rules = " ".join(f"(subpath {json.dumps(p)})" for p in sorted(roots))
+    profile = f'''(version 1)
+(deny default)
+(allow file-read* {read_rules} (literal "/dev/null") (literal "/dev/random") (literal "/dev/urandom"))
+(allow file-map-executable {executable_rules})
+(allow file-write* (subpath {json.dumps(workspace)}) (literal "/dev/null"))
+(allow sysctl-read)
+(allow process-info* (target self))
+(allow signal (target self))
+'''
+    library = ctypes.CDLL("/usr/lib/libsandbox.dylib", use_errno=True)
+    library.sandbox_init.argtypes = [ctypes.c_char_p, ctypes.c_uint64, ctypes.POINTER(ctypes.c_char_p)]
+    library.sandbox_init.restype = ctypes.c_int
+    error = ctypes.c_char_p()
+    if library.sandbox_init(profile.encode("utf-8"), 0, ctypes.byref(error)) != 0:
+        raise RuntimeError("Cannot install the mandatory Python OS sandbox")
+
+
+_lock_os_sandbox()
 
 try:
     import resource
@@ -89,12 +124,4 @@ if not _inside(_script_path, _workspace_root) or not _script_path.endswith(".py"
 with open(_script_path, "r", encoding="utf-8") as _script:
     source = _script.read()
 scope = {"__name__": "__main__", "__file__": _script_path}
-started = time.process_time_ns()
-try:
-    exec(compile(source, _script_path, "exec"), scope, scope)
-finally:
-    elapsed = max(0, time.process_time_ns() - started)
-    try:
-        os.write(2, f"\x1eMAZEBENCH_CPU_TIME_NS={elapsed}\x1e".encode("ascii"))
-    except OSError:
-        pass
+exec(compile(source, _script_path, "exec"), scope, scope)

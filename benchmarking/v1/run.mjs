@@ -1,5 +1,5 @@
 const ids = [
-  "connection-status", "load-error", "error-copy", "run-content", "model-hero",
+  "connection-status", "load-error", "error-copy", "run-content", "model-hero", "run-failure", "run-failure-reason", "retry-new-run",
   "model-monogram", "run-kicker", "run-title", "run-subtitle", "run-id", "run-status",
   "pause-run", "resume-run", "stop-run", "delete-run", "pair-compare", "stat-actions", "stat-gems", "stat-rooms", "stat-cells",
   "stat-novelty", "stat-blocked", "stat-deaths", "stat-tokens", "board-room", "board-move",
@@ -431,10 +431,10 @@ function renderWorkspace(run) {
   elements["workspace-title"].textContent = run.tools_enabled ? "Python workspace" : "Python unavailable";
   const isolation = run.isolation || {};
   elements["isolation-status"].textContent = !run.capability_boundary_verified
-    ? "legacy · unsafe boundary"
+    ? "legacy · not validated"
     : run.tools_enabled
-      ? isolation.verified ? "Python-only · verified" : "isolation pending"
-      : "direct maze tools only";
+      ? isolation.verified ? "OS isolation · checked" : "isolation pending"
+      : "maze tools · checked";
   const files = run.workspace_files || [];
   if (!run.tools_enabled || !files.length) {
     const empty = document.createElement("p");
@@ -645,6 +645,8 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["run-id"].textContent = run.id;
   elements["run-status"].textContent = statusLabel(run.status);
   elements["run-status"].className = `status-pill ${run.status}`;
+  elements["run-failure"].hidden = run.status !== "failed";
+  elements["run-failure-reason"].textContent = run.error || "The runner stopped before finishing. Inspect the activity record for details.";
   const terminalGame = ["won", "action-limit"].includes(run.game_status);
   const activeRun = Boolean(run.runner_active);
   const resumableBoundary = Boolean(run.capability_boundary_verified);
@@ -652,7 +654,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["pause-run"].disabled = !activeRun;
   elements["resume-run"].hidden = terminalGame || !resumableBoundary || !["paused", "stopped"].includes(run.status);
   elements["resume-run"].disabled = false;
-  elements["stop-run"].hidden = terminalGame || run.status === "stopped";
+  elements["stop-run"].hidden = terminalGame || ["stopped", "failed", "completed"].includes(run.status);
   elements["stop-run"].disabled = false;
   elements["delete-run"].disabled = activeRun;
   elements["delete-run"].title = activeRun ? "Stop or pause this run before deleting it." : "Permanently delete this run record.";
@@ -684,7 +686,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   renderWorkspace(run);
   renderPair(run, allRuns);
   renderInterview(interviewLibrary, interview);
-  elements["connection-status"].textContent = isFinished(run) ? `recorded · ${statusLabel(run.game_status || run.status)}` : "live · supervisor online";
+  elements["connection-status"].textContent = run.status === "failed" ? "run failed · see error details" : isFinished(run) ? `recorded · ${statusLabel(run.game_status || run.status)}` : "live · supervisor online";
   elements["connection-status"].classList.remove("error");
   stoppedPolling = isFinished(run);
 }
@@ -910,3 +912,22 @@ if (!runId) {
     if (!stoppedPolling || liveInterview || !currentInterviewLibrary?.available) refresh();
   }, 1500);
 }
+
+elements["retry-new-run"].addEventListener("click", async () => {
+  if (!currentRun) return;
+  const button = elements["retry-new-run"];
+  button.disabled = true;
+  try {
+    const run = await api("/api/benchmark/v1/runs", {
+      method: "POST",
+      body: JSON.stringify({
+        model: currentRun.model, effort: currentRun.effort, tools_enabled: currentRun.tools_enabled,
+        action_limit: currentRun.action_limit, start_room: currentRun.start_room
+      })
+    });
+    location.href = `./run.html?id=${encodeURIComponent(run.id)}`;
+  } catch (error) {
+    elements["run-failure-reason"].textContent = error.message;
+    button.disabled = false;
+  }
+});

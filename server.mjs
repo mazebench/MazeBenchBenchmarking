@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BenchmarkSupervisor } from "./benchmarking/v1/supervisor.mjs";
+import { isTrustedLocalRequest } from "./benchmarking/v1/http-security.mjs";
 import { decodeVoxelRoom, encodeVoxelRoom } from "./render/v1/voxel-world-v2.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -102,6 +103,10 @@ async function saveV2Level(request, response, fileName) {
 
 async function benchmarkApi(request, response, url) {
   try {
+    if (request.method === "GET" && url.pathname === "/api/benchmark/v1/status") {
+      sendJson(response, 200, await benchmarkSupervisor.status({ force: url.searchParams.get("force") === "1" }));
+      return true;
+    }
     if (request.method === "GET" && url.pathname === "/api/benchmark/v1/models") {
       sendJson(response, 200, await benchmarkSupervisor.models());
       return true;
@@ -246,6 +251,10 @@ async function serveStatic(request, response, pathname) {
 }
 
 const server = createServer(async (request, response) => {
+  if (!isTrustedLocalRequest(request, port)) {
+    sendJson(response, 403, { error: "Only same-origin localhost requests are accepted." });
+    return;
+  }
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
   if (url.pathname.startsWith("/api/benchmark/v1/") &&
       await benchmarkApi(request, response, url)) return;

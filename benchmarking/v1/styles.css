@@ -403,3 +403,9 @@ select { min-height: 40px; padding: 0 34px 0 11px; }
 @media (prefers-reduced-motion: reduce) {
   .record-card { transition: none; }
 }
+
+.runtime-status { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; border-top: 1px solid var(--line, #29313e); }
+.runtime-status strong, .runtime-status span { display: block; }
+.runtime-status span { margin-top: 5px; font-size: 13px; color: var(--muted, #9ba6b7); }
+.run-failure { padding: 20px; margin: 20px 0; border: 1px solid #a94e4e; border-radius: 12px; background: #2b1b21; }
+.run-failure p { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -65,12 +65,32 @@ agent-facing reader for current state and the run's allowlisted read-only
 records. Authoritative results are stored under
 `~/records/mazebench-benchmark/` and are never exposed to Python.
 Every launch starts from a deny-all Codex feature inventory and uses a frozen,
-hashed per-run model catalog that forces direct MCP tool calls. Both
-Node/JavaScript hosts and their in-process fallback are disabled, and the
-launcher refuses untested Codex CLI versions. The only executable agent code is
-a saved `.py` file run by `python_exec` inside `/workspace`; tools-off runs have
-no code executor or writable agent directory. Runs created before this boundary
-cannot be resumed.
+hashed per-run model catalog that forces direct MCP tool calls and disables
+model-metadata overrides for shell, patching, delegation, and tool search. Both
+Node/JavaScript hosts and their in-process fallback are disabled. The launcher
+refuses untested Codex CLI versions and records the exact executable hash.
+The launcher displays the installed CLI version, checks OpenAI's stable-release
+endpoint, and distinguishes an available update from a benchmark-tested build.
+Run `codex update` to update the CLI, then restart this server; an untested
+release remains blocked until the capability checks pass and the version pin
+is deliberately updated.
+
+Python runs saved `.py` files in a persistent workspace using a mandatory macOS
+Seatbelt profile installed before agent code starts. Private files, network,
+IPC, subprocess creation, and exec remain denied even if Python's audit hook
+is replaced or native functions are called. Host-side script writes and file
+inventories reject links. Tools-off runs have no code executor or writable agent
+directory; interviews expose no tools. Codex's generic MCP resource helpers
+remain present in benchmark turns, but this server publishes no resources and
+rejects every resource URI.
+
+All new runs freeze their model, reasoning effort, condition, prompt, executable,
+runtime, engine, and world assets. Authenticated checkpoints protect state and
+score across continuations. Unexpected tools or integrity changes invalidate a
+run. Earlier runs remain readable and available for interviews, but cannot
+resume under the current boundary. Failed records show the service error and
+offer a new run with the same settings. See [the integrity policy](benchmarking/v1/SECURITY.md)
+for the threat model and upgrade checks.
 The benchmark landing page is the launcher and agent-record library; each
 record opens a dedicated live model report with the engine's colored ASCII
 frame, heatmap, novelty trace, activity, and workspace inventory. A run can be

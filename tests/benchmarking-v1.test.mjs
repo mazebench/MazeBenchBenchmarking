@@ -8,6 +8,8 @@ import readline from "node:readline";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { CAPABILITY_POLICY_VERSION, CAPABILITY_POLICY_NAME, createRunIntegrity, signCheckpoint } from "../benchmarking/v1/integrity.mjs";
+
 import {
   BenchmarkGameRuntime,
   expandBenchmarkSequence,
@@ -43,7 +45,11 @@ async function temporaryRun(actionLimit = 100) {
   return { directory, runtime };
 }
 
-function startMcp(directory, toolsEnabled) {
+async function startMcp(directory, toolsEnabled) {
+  const configuration = { model: "test-model", effort: "low", tools_enabled: toolsEnabled, action_limit: 4, start_room: "HxI", effective_prompt_sha256: "test-prompt" };
+  const integrity = await createRunIntegrity(projectRoot, directory, configuration);
+  await writeFile(path.join(directory, "run.json"), JSON.stringify({ ...configuration, integrity }));
+  await signCheckpoint(directory);
   const child = spawn(process.execPath, [path.join(projectRoot, "benchmarking", "v1", "mcp-server.mjs")], {
     cwd: projectRoot,
     env: {
@@ -51,7 +57,7 @@ function startMcp(directory, toolsEnabled) {
       MAZEBENCH_PROJECT_ROOT: projectRoot,
       MAZEBENCH_RUN_DIRECTORY: directory,
       MAZEBENCH_PYTHON_ENABLED: toolsEnabled ? "1" : "0",
-      MAZEBENCH_CAPABILITY_POLICY: "python-files-only-v3"
+      MAZEBENCH_CAPABILITY_POLICY: CAPABILITY_POLICY_NAME
     },
     stdio: ["pipe", "pipe", "pipe"]
   });
@@ -118,10 +124,18 @@ test("every accepted action counts and records remain read-only by allowlist", a
 test("maze_observe is the records reader and Python is advertised only when enabled", async () => {
   for (const toolsEnabled of [false, true]) {
     const { directory } = await temporaryRun(4);
-    const { child, request } = startMcp(directory, toolsEnabled);
+    const { child, request } = await startMcp(directory, toolsEnabled);
     try {
       const initialized = await request("initialize", { protocolVersion: "2024-11-05" });
       assert.equal(initialized.result.serverInfo.name, "mazebench-benchmark");
+      assert.deepEqual((await request("resources/list")).result, { resources: [] });
+      assert.deepEqual((await request("resources/templates/list")).result, { resourceTemplates: [] });
+      assert((await request("resources/read", { uri: "file:///private/hidden-world.json" })).error);
+      if (!toolsEnabled) {
+        const blocked = await request("tools/call", { name: "python_exec", arguments: { code: "print(1)", script_path: "forbidden.py" } });
+        assert.equal(blocked.result.isError, true);
+        await assert.rejects(() => access(path.join(directory, "workspace", "forbidden.py")));
+      }
       const listed = await request("tools/list");
       assert.deepEqual(
         listed.result.tools.map((tool) => tool.name),
@@ -428,7 +442,7 @@ test("nonterminal paused and stopped runs resume their existing Codex thread", a
       start_room: "HxI",
       codex_thread_id: "existing-thread",
       continuation_count: 0,
-      capability_policy: { version: 3 }
+      capability_policy: { version: CAPABILITY_POLICY_VERSION }
     }), "utf8");
 
     const supervisor = new BenchmarkSupervisor(projectRoot, { recordsRoot });

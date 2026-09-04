@@ -1,24 +1,23 @@
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
-  chmodSync,
   existsSync,
-  mkdirSync,
+  lstatSync,
   readdirSync,
   realpathSync,
   rmSync,
-  statSync,
   symlinkSync,
   writeFileSync
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { safeDirectory, writeWorkspaceScript } from "./safe-files.mjs";
 
 const MAX_CODE_BYTES = 256_000;
 const MAX_OUTPUT_BYTES = 256_000;
 const MAX_TIMEOUT_SECONDS = 60;
 const PYTHON_BOOTSTRAP_PATH = path.join(import.meta.dirname, "python-bootstrap.py");
 
-const CPU_PATTERN = /\u001eMAZEBENCH_CPU_TIME_NS=(\d+)\u001e/g;
 
 function resolvedExecutable(command, label) {
   const value = String(command || "").trim();
@@ -57,32 +56,6 @@ function canonical(candidate) {
   }
 }
 
-function isWithin(candidate, parent) {
-  const relative = path.relative(path.resolve(parent), path.resolve(candidate));
-  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== "..");
-}
-
-function tomlString(value) {
-  return JSON.stringify(String(value));
-}
-
-function inlinePermissions(entries) {
-  return `{${Object.entries(entries)
-    .map(([entry, access]) => `${tomlString(entry)}=${tomlString(access)}`)
-    .join(",")}}`;
-}
-
-function runtimeRoots(pythonBin) {
-  const roots = [];
-  for (const candidate of [path.resolve(pythonBin), realpathSync(pythonBin)]) {
-    if (candidate.startsWith("/opt/homebrew/")) roots.push("/opt/homebrew");
-    else if (candidate.startsWith("/usr/local/")) roots.push("/usr/local");
-    else if (candidate.startsWith("/Library/Frameworks/")) roots.push("/Library/Frameworks");
-    else if (!candidate.startsWith("/usr/") && !candidate.startsWith("/System/")) roots.push(path.dirname(candidate));
-  }
-  return [...new Set(roots)];
-}
-
 function bounded(value, maximum = Math.floor(MAX_OUTPUT_BYTES / 2)) {
   const bytes = Buffer.from(String(value || ""), "utf8");
   if (bytes.length <= maximum) return { text: bytes.toString("utf8"), truncated: false };
@@ -90,48 +63,28 @@ function bounded(value, maximum = Math.floor(MAX_OUTPUT_BYTES / 2)) {
 }
 
 function sandboxConfig(options = {}) {
-  const workspace = canonical(options.workspace);
-  const stateDirectory = canonical(options.stateDirectory);
-  mkdirSync(workspace, { recursive: true, mode: 0o700 });
-  mkdirSync(path.join(workspace, ".tmp"), { recursive: true, mode: 0o700 });
-  mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
-  mkdirSync(path.join(stateDirectory, "codex-home"), { recursive: true, mode: 0o700 });
   const projectRoot = canonical(options.projectRoot);
   const runDirectory = canonical(options.runDirectory);
-  if (!isWithin(workspace, runDirectory)) throw new Error("Python workspace must be run-scoped.");
-  const codexBin = resolvedExecutable(options.codexBin || "codex", "Codex");
+  if (path.resolve(options.workspace) !== path.join(path.resolve(options.runDirectory), "workspace") ||
+      path.resolve(options.stateDirectory) !== path.join(path.resolve(options.runDirectory), "sandbox-state")) {
+    throw new Error("Python workspace and sandbox state must be separate run-scoped directories.");
+  }
+  const workspace = safeDirectory(runDirectory, "workspace", { create: true });
+  const stateDirectory = safeDirectory(runDirectory, "sandbox-state", { create: true });
+  safeDirectory(workspace, ".tmp", { create: true });
   const pythonBin = findPython(options.pythonBin);
-  return { workspace, stateDirectory, projectRoot, runDirectory, codexBin, pythonBin };
+  return { workspace, stateDirectory, projectRoot, runDirectory, pythonBin };
 }
 
 function sandboxCommand(options = {}) {
   const config = sandboxConfig(options);
+  if (process.platform !== "darwin") throw new Error("Python isolation requires the verified macOS Seatbelt backend.");
   const timeoutSeconds = Math.max(1, Math.min(MAX_TIMEOUT_SECONDS, Number(options.timeoutSeconds) || 10));
-  const permissions = { ":minimal": "read" };
-  for (const root of runtimeRoots(config.pythonBin)) permissions[root] = "read";
-  permissions[os.homedir()] = "deny";
-  permissions[config.projectRoot] = "deny";
-  permissions[config.runDirectory] = "deny";
-  permissions[config.workspace] = "write";
-  permissions[config.stateDirectory] = "deny";
-  permissions[PYTHON_BOOTSTRAP_PATH] = "read";
+  // The trusted bootstrap installs Seatbelt before reading the agent script.
+  // Installing a second profile inside Codex's sandbox is denied by macOS.
   return {
     config,
-    argv: [
-      "sandbox",
-      "-C", config.workspace,
-      "-P", "mazebench_python",
-      "-c", `permissions.mazebench_python.filesystem=${inlinePermissions(permissions)}`,
-      "-c", "permissions.mazebench_python.network.enabled=false",
-      config.pythonBin,
-      "-I",
-      "-B",
-      PYTHON_BOOTSTRAP_PATH,
-      String(timeoutSeconds + 1),
-      "1024",
-      "32",
-      String(options.scriptPath || "<mazebench-python>")
-    ]
+    argv: ["-I", "-B", PYTHON_BOOTSTRAP_PATH, String(timeoutSeconds + 1), "1024", "32", options.scriptPath]
   };
 }
 
@@ -158,18 +111,14 @@ export function runSandboxedPython(code, options = {}) {
     throw new Error(`timeout_seconds must be between 1 and ${MAX_TIMEOUT_SECONDS}.`);
   }
   const { config, argv } = sandboxCommand({ ...options, timeoutSeconds, scriptPath });
-  const destination = path.resolve(config.workspace, scriptPath);
-  if (!destination.startsWith(`${config.workspace}${path.sep}`)) throw new Error("Invalid script_path.");
-  mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
-  writeFileSync(destination, source, { encoding: "utf8", mode: 0o600 });
-  chmodSync(destination, 0o600);
-  const result = spawnSync(config.codexBin, argv, {
+  writeWorkspaceScript(config.workspace, scriptPath, source);
+  const started = process.hrtime.bigint();
+  const result = spawnSync(config.pythonBin, argv, {
     cwd: config.workspace,
     env: {
-      CODEX_HOME: path.join(config.stateDirectory, "codex-home"),
       HOME: config.workspace,
       TMPDIR: path.join(config.workspace, ".tmp"),
-      PATH: [...new Set([path.dirname(config.codexBin), path.dirname(config.pythonBin), "/usr/bin", "/bin"])].join(path.delimiter),
+      PATH: [...new Set([path.dirname(config.pythonBin), "/usr/bin", "/bin"])].join(path.delimiter),
       LANG: "C",
       LC_ALL: "C",
       PYTHONIOENCODING: "utf-8",
@@ -181,19 +130,16 @@ export function runSandboxedPython(code, options = {}) {
     killSignal: "SIGKILL"
   });
   const stdout = bounded(result.stdout);
-  let cpuTimeMs = null;
-  const stderrSource = String(result.stderr || "").replace(CPU_PATTERN, (_marker, nanoseconds) => {
-    cpuTimeMs = Number(nanoseconds) / 1_000_000;
-    return "";
-  });
-  const stderr = bounded(stderrSource);
+  const elapsedMs = Number(process.hrtime.bigint() - started) / 1_000_000;
+  const stderr = bounded(result.stderr);
   const timedOut = result.error?.code === "ETIMEDOUT";
   return {
     script_path: scriptPath,
     exit_code: Number.isInteger(result.status) ? result.status : null,
     stdout: stdout.text,
     stderr: stderr.text || (result.error && !timedOut ? String(result.error.message || result.error) : ""),
-    cpu_time_ms: Number.isFinite(cpuTimeMs) ? cpuTimeMs : null,
+    cpu_time_ms: null, // never trust timing markers printed by agent code
+    wall_time_ms: elapsedMs,
     timed_out: timedOut,
     output_truncated: stdout.truncated || stderr.truncated || result.error?.code === "ENOBUFS"
   };
@@ -201,9 +147,12 @@ export function runSandboxedPython(code, options = {}) {
 
 export function preflightPythonSandbox(options = {}) {
   const config = sandboxConfig(options);
-  const privateCanary = path.join(config.runDirectory, "private-canary.txt");
+  const probeId = randomUUID();
+  const scriptName = `.preflight-${probeId}.py`;
+  const writeName = `.preflight-${probeId}.txt`;
+  const privateCanary = path.join(config.runDirectory, `private-canary-${probeId}.txt`);
   const hostCanary = path.join(os.tmpdir(), `mazebench-host-canary-${process.pid}-${Date.now()}.txt`);
-  const symlink = path.join(config.workspace, ".escape-canary");
+  const symlink = path.join(config.workspace, `.escape-${probeId}`);
   const token = `${process.pid}:${Date.now()}`;
   writeFileSync(privateCanary, token, { mode: 0o600 });
   writeFileSync(hostCanary, token, { mode: 0o600 });
@@ -211,8 +160,9 @@ export function preflightPythonSandbox(options = {}) {
     rmSync(symlink, { force: true });
     symlinkSync(privateCanary, symlink);
     const source = `
-import json, socket, subprocess
+import json, socket, subprocess, __main__
 from pathlib import Path
+__main__._deny_escape.__code__ = (lambda event, args: None).__code__
 r = {}
 for name, target in [("private", Path(${JSON.stringify(privateCanary)})), ("host", Path(${JSON.stringify(hostCanary)})), ("symlink", Path(${JSON.stringify(symlink)}))]:
     try: target.read_text(); r[name] = False
@@ -224,7 +174,7 @@ except Exception: r["network"] = False
 try: subprocess.run(["/bin/sh", "-c", "echo escaped"]); r["subprocess"] = False
 except PermissionError: r["subprocess"] = True
 except Exception: r["subprocess"] = False
-p=Path("preflight-write.txt"); p.write_text("ok"); r["write"] = p.read_text() == "ok"
+p=Path(${JSON.stringify(writeName)}); p.write_text("ok"); r["write"] = p.read_text() == "ok"
 print("MAZEBENCH_PREFLIGHT=" + json.dumps(r, sort_keys=True))
 `;
     const result = runSandboxedPython(source, {
@@ -233,7 +183,7 @@ print("MAZEBENCH_PREFLIGHT=" + json.dumps(r, sort_keys=True))
       stateDirectory: config.stateDirectory,
       projectRoot: config.projectRoot,
       runDirectory: config.runDirectory,
-      scriptPath: "preflight.py",
+      scriptPath: scriptName,
       timeoutSeconds: 5
     });
     const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("MAZEBENCH_PREFLIGHT="));
@@ -243,20 +193,21 @@ print("MAZEBENCH_PREFLIGHT=" + json.dumps(r, sort_keys=True))
     if (!verified) {
       throw new Error(`Python isolation preflight failed: ${JSON.stringify(checks)} ${result.stderr}`.trim());
     }
-    return { verified: true, verified_at: new Date().toISOString(), checks };
+    return { verified: true, backend: "macos-seatbelt", audit_hook_bypass_tested: true, verified_at: new Date().toISOString(), checks };
   } finally {
     rmSync(symlink, { force: true });
-    rmSync(path.join(config.workspace, "preflight-write.txt"), { force: true });
-    rmSync(path.join(config.workspace, "preflight.py"), { force: true });
+    rmSync(path.join(config.workspace, writeName), { force: true });
+    rmSync(path.join(config.workspace, scriptName), { force: true });
     rmSync(privateCanary, { force: true });
     rmSync(hostCanary, { force: true });
   }
 }
 
 export function workspaceInventory(workspace) {
-  const root = canonical(workspace);
+  const root = safeDirectory(path.dirname(workspace), path.basename(workspace));
   const results = [];
   const walk = (directory, prefix = "") => {
+    if (results.length >= 500 || prefix.split("/").length > 32) return;
     let names = [];
     try {
       names = readdirSync(directory);
@@ -269,11 +220,11 @@ export function workspaceInventory(workspace) {
       const relative = prefix ? `${prefix}/${name}` : name;
       let details;
       try {
-        details = statSync(absolute);
+        details = lstatSync(absolute);
       } catch {
         continue;
       }
-      if (!details) continue;
+      if (!details || details.isSymbolicLink() || (details.isFile() && details.nlink !== 1)) continue;
       if (details.isDirectory()) walk(absolute, relative);
       else if (details.isFile()) results.push({ path: relative, bytes: details.size });
       if (results.length >= 500) return;

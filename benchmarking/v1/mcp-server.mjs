@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
+import { CAPABILITY_POLICY_NAME, verifyRunIntegrity, verifyCheckpoint, assertRunConfiguration } from "./integrity.mjs";
+import { safeReadFile } from "./safe-files.mjs";
 
 import {
   BenchmarkGameRuntime,
@@ -25,11 +27,16 @@ if (!process.env.MAZEBENCH_RUN_DIRECTORY) {
   process.stderr.write("MAZEBENCH_RUN_DIRECTORY is required.\n");
   process.exit(1);
 }
-if (capabilityPolicy !== "python-files-only-v3") {
+if (capabilityPolicy !== CAPABILITY_POLICY_NAME) {
   process.stderr.write("MazeBench MCP refused to start without the Python-only capability policy.\n");
   process.exit(1);
 }
 
+const metadata = JSON.parse(safeReadFile(runDirectory, "run.json"));
+const manifest = await verifyRunIntegrity(projectRoot, runDirectory, metadata.integrity);
+assertRunConfiguration(metadata, manifest);
+if (toolsEnabled !== manifest.configuration.tools_enabled) throw new Error("MCP tool condition differs from the frozen run configuration.");
+verifyCheckpoint(runDirectory);
 const runtime = await BenchmarkGameRuntime.open(projectRoot, runDirectory);
 const activityFile = path.join(runDirectory, "tool-activity.jsonl");
 const workspace = path.join(runDirectory, "workspace");
@@ -140,6 +147,13 @@ function validateArguments(name, input) {
 }
 
 async function callTool(name, input = {}) {
+  try {
+    await verifyRunIntegrity(projectRoot, runDirectory, metadata.integrity);
+    verifyCheckpoint(runDirectory);
+  } catch (error) {
+    writeFileSync(path.join(runDirectory, "integrity-violation.json"), JSON.stringify({ error: safeError(error) }), { mode: 0o600 });
+    throw error;
+  }
   validateArguments(name, input);
   if (name === "maze_observe") {
     if (input.record === undefined || String(input.record).trim() === "") {
@@ -200,6 +214,14 @@ async function handle(request) {
   }
   if (request.method === "ping") {
     success(request.id, {});
+    return;
+  }
+  // Codex advertises generic resource helpers whenever any MCP is configured.
+  // This server publishes no resources/templates and never resolves file URIs.
+  if (request.method === "resources/list") { success(request.id, { resources: [] }); return; }
+  if (request.method === "resources/templates/list") { success(request.id, { resourceTemplates: [] }); return; }
+  if (request.method === "resources/read") {
+    send({ jsonrpc: "2.0", id: request.id, error: { code: -32602, message: "This server exposes no resources. Use maze_observe for allowlisted records." } });
     return;
   }
   if (request.method === "tools/list") {

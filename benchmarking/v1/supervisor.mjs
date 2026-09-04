@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, existsSync, readFileSync } from "node:fs";
 import {
   cp,
   mkdir,
@@ -17,14 +17,14 @@ import path from "node:path";
 
 import { preflightPythonSandbox, workspaceInventory } from "./python-sandbox.mjs";
 import { BenchmarkGameRuntime, DEFAULT_START_ROOM } from "./runtime.mjs";
+import { inspectCodex, codexBinaryDigest, codexInstallationStatus, VERIFIED_CODEX_VERSIONS } from "./codex-installation.mjs";
+import { CAPABILITY_POLICY_VERSION, CAPABILITY_POLICY_NAME, createRunIntegrity, verifyRunIntegrity, assertRunConfiguration, verifyCheckpoint } from "./integrity.mjs";
+import { safeDirectory, safeReadFile } from "./safe-files.mjs";
 
 const DEFAULT_MODEL = "gpt-5.6-terra";
 const DEFAULT_EFFORT = "medium";
-const CAPABILITY_POLICY_VERSION = 3;
 const MAZEBENCH_TOOL_NAMESPACE = "mcp__mazebench";
-const CAPABILITY_POLICY_NAME = "python-files-only-v3";
 const DIRECT_MODEL_CATALOG_FILE = "direct-model-catalog.json";
-const VERIFIED_CODEX_VERSIONS = new Set(["codex-cli 0.152.1"]);
 const REQUIRED_CODEX_FEATURES = ["code_mode", "code_mode_host", "shell_tool", "unified_exec"];
 const BASELINE_DISABLED_FEATURES = [
   "apps",
@@ -176,6 +176,11 @@ export async function writeDirectToolModelCatalog(runDirectory, model, options =
     models: [{
       ...selected,
       tool_mode: "direct",
+      shell_type: "disabled",
+      apply_patch_tool_type: null,
+      experimental_supported_tools: [],
+      supports_search_tool: false,
+      multi_agent_version: null,
       // Codex's Responses backend suppresses an MCP tool literally named
       // `python_exec` when this metadata bit is true. JavaScript is disabled
       // by direct tool mode plus the two fail-closed host controls below.
@@ -211,7 +216,10 @@ export async function verifyDirectToolModelCatalog(runDirectory, model, expected
   }
   const entries = Array.isArray(catalog.models) ? catalog.models : [];
   const selected = entries.length === 1 ? entries[0] : null;
-  if (selected?.slug !== model || selected.tool_mode !== "direct" || selected.node_repl_disabled !== false) {
+  if (selected?.slug !== model || selected.tool_mode !== "direct" || selected.node_repl_disabled !== false ||
+      selected.shell_type !== "disabled" || selected.apply_patch_tool_type !== null ||
+      selected.supports_search_tool !== false || selected.multi_agent_version !== null ||
+      !Array.isArray(selected.experimental_supported_tools) || selected.experimental_supported_tools.length) {
     throw new Error("The run's model catalog does not enforce the verified direct-tool metadata.");
   }
   const digest = sha256(encoded);
@@ -222,6 +230,8 @@ export async function verifyDirectToolModelCatalog(runDirectory, model, expected
 }
 
 export function discoverCodexCapabilityPolicy(codexBin = "codex") {
+  const installation = inspectCodex(codexBin);
+  codexBin = installation.executable;
   const inventory = spawnSync(codexBin, ["features", "list"], {
     encoding: "utf8",
     timeout: 10_000,
@@ -251,6 +261,8 @@ export function discoverCodexCapabilityPolicy(codexBin = "codex") {
     version: CAPABILITY_POLICY_VERSION,
     verified_at: now(),
     codex_version: codexVersion,
+    codex_executable: codexBin,
+    codex_sha256: codexBinaryDigest(codexBin),
     disabled_features: disabledFeatures,
     direct_only_namespaces: [MAZEBENCH_TOOL_NAMESPACE],
     model_tool_mode: "direct",
@@ -281,6 +293,44 @@ function hasArgumentPair(args, flag, value) {
 }
 
 export function assertHardenedCodexArguments(args, options = {}) {
+  for (const flag of ["--ignore-user-config", "--ignore-rules", "--strict-config"]) {
+    if (!args.includes(flag)) throw new Error(`Unsafe Codex launch: missing ${flag}.`);
+  }
+  if (args.includes("--enable") || args.includes("--dangerously-bypass-approvals-and-sandbox")) {
+    throw new Error("Unsafe Codex launch: capability overrides are forbidden.");
+  }
+  const overrides = new Map();
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] !== "-c") continue;
+    const value = args[i + 1] || "";
+    const separator = value.indexOf("=");
+    const key = value.slice(0, separator);
+    if (separator < 0 || overrides.has(key)) throw new Error(`Unsafe duplicate or invalid Codex override: ${key}.`);
+    if (key.startsWith("mcp_servers.") && !key.startsWith("mcp_servers.mazebench.")) throw new Error("Unexpected MCP server.");
+    overrides.set(key, value.slice(separator + 1));
+  }
+  for (const [key, expected] of Object.entries({
+    model_provider: '"openai"', approval_policy: '"never"', sandbox_mode: '"read-only"',
+    web_search: '"disabled"', "tools.web_search": "false", project_doc_max_bytes: "0",
+    "skills.include_instructions": "false", "skills.bundled.enabled": "false",
+    "apps._default.enabled": "false", "memories.use_memories": "false", mcp_servers: "{}",
+    "tools.experimental_request_user_input.enabled": "false", "tools.update_plan.enabled": "false"
+  })) {
+    if (overrides.get(key) !== expected) throw new Error(`Unsafe Codex launch: ${key} must equal ${expected}.`);
+  }
+  const mode = overrides.get("default_permissions");
+  const permissionName = mode === '"mazebench_interview"' ? "mazebench_interview" : "mazebench_agent";
+  if (overrides.get(`permissions.${permissionName}.network.enabled`) !== "false") throw new Error("Network must be disabled.");
+  if (permissionName === "mazebench_interview") {
+    if (overrides.get("mcp_servers.mazebench.enabled") !== "false") throw new Error("Interview tools must be disabled.");
+  } else {
+    const toolList = overrides.get("mcp_servers.mazebench.enabled_tools");
+    const off = '["maze_observe","maze_action","maze_sequence"]';
+    const on = '["maze_observe","maze_action","maze_sequence","python_exec"]';
+    if (![off, on].includes(toolList) || (options.toolsEnabled === false && toolList !== off) ||
+        (options.toolsEnabled === true && toolList !== on)) throw new Error("Unexpected benchmark tool catalog.");
+    if (overrides.get("mcp_servers.mazebench.required") !== "true") throw new Error("Benchmark MCP must be required.");
+  }
   const disabledFeatures = [...new Set([
     ...BASELINE_DISABLED_FEATURES,
     ...(options.disabledFeatures || [])
@@ -310,7 +360,12 @@ export function assertHardenedCodexArguments(args, options = {}) {
 
 function hardenedCodexEnvironment(runDirectory) {
   return {
-    ...process.env,
+    HOME: os.homedir(),
+    PATH: process.env.PATH || "/usr/bin:/bin",
+    TMPDIR: os.tmpdir(),
+    LANG: "en_US.UTF-8",
+    // Do not inherit endpoint overrides, hooks, plugin settings, API keys or
+    // desktop control sockets. Authentication comes from Codex's auth store.
     // Even if a future Codex release ignores the feature override, there is no
     // executable host to run. In-process fallback is disabled separately.
     CODEX_CODE_MODE_HOST_PATH: path.join(runDirectory, "sandbox-state", "code-mode-host-disabled")
@@ -335,6 +390,28 @@ function publicInterviewError(value) {
     return "The Codex service returned 404 while answering. The interview fork is saved; retry this question without affecting the benchmark.";
   }
   return message.length > 600 ? `${message.slice(0, 597)}…` : message;
+}
+
+export function publicRunError(value) {
+  const source = String(value || "Benchmark execution failed.").trim();
+  try {
+    const parsed = JSON.parse(source);
+    if (parsed.error?.message) return String(parsed.error.message);
+  } catch { /* stderr may contain a log prefix */ }
+  const modelError = source.match(/The '[^']+' model requires a newer version of Codex\.[^"\n]*/);
+  if (modelError) return modelError[0].replaceAll("\\", "");
+  return source.length > 1200 ? `${source.slice(0, 1197)}…` : source;
+}
+
+export function eventBoundaryViolation(event, { toolsEnabled = false, interview = false } = {}) {
+  const type = event.type || event.msg?.type || "";
+  if (!type.startsWith("item.")) return null;
+  const item = event.item || event.msg?.item || {};
+  const itemType = item.type || item.item_type;
+  if (["reasoning", "agent_message"].includes(itemType)) return null;
+  const allowed = ["maze_observe", "maze_action", "maze_sequence", ...(toolsEnabled ? ["python_exec"] : [])];
+  if (!interview && itemType === "mcp_tool_call" && item.server === "mazebench" && allowed.includes(item.tool)) return null;
+  return `Capability boundary violation: unexpected ${itemType || "unknown item"}${item.tool ? ` (${item.tool})` : ""}. Run invalidated.`;
 }
 
 export function isTransientInterviewError(value) {
@@ -390,10 +467,13 @@ export function buildCodexArguments(options) {
     "--ignore-user-config",
     "--ignore-rules",
     "--strict-config",
+    "-c", 'model_provider="openai"',
     "-c", 'approval_policy="never"',
     "-c", 'sandbox_mode="read-only"',
     "-c", 'web_search="disabled"',
     "-c", "tools.web_search=false",
+    "-c", "tools.experimental_request_user_input.enabled=false",
+    "-c", "tools.update_plan.enabled=false",
     "-c", "agents.max_depth=1",
     "-c", "project_doc_max_bytes=0",
     "-c", "memories.use_memories=false",
@@ -434,7 +514,8 @@ export function buildCodexArguments(options) {
   );
   assertHardenedCodexArguments(args, {
     disabledFeatures: options.disabledFeatures,
-    modelCatalogPath
+    modelCatalogPath,
+    toolsEnabled: options.toolsEnabled
   });
   return args;
 }
@@ -469,10 +550,13 @@ function appendInterviewIsolationArguments(args, options) {
     "--ignore-user-config",
     "--ignore-rules",
     "--strict-config",
+    "-c", 'model_provider="openai"',
     "-c", 'approval_policy="never"',
     "-c", 'sandbox_mode="read-only"',
     "-c", 'web_search="disabled"',
     "-c", "tools.web_search=false",
+    "-c", "tools.experimental_request_user_input.enabled=false",
+    "-c", "tools.update_plan.enabled=false",
     "-c", "project_doc_max_bytes=0",
     "-c", "memories.use_memories=false",
     "-c", "memories.generate_memories=false",
@@ -600,12 +684,30 @@ export class BenchmarkSupervisor {
     if (metadata.capability_policy?.version !== CAPABILITY_POLICY_VERSION) {
       throw new Error("This run predates the direct-tool Python-only capability boundary and cannot execute another benchmark turn.");
     }
+    if (existsSync(path.join(directory, "integrity-violation.json"))) {
+      throw new Error("This run was invalidated by an integrity violation and cannot resume.");
+    }
+    if (metadata.integrity?.version !== CAPABILITY_POLICY_VERSION || !/^[a-f0-9]{64}$/.test(metadata.integrity.manifest_sha256 || "")) {
+      throw new Error("Run integrity attestation is missing; refusing execution.");
+    }
     const capabilityPolicy = this.codexCapabilityPolicy();
     const modelCatalog = await verifyDirectToolModelCatalog(
       directory,
       metadata.model,
       metadata.capability_policy.model_catalog
     );
+    if (capabilityPolicy.codex_sha256 !== metadata.capability_policy.codex_sha256) {
+      throw new Error("The Codex executable changed since this run started; start a new run.");
+    }
+    const manifest = await verifyRunIntegrity(this.projectRoot, directory, metadata.integrity);
+    assertRunConfiguration(metadata, manifest);
+    if (sha256(safeReadFile(directory, "prompt.md")) !== metadata.effective_prompt_sha256) {
+      throw new Error("The run prompt changed; refusing execution.");
+    }
+    verifyCheckpoint(directory);
+    if (metadata.tools_enabled) {
+      preflightPythonSandbox({ workspace: path.join(directory, "workspace"), stateDirectory: path.join(directory, "sandbox-state"), projectRoot: this.projectRoot, runDirectory: directory });
+    }
     return { capabilityPolicy, modelCatalog };
   }
 
@@ -623,6 +725,10 @@ export class BenchmarkSupervisor {
       await writeDirectToolModelCatalog(directory, metadata.model);
       return verifyDirectToolModelCatalog(directory, metadata.model);
     }
+  }
+
+  async status(options = {}) {
+    return codexInstallationStatus(this.codexBin, options);
   }
 
   async models() {
@@ -714,6 +820,11 @@ export class BenchmarkSupervisor {
       capability_policy: capabilityPolicy,
       isolation: options.toolsEnabled ? { verified: false } : { mode: "no-python" }
     };
+    metadata.integrity = await createRunIntegrity(this.projectRoot, directory, {
+      model: metadata.model, effort: metadata.effort, tools_enabled: metadata.tools_enabled,
+      action_limit: metadata.action_limit, start_room: metadata.start_room,
+      effective_prompt_sha256: metadata.effective_prompt_sha256
+    });
     await Promise.all([
       writeFile(path.join(directory, "prompt.md"), prompt, "utf8"),
       atomicJson(path.join(directory, "run.json"), metadata),
@@ -797,6 +908,8 @@ export class BenchmarkSupervisor {
       metadata.codex_thread_id = threadId;
       metadata.updated_at = now();
       if (turn.usage) metadata.usage = turn.usage;
+      if (turn.boundaryError) throw new Error(turn.boundaryError);
+      verifyCheckpoint(directory);
       const summary = await readJson(path.join(directory, "summary.json"), {});
       if (["won", "action-limit"].includes(summary.game_status)) {
         metadata.status = "completed";
@@ -816,7 +929,7 @@ export class BenchmarkSupervisor {
       if (control.stopRequested) break;
       if (turn.code !== 0) {
         metadata.status = "failed";
-        metadata.error = turn.stderrTail || `Codex exited with status ${turn.code}.`;
+        metadata.error = publicRunError(turn.reportedError || turn.stderrTail || `Codex exited with status ${turn.code}.`);
         metadata.completed_at = now();
         await atomicJson(path.join(directory, "run.json"), metadata);
         this.active.delete(id);
@@ -852,7 +965,7 @@ export class BenchmarkSupervisor {
         prompt,
         resumeThreadId
       });
-      const child = spawn(this.codexBin, args, {
+      const child = spawn(capabilityPolicy.codex_executable, args, {
         cwd: agentDirectory,
         env: hardenedCodexEnvironment(directory),
         stdio: ["ignore", "pipe", "pipe"]
@@ -866,6 +979,15 @@ export class BenchmarkSupervisor {
       let persistedThreadId = resumeThreadId || null;
       let threadPersistence = Promise.resolve();
       let usage = null;
+      let reportedError = "";
+      let boundaryError = null;
+      const integrityMonitor = setInterval(() => {
+        const file = path.join(directory, "integrity-violation.json");
+        if (!existsSync(file)) return;
+        try { boundaryError = `Run invalidated: ${JSON.parse(readFileSync(file, "utf8")).error}`; }
+        catch { boundaryError = "Run invalidated by an integrity violation."; }
+        child.kill("SIGKILL");
+      }, 500);
 
       const captureThreadId = (candidate) => {
         if (!candidate) return;
@@ -893,6 +1015,10 @@ export class BenchmarkSupervisor {
         }
         event._received_at = now();
         eventStream.write(`${JSON.stringify(event)}\n`);
+        const violation = eventBoundaryViolation(event, { toolsEnabled: metadata.tools_enabled });
+        if (violation) { boundaryError = violation; child.kill("SIGKILL"); }
+        if (event.type === "turn.failed") reportedError = String(event.error?.message || "");
+        if (event.type === "error" && !/^Reconnecting/i.test(String(event.message || ""))) reportedError = String(event.message || "");
         if (event.type === "thread.started") captureThreadId(event.thread_id || event.threadId);
         if (event.msg?.type === "thread.started") captureThreadId(event.msg.thread_id || event.msg.threadId);
         if (event.type === "turn.completed" && event.usage) usage = event.usage;
@@ -911,17 +1037,19 @@ export class BenchmarkSupervisor {
         stderrTail = `${stderrTail}${text}`.slice(-8_000);
       });
       child.on("error", (error) => {
+        clearInterval(integrityMonitor);
         eventStream.end();
         stderrStream.end();
         reject(error);
       });
       child.on("close", async (code, signal) => {
+        clearInterval(integrityMonitor);
         if (stdoutBuffer.trim()) receiveLine(stdoutBuffer);
         eventStream.end();
         stderrStream.end();
         control.child = null;
         await threadPersistence.catch(() => {});
-        resolve({ code: code ?? (signal ? 1 : 0), signal, threadId, usage, stderrTail: stderrTail.trim() });
+        resolve({ code: code ?? (signal ? 1 : 0), signal, threadId, usage, boundaryError, reportedError, stderrTail: stderrTail.trim() });
       });
     });
   }
@@ -1049,7 +1177,8 @@ export class BenchmarkSupervisor {
     const recordsDirectory = path.join(this.runDirectory(id), "records");
     const filePath = path.resolve(recordsDirectory, record);
     if (!filePath.startsWith(`${recordsDirectory}${path.sep}`)) throw new Error("Invalid benchmark record path.");
-    return readFile(filePath, "utf8");
+    safeDirectory(this.runDirectory(id), "records");
+    return safeReadFile(recordsDirectory, record);
   }
 
   async backfillDisplayHistory(id, directory) {
@@ -1276,7 +1405,7 @@ export class BenchmarkSupervisor {
         disabledFeatures: capabilityPolicy.disabled_features,
         modelCatalogPath: modelCatalog.path
       });
-      const child = spawn(this.codexBin, args, {
+      const child = spawn(capabilityPolicy.codex_executable, args, {
         cwd: path.join(directory, "agent-cwd"),
         env: hardenedCodexEnvironment(directory),
         stdio: ["ignore", "pipe", "pipe"]
@@ -1286,6 +1415,7 @@ export class BenchmarkSupervisor {
       let stdoutBuffer = "";
       let stderrTail = "";
       let forkThreadId = null;
+      let boundaryError = null;
       const receiveLine = (line) => {
         const source = line.trim();
         if (!source) return;
@@ -1297,6 +1427,8 @@ export class BenchmarkSupervisor {
         }
         event._received_at = now();
         eventStream.write(`${JSON.stringify(event)}\n`);
+        const violation = eventBoundaryViolation(event, { interview: true });
+        if (violation) { boundaryError = violation; child.kill("SIGKILL"); }
         if (event.type === "thread.started") forkThreadId = event.thread_id || event.threadId || forkThreadId;
         if (event.msg?.type === "thread.started") {
           forkThreadId = event.msg.thread_id || event.msg.threadId || forkThreadId;
@@ -1322,7 +1454,7 @@ export class BenchmarkSupervisor {
         if (stdoutBuffer.trim()) receiveLine(stdoutBuffer);
         eventStream.end();
         stderrStream.end();
-        resolve({ code: code ?? (signal ? 1 : 0), forkThreadId, stderrTail: stderrTail.trim() });
+        resolve({ code: boundaryError ? 1 : code ?? (signal ? 1 : 0), forkThreadId, stderrTail: boundaryError || stderrTail.trim() });
       });
     });
   }
@@ -1404,7 +1536,7 @@ export class BenchmarkSupervisor {
         branchedAtAction: state.branched_at_action,
         question
       });
-      const child = spawn(this.codexBin, args, {
+      const child = spawn(capabilityPolicy.codex_executable, args, {
         cwd: path.join(directory, "agent-cwd"),
         env: hardenedCodexEnvironment(directory),
         stdio: ["ignore", "pipe", "pipe"]
@@ -1416,6 +1548,7 @@ export class BenchmarkSupervisor {
       let forkThreadId = state.fork_thread_id || null;
       let lastAgentMessage = "";
       let reportedError = "";
+      let boundaryError = null;
 
       const receiveLine = (line) => {
         const source = line.trim();
@@ -1428,6 +1561,8 @@ export class BenchmarkSupervisor {
         }
         event._received_at = now();
         eventStream.write(`${JSON.stringify(event)}\n`);
+        const violation = eventBoundaryViolation(event, { interview: true });
+        if (violation) { boundaryError = violation; child.kill("SIGKILL"); }
         if (event.type === "thread.started") forkThreadId = event.thread_id || event.threadId || forkThreadId;
         if (event.msg?.type === "thread.started") {
           forkThreadId = event.msg.thread_id || event.msg.threadId || forkThreadId;
@@ -1466,11 +1601,11 @@ export class BenchmarkSupervisor {
         stderrStream.end();
         const savedMessage = await readFile(outputFile, "utf8").catch(() => "");
         resolve({
-          code: code ?? (signal ? 1 : 0),
+          code: boundaryError ? 1 : code ?? (signal ? 1 : 0),
           signal,
           forkThreadId,
           answer: savedMessage.trim() || lastAgentMessage,
-          reportedError,
+          reportedError: boundaryError || reportedError,
           stderrTail: stderrTail.trim()
         });
       });
@@ -1611,10 +1746,12 @@ export class BenchmarkSupervisor {
       ...summary,
       id: metadata.id,
       status: metadata.status,
+      error: metadata.error ? publicRunError(metadata.error) : null,
       runner_active: this.active.has(id),
       capability_boundary_verified: metadata.capability_policy?.version === CAPABILITY_POLICY_VERSION &&
         metadata.capability_policy?.model_catalog?.tool_mode === "direct" &&
-        metadata.capability_policy?.model_catalog?.javascript_host === "disabled"
+        metadata.capability_policy?.model_catalog?.javascript_host === "disabled" &&
+        metadata.integrity?.version === CAPABILITY_POLICY_VERSION
     };
     if (!details) {
       delete publicRun.actions;

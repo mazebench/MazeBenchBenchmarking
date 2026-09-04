@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { signCheckpoint } from "./integrity.mjs";
+import { safeDirectory, safeReadFile } from "./safe-files.mjs";
 
 import {
   countActiveRoleV1,
@@ -33,8 +35,6 @@ const CAMERA_ACTIONS = new Set([
   "camera down",
   "camera left"
 ]);
-
-let assetsPromise = null;
 
 function clone(value) {
   return structuredClone(value);
@@ -187,8 +187,10 @@ export function expandBenchmarkSequence(input) {
 }
 
 export async function loadBenchmarkAssets(projectRoot) {
-  if (!assetsPromise) {
-    assetsPromise = (async () => {
+  // Each run loads its own authored world and engine. Reusing a process-wide
+  // promise would let a new manifest describe edited files while the starting
+  // state still came from an earlier world's cached assets.
+  return (async () => {
       const levelRoot = path.join(projectRoot, "level-data", "v2", "main-world");
       const manifest = JSON.parse(await readFile(path.join(levelRoot, "world.json"), "utf8"));
       if (manifest.storageFormat !== V2_WORLD_FORMAT || !manifest.rooms) {
@@ -221,9 +223,7 @@ export async function loadBenchmarkAssets(projectRoot) {
         roomHeight: rooms[0]?.height || 16,
         connectedWorld: new ConnectedWorldSessionV1(engine, blocks, rooms)
       };
-    })();
-  }
-  return assetsPromise;
+  })();
 }
 
 export class BenchmarkGameRuntime {
@@ -388,7 +388,8 @@ export class BenchmarkGameRuntime {
       throw new Error("Record paths must remain inside the read-only records directory.");
     }
     try {
-      return { record, content: await readFile(filePath, "utf8") };
+      safeDirectory(this.runDirectory, "records");
+      return { record, content: safeReadFile(this.recordsDirectory, record) };
     } catch (error) {
       if (error?.code === "ENOENT") throw new Error(`Record ${record} does not exist yet.`);
       throw error;
@@ -637,5 +638,6 @@ export class BenchmarkGameRuntime {
         })
       ]);
     }
+    await signCheckpoint(this.runDirectory);
   }
 }
