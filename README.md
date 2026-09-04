@@ -18,6 +18,9 @@ A deliberately small localhost site that renders the complete MazeBench main wor
 - `engine/v1/core/` — unchanged copied C++ engine source, headers, tests, and benchmarks from MazeBenchEngineUnitTest
 - `engine/v1/voxel_physics.wasm` — the exact copied UnitTest release engine; physics and exact search live here
 - `engine/v1/engine.mjs` — the small storage-v2/browser ABI boundary
+- `ice-maze/v1/` — World 2: the original 30 numbered Ice Maze puzzles, with independent 2D sliding rules
+- `level-data/ice-maze/v1/` — answer-free boards in original order and source provenance
+- `benchmarking/worlds/` — sequential-world routing, prompt, and attested MCP adapters
 - `play/v1/` — play mode v1, driven by the engine's resumable per-tick command trace
 - `benchmarking/v1/` — shared game/MCP boundary and the frozen Codex runner
 - `benchmarking/providers/` — Claude Code adapter and provider routing; `benchmarking/ui/` contains the current dashboard modules
@@ -59,7 +62,7 @@ orange once searched or exhausted; the live red position is never drawn in a
 closed orange room.
 
 Open `/benchmarking/v1/` to select Codex or Claude Code and run locally authenticated models against the
-same engine and H×I start. Every condition receives `maze_observe`,
+selected world. Main World starts at H×I and targets 100 gems; Ice Maze starts at level 1 and targets all 30 levels in order. Every condition receives `maze_observe`,
 `maze_action`, and `maze_sequence`; tools-on runs additionally receive
 `python_exec` in a preflighted persistent workspace. `maze_observe` is the only
 agent-facing reader for current state and the run's allowlisted read-only
@@ -165,3 +168,46 @@ Only the 256 files referenced by the main world's 16×16 `world_map.json` are in
 ## Add another renderer
 
 Put alternate implementations in sibling version directories such as `render/v2/` or `render-ascii/v2/`. Both renderer families keep v1 self-contained and expose a version constant.
+
+## Ice Maze — World 2
+
+Open `/ice-maze/v1/` to play the 30 original puzzles recovered from
+MazeBenchSite's `games/ice_maze/level_list.json`. The numbered selector supports
+practice, undo/reset, arrow keys, WASD, swipe, and browser-local best-move progress.
+The source repository, commit, and SHA-256 hashes are recorded in
+`level-data/ice-maze/v1/provenance.json`.
+
+All players move together in each chosen direction, sliding until a wall, the
+board edge, or another player stops them. Goals are slippery; they must all be
+covered at once after the players stop. Players already on goals still move.
+This is a separate 2D rules engine; the canonical voxel engine is unchanged.
+
+Select **Ice Maze · 30 levels** at `/benchmarking/v1/?world=ice-maze` for
+Codex or Claude Code, with Python on or off. Benchmarks must start at level 1.
+A completed puzzle allows only `next`; the run wins after level 30. Every
+accepted action, including blocked movement, undo, reset and next, costs one
+action. Sequences stop on puzzle completion or after next and cannot spill into
+the next board. Undo/reset never refund benchmark actions. Benchmark progress is
+independent of human practice progress.
+
+Agents receive only the current board and their own recorded observations;
+original solution paths and solver metadata are not imported. The existing
+provider tool restrictions and OS-isolated Python executor are retained. Ice
+Maze code, board data, provider selection, prompt, CLI binary, and run
+configuration are frozen; the engine signs state and scores. The three maze
+MCP tools expose no arbitrary file reads or level selection. Every accepted move
+has a numbered read-only frame, including the initial move 0. The benchmark
+report shows levels solved, current level, replay, usage and cost telemetry.
+Interview forks are not implemented for Ice Maze.
+
+Validate the source import (requires the sibling MazeBenchSite checkout):
+
+```sh
+node scripts/import-ice-maze.mjs --check
+node --test tests/ice-maze.test.mjs
+```
+
+The importer replays the source solutions transiently to verify rules parity,
+then writes board data only. The test suite independently solves all 30 boards
+with simultaneous cell stepping and verifies sequence boundaries, scoring,
+record access, tool catalogs, CLI restrictions, and tamper rejection.

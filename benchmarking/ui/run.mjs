@@ -1,4 +1,5 @@
 import { drawNovelty } from "../ui/novelty-chart.mjs";
+import { renderIceLevelTimings } from "./ice-level-timings.mjs";
 
 const ids = [
   "connection-status", "load-error", "error-copy", "run-content", "model-hero", "run-failure", "run-failure-reason", "retry-new-run",
@@ -148,7 +149,7 @@ async function showFrame(index, { keepPlaying = false } = {}) {
 
   if (selected === maximum && currentRun.display) {
     renderBoard(currentRun.display);
-    elements["board-room"].textContent = `Room ${currentRun.display.room || currentRun.room || "—"}`;
+    elements["board-room"].textContent = `${currentRun.world === "ice-maze" ? "" : "Room "}${currentRun.display.room || currentRun.room || "—"}`;
     elements["board-move"].textContent = `move ${selected}`;
     elements["frame-source"].textContent = "Live engine frame · exact colors";
   } else {
@@ -160,7 +161,7 @@ async function showFrame(index, { keepPlaying = false } = {}) {
     frameCache.set(selected, snapshot);
     if (request !== frameRequest) return;
     renderBoard(snapshot);
-    elements["board-room"].textContent = `Room ${snapshot.room}`;
+    elements["board-room"].textContent = `${currentRun.world === "ice-maze" ? "" : "Room "}${snapshot.room}`;
     elements["board-move"].textContent = `move ${selected}`;
     elements["frame-source"].textContent = `${snapshot.source_record || `records/move_history/move_${selected}.txt`} · exact engine colors`;
   }
@@ -304,7 +305,7 @@ function drawProgress(run) {
   context.fillRect(0, 0, width, height);
   const accent = run.tools_enabled ? "#ffbd5b" : "#6cd7ff";
   const rows = [
-    { label: "Gems", value: run.gems_collected || 0, total: run.gems_total || 100 },
+    run.world === "ice-maze" ? { label: "Levels solved", value: run.levels_solved || 0, total: run.levels_total || 30 } : { label: "Gems", value: run.gems_collected || 0, total: run.gems_total || 100 },
     { label: "Action budget", value: run.action_count || 0, total: run.action_limit || Math.max(1, run.action_count || 1) }
   ];
   const left = 108;
@@ -409,7 +410,7 @@ function renderPair(run, allRuns) {
     const label = document.createElement("span");
     label.textContent = peer.tools_enabled ? "Python on" : "Python off";
     const result = document.createElement("strong");
-    result.textContent = `${peer.gems_collected || 0} gems · ${peer.action_count || 0} actions`;
+    result.textContent = `${peer.world === "ice-maze" ? `${peer.levels_solved || 0} levels solved` : `${peer.gems_collected || 0} gems`} · ${peer.action_count || 0} actions`;
     link.append(label, result);
     elements["pair-compare"].append(link);
   }
@@ -576,9 +577,10 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
     followingLatest = true;
   }
   document.body.classList.toggle("tools-on", Boolean(run.tools_enabled));
+  document.body.classList.toggle("ice-world", run.world === "ice-maze");
   document.title = `${run.model} · MazeBench record`;
   elements["model-monogram"].textContent = modelMonogram(run.model);
-  elements["run-kicker"].textContent = `${run.provider === "claude-code" ? "Claude Code" : "Codex"} model evaluation · ${conditionLabel(run)}`;
+  elements["run-kicker"].textContent = `${run.provider === "claude-code" ? "Claude Code" : "Codex"} model evaluation · ${run.world === "ice-maze" ? "Ice Maze" : "Main World"} · ${conditionLabel(run)}`;
   elements["run-title"].textContent = run.model;
   elements["run-subtitle"].textContent = `${run.effort} reasoning · started ${compactDate(run.created_at)} · ${run.action_limit ?? "unlimited"} action limit`;
   elements["run-id"].textContent = run.id;
@@ -586,7 +588,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["run-status"].className = `status-pill ${run.status}`;
   elements["run-failure"].hidden = run.status !== "failed";
   elements["run-failure-reason"].textContent = run.error || "The runner stopped before finishing. Inspect the activity record for details.";
-  document.querySelector("[aria-labelledby=interview-title]").hidden = run.provider === "claude-code";
+  document.querySelector("[aria-labelledby=interview-title]").hidden = run.provider === "claude-code" || run.world === "ice-maze";
   const terminalGame = ["won", "action-limit"].includes(run.game_status);
   const activeRun = Boolean(run.runner_active);
   const resumableBoundary = Boolean(run.capability_boundary_verified);
@@ -600,12 +602,17 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["delete-run"].disabled = activeRun;
   elements["delete-run"].title = activeRun ? "Stop or pause this run before deleting it." : "Permanently delete this run record.";
   elements["stat-actions"].textContent = `${run.action_count || 0}${run.action_limit ? ` / ${run.action_limit}` : ""}`;
-  elements["stat-gems"].textContent = `${run.gems_collected || 0} / ${run.gems_total || 100}`;
-  elements["stat-rooms"].textContent = formatNumber(run.rooms_visited || 1);
+  elements["stat-gems"].previousElementSibling.textContent = run.world === "ice-maze" ? "Levels solved" : "Gems";
+  elements["stat-rooms"].previousElementSibling.textContent = run.world === "ice-maze" ? "Current level" : "Rooms";
+  elements["stat-gems"].textContent = run.world === "ice-maze" ? `${run.levels_solved || 0} / ${run.levels_total || 30}` : `${run.gems_collected || 0} / ${run.gems_total || 100}`;
+  elements["stat-rooms"].textContent = formatNumber(run.world === "ice-maze" ? run.level_number : run.rooms_visited || 1);
   elements["stat-cells"].textContent = formatNumber(run.unique_cells || 0);
   elements["stat-novelty"].textContent = `${Math.round((run.novelty_rate || 0) * 100)}%`;
   elements["stat-blocked"].textContent = formatNumber(run.blocked_actions || 0);
-  elements["stat-deaths"].textContent = formatNumber(run.deaths || 0);
+  elements["stat-deaths"].previousElementSibling.textContent = run.world === "ice-maze" ? "Goals covered" : "Deaths";
+  elements["stat-deaths"].textContent = run.world === "ice-maze" ? `${run.goals_covered || 0} / ${run.goals_total || 0}` : formatNumber(run.deaths || 0);
+  elements["progress-chart"].setAttribute("aria-label", run.world === "ice-maze" ? "Levels solved and action progress" : "Gem and action progress");
+  document.getElementById("board-legend").textContent = run.world === "ice-maze" ? "# wall · . ice · o goal · P player · @ covered goal" : "Move history playback";
   elements["stat-tokens"].textContent = formatNumber(usageTotal(run.usage));
   elements["novelty-value"].textContent = `${Math.round((run.novelty_rate || 0) * 100)}% overall`;
   const progress = run.action_limit ? Math.min(100, (run.action_count || 0) / run.action_limit * 100) : 0;
@@ -615,7 +622,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   if (followingLatest || changedRun) {
     currentFrame = run.action_count || 0;
     renderBoard(run.display);
-    elements["board-room"].textContent = `Room ${run.display?.room || run.room || "—"}`;
+    elements["board-room"].textContent = `${run.world === "ice-maze" ? "" : "Room "}${run.display?.room || run.room || "—"}`;
     elements["board-move"].textContent = `move ${run.display?.observation_revision ?? run.action_count ?? 0}`;
     elements["frame-source"].textContent = "Live engine frame · exact colors";
   }
@@ -623,6 +630,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   drawHeatmap(run.positions, run.tools_enabled);
   drawNovelty(run.novelty, run.tools_enabled);
   drawProgress(run);
+  renderIceLevelTimings(run, document);
   renderFeed(run);
   renderWorkspace(run);
   renderPair(run, allRuns);
@@ -863,7 +871,7 @@ elements["retry-new-run"].addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({
         provider: currentRun.provider || "codex", model: currentRun.model, effort: currentRun.effort, tools_enabled: currentRun.tools_enabled,
-        action_limit: currentRun.action_limit, start_room: currentRun.start_room
+        world: currentRun.world || "main-world", action_limit: currentRun.action_limit, start_room: currentRun.start_room
       })
     });
     location.href = `./run.html?id=${encodeURIComponent(run.id)}`;

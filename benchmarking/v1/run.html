@@ -13,6 +13,7 @@
         <a class="back-link" href="./">← Agent records</a>
         <a href="../../">World</a>
         <a href="../../play/v1/">Play</a>
+        <a href="../../ice-maze/v1/">Ice Maze</a>
       </nav>
       <div class="identity">
         <span class="pulse" aria-hidden="true"></span>
@@ -66,6 +67,20 @@
           <div><span>Tokens</span><strong id="stat-tokens">—</strong></div>
         </section>
 
+        <article id="ice-level-timings" class="panel ice-level-timings" aria-labelledby="ice-level-timings-title" hidden>
+          <header class="panel-heading">
+            <div><span>Level completion</span><strong id="ice-level-timings-title">Time per level</strong></div>
+            <code id="ice-level-timings-summary"></code>
+          </header>
+          <div class="ice-level-table-wrap" tabindex="0" role="region" aria-label="Scrollable Ice Maze level times">
+            <table class="ice-level-table" aria-describedby="ice-level-timings-note">
+              <thead><tr><th scope="col">Level</th><th scope="col">Result</th><th scope="col">Elapsed time</th><th scope="col">Actions</th></tr></thead>
+              <tbody id="ice-level-timings-body"></tbody>
+            </table>
+          </div>
+          <p id="ice-level-timings-note" class="ice-level-timings-note">Wall-clock time from entering each level to its solving action. Level 1 starts at run creation, including startup. Includes thinking, tool calls, and pauses; excludes the wait between solved levels. Actions include blocked moves, undo, and reset; exclude the next-level action. An unfinished level shows time spent so far.</p>
+        </article>
+
         <article class="panel token-panel" aria-label="Context token usage">
           <header class="panel-heading">
             <div><span>Context over time</span><strong>Tokens &amp; compaction</strong></div>
@@ -116,7 +131,7 @@
             <div class="board-wrap">
               <div id="board" class="ascii-board" role="img" aria-label="Current ASCII maze board"></div>
             </div>
-            <footer class="board-footer"><span id="frame-source">Live engine frame</span><span>Move history playback</span></footer>
+            <footer class="board-footer"><span id="frame-source">Live engine frame</span><span id="board-legend">Move history playback</span></footer>
           </article>
 
           <article class="panel heatmap-panel">

@@ -12,13 +12,14 @@
       <nav aria-label="MazeBench sections">
         <a href="../../">World</a>
         <a href="../../play/v1/">Play</a>
+        <a href="../../ice-maze/v1/">Ice Maze</a>
         <a href="../../editor/v1/">Editor</a>
         <a href="../../world-solver/v1/">World Solver</a>
         <a class="active" href="./" aria-current="page">Benchmark</a>
       </nav>
       <div class="identity">
         <span class="pulse" aria-hidden="true"></span>
-        <div><strong>Agent Benchmark</strong><span>Codex + Claude Code · engine v1</span></div>
+        <div><strong>Agent Benchmark</strong><span>Codex + Claude Code · two worlds</span></div>
       </div>
       <output id="connection-status" class="connection-status" aria-live="polite">Connecting…</output>
     </header>
@@ -29,15 +30,16 @@
           <div>
             <span class="eyebrow">New evaluation</span>
             <h1 id="launch-title">Send an agent into the maze</h1>
-            <p>Start at H×I with the canonical prompt and choose whether the model gets an isolated Python workspace.</p>
+            <p id="world-description">Start at H×I with the canonical prompt and choose whether the model gets an isolated Python workspace.</p>
           </div>
-          <div class="goal-chip"><span>Objective</span><strong>Collect 100 gems</strong></div>
+          <div class="goal-chip"><span>Objective</span><strong id="world-objective">Collect 100 gems</strong></div>
         </div>
         <div class="runtime-status" role="status" aria-live="polite">
           <div><strong id="codex-version">Checking Codex…</strong><span id="codex-update-status"></span></div>
           <button id="check-codex" type="button">Check for updates</button>
         </div>
         <form id="launch-form" class="launch-controls">
+          <label class="world-select"><span>World</span><select id="world"><option value="main-world">Main World · 100 gems</option><option value="ice-maze">Ice Maze · 30 levels</option></select></label>
           <label><span>Agent</span><select id="provider"><option value="codex">Codex</option><option value="claude-code">Claude Code</option></select></label>
           <label><span>Model</span><select id="model" required></select></label>
           <label><span>Reasoning</span><select id="effort" required></select></label>

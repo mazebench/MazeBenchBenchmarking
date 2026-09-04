@@ -415,11 +415,23 @@ export function publicRunError(value) {
   return source.length > 1200 ? `${source.slice(0, 1197)}…` : source;
 }
 
+// Codex emits this passive recovery notice as an error item before retrying
+// over HTTPS. It grants no tool capability and must not terminate the retry.
+export function isCodexTransportNotice(event) {
+  const type = event?.type || event?.msg?.type;
+  const item = event?.item || event?.msg?.item || {};
+  return type === "item.completed" && (item.type || item.item_type) === "error" &&
+    typeof item.id === "string" && typeof item.message === "string" &&
+    /^Falling back from WebSockets to HTTPS transport\.(?:[ \t][^\r\n]*)?$/.test(item.message) &&
+    Object.keys(item).every(key => ["id", "type", "item_type", "message"].includes(key));
+}
+
 export function eventBoundaryViolation(event, { toolsEnabled = false, interview = false } = {}) {
   const type = event.type || event.msg?.type || "";
   if (!type.startsWith("item.")) return null;
   const item = event.item || event.msg?.item || {};
   const itemType = item.type || item.item_type;
+  if (isCodexTransportNotice(event)) return null;
   if (["reasoning", "agent_message"].includes(itemType)) return null;
   const allowed = ["maze_observe", "maze_action", "maze_sequence", ...(toolsEnabled ? ["python_exec"] : [])];
   if (!interview && itemType === "mcp_tool_call" && item.server === "mazebench" && allowed.includes(item.tool)) return null;

@@ -453,3 +453,28 @@ select { min-height: 40px; padding: 0 34px 0 11px; }
 .runtime-status span { margin-top: 5px; font-size: 13px; color: var(--muted, #9ba6b7); }
 .run-failure { padding: 20px; margin: 20px 0; border: 1px solid #a94e4e; border-radius: 12px; background: #2b1b21; }
 .run-failure p { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Numbered Ice Maze world: shared report, distinct 2D board scale. */
+.launch-controls .world-select { grid-column: 1 / -1; max-width: 330px; }
+.ice-world .ascii-board { font-size: clamp(18px, 3vmin, 32px); line-height: 1.35; letter-spacing: .22em; padding: 20px; }
+.ice-world .board-wrap { min-height: 390px; }
+.ice-level-timings { margin: 0 0 12px; }
+.ice-level-table-wrap { max-height: 340px; overflow: auto; }
+.ice-level-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.ice-level-table th, .ice-level-table td { padding: 10px 18px; text-align: left; border-bottom: 1px solid #232a33; }
+.ice-level-table thead th { position: sticky; top: 0; z-index: 1; background: #171c23; color: #a8b3bf; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+.ice-level-table tbody th { font-weight: 600; }
+.ice-level-table tr > :last-child { text-align: right; }
+.ice-level-table tr[data-status="solved"] td:nth-child(2) { color: #8de0ac; }
+.ice-level-table tr[data-status="playing"] { background: #6cd7ff0c; }
+.ice-level-table tr[data-status="playing"] td:nth-child(2) { color: #6cd7ff; }
+.ice-level-table tr[data-status="pending"] { color: #77828e; }
+.ice-level-duration { position: relative; width: 42%; }
+.ice-level-duration i { position: absolute; inset: 7px auto 7px 0; background: #6cd7ff18; pointer-events: none; }
+.ice-level-duration span { position: relative; font-family: ui-monospace, monospace; }
+.ice-level-timings-note { margin: 0; padding: 12px 18px; color: #929daa; font-size: 11px; line-height: 1.6; }
+@media (max-width: 560px) {
+  .ice-level-table th, .ice-level-table td { padding: 9px 10px; }
+  .ice-level-timings .panel-heading { flex-wrap: wrap; gap: 8px; }
+  .ice-level-duration { width: 33%; }
+}

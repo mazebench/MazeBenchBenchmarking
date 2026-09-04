@@ -14,7 +14,7 @@ import { discoverCodexCapabilityPolicy, verifyDirectToolModelCatalog, isRecovera
 export const COMPACTION_REPAIR_FILES = {
   "benchmarking/v1/supervisor.mjs": {
     before: "5d70851b17ec110b00580244da16a64b28005802ba4ee314cfa5218a1a5209db",
-    after: "99f4b7ec32a0e53a9b650f8365ee7d8a5850e48cd4a84dffd454d6ac64d74be3"
+    after: "b41402c47d8a59a05e813df563d821711ad2ff7162c32724eeb4d141d590582c"
   },
   "benchmarking/v1/run.mjs": {
     before: "322740e7490fa671ca81ffdc44266f29d534c11e8a603c46cf04de2f28d3bdee",

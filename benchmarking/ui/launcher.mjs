@@ -1,5 +1,5 @@
 const elements = Object.fromEntries([
-  "connection-status", "launch-form", "provider", "model", "effort", "action-limit",
+  "world", "world-description", "world-objective", "connection-status", "launch-form", "provider", "model", "effort", "action-limit",
   "tools-enabled", "tools-label", "launch-single", "launch-pair",
   "launch-status", "refresh", "run-list", "record-count", "codex-version", "codex-update-status", "check-codex"
 ].map((id) => [id, document.getElementById(id)]));
@@ -103,7 +103,7 @@ function renderRuns(runs) {
     model.textContent = run.model;
     const meta = document.createElement("span");
     meta.className = "record-meta";
-    meta.textContent = `${run.provider === "claude-code" ? "Claude Code" : "Codex"} · ${run.effort} reasoning · ${compactDate(run.created_at)} · ${duration(run)}`;
+    meta.textContent = `${run.world === "ice-maze" ? "Ice Maze" : "Main World"} · ${run.provider === "claude-code" ? "Claude Code" : "Codex"} · ${run.effort} reasoning · ${compactDate(run.created_at)} · ${duration(run)}`;
 
     const progressBar = document.createElement("span");
     progressBar.className = "run-progress";
@@ -115,8 +115,8 @@ function renderRuns(runs) {
     metrics.className = "record-metrics";
     const values = [
       ["Actions", `${run.action_count || 0}${run.action_limit ? `/${run.action_limit}` : ""}`],
-      ["Gems", run.gems_collected || 0],
-      ["Rooms", run.rooms_visited || 1],
+      [run.world === "ice-maze" ? "Levels solved" : "Gems", run.world === "ice-maze" ? `${run.levels_solved || 0}/30` : run.gems_collected || 0],
+      [run.world === "ice-maze" ? "Level" : "Rooms", run.world === "ice-maze" ? run.level_number : run.rooms_visited || 1],
       ["Cells", run.unique_cells || 1]
     ];
     for (const [label, value] of values) {
@@ -188,6 +188,7 @@ async function loadModels() {
 
 function launchPayload(toolsEnabled = elements["tools-enabled"].checked) {
   return {
+    world: elements.world.value,
     provider: elements.provider.value,
     model: elements.model.value,
     effort: elements.effort.value,
@@ -195,7 +196,7 @@ function launchPayload(toolsEnabled = elements["tools-enabled"].checked) {
     action_limit: elements["action-limit"].value === "unlimited"
       ? null
       : Number(elements["action-limit"].value),
-    start_room: "HxI"
+    start_room: elements.world.value === "ice-maze" ? "Level 1" : "HxI"
   };
 }
 
@@ -283,6 +284,14 @@ elements["run-list"].addEventListener("click", async (event) => {
     showError(error);
   }
 });
+function updateWorld() {
+  const ice = elements.world.value === "ice-maze";
+  elements["world-objective"].textContent = ice ? "Solve 30 levels" : "Collect 100 gems";
+  elements["world-description"].textContent = ice ? "Solve the original 30 Ice Maze puzzles in order. All players slide together; every goal must be covered at rest. Choose whether the agent gets isolated Python." : "Start at H×I with the canonical prompt and choose whether the model gets an isolated Python workspace.";
+}
+if (new URLSearchParams(location.search).get("world") === "ice-maze") elements.world.value = "ice-maze";
+elements.world.addEventListener("change", updateWorld);
+updateWorld();
 elements.model.addEventListener("change", updateEfforts);
 elements.provider.addEventListener("change", updateModels);
 elements["tools-enabled"].addEventListener("change", () => {
