@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { safeReadFile, safeDirectory } from "./v1/safe-files.mjs";
+import { createClaudeTimeline, consumeClaudeEvent, claudeTelemetry } from "./claude-telemetry.mjs";
 
 const finite = value => typeof value === "number" && Number.isFinite(value) && value >= 0;
 const PRICING_SOURCE = "https://developers.openai.com/api/docs/pricing";
@@ -138,6 +139,7 @@ export class TokenTelemetry {
 
   async readTimeline(runDirectory) {
     const metadata = JSON.parse(safeReadFile(runDirectory, "run.json"));
+    const isClaude = metadata.provider === "claude-code";
     let model;
     try {
       const catalog = JSON.parse(safeReadFile(runDirectory, "sandbox-state/direct-model-catalog.json"));
@@ -145,14 +147,15 @@ export class TokenTelemetry {
     } catch { /* Legacy records may not have a frozen model catalog. */ }
     const limits = modelTokenLimits(model);
     let cached = this.cache.get(runDirectory);
-    const file = cached?.file || await this.findRollout(metadata);
+    const file = cached?.file || (isClaude ? path.join(runDirectory, "claude-events.jsonl") : await this.findRollout(metadata));
     if (!file) return { available: false, ...limits, samples: [], compactions: [], reason: "Waiting for Codex token telemetry." };
-    const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(error => { if (error.code === "ENOENT") return null; throw error; });
+    if (!handle) return { available: false, compaction_threshold: null, samples: [], compactions: [] };
     try {
       const stat = await handle.stat();
       if (!stat.isFile() || stat.nlink !== 1) throw new Error("Invalid token telemetry file.");
       if (!cached || cached.inode !== stat.ino || stat.size < cached.offset) {
-        cached = { file, inode: stat.ino, offset: 0, partial: "", decoder: new StringDecoder("utf8"), timeline: createTokenTimeline() };
+        cached = { file, inode: stat.ino, offset: 0, partial: "", decoder: new StringDecoder("utf8"), timeline: isClaude ? createClaudeTimeline() : createTokenTimeline() };
         this.cache.set(runDirectory, cached);
         if (this.cache.size > 12) this.cache.delete(this.cache.keys().next().value);
       }
@@ -166,12 +169,13 @@ export class TokenTelemetry {
         const lines = text.split("\n");
         cached.partial = lines.pop();
         for (const line of lines) {
-          try { consumeTokenEvent(cached.timeline, JSON.parse(line)); }
+          try { (isClaude ? consumeClaudeEvent : consumeTokenEvent)(cached.timeline, JSON.parse(line)); }
           catch { /* A damaged or unrecognized event is not token evidence. */ }
         }
       }
     } finally { await handle.close(); }
     const timeline = cached.timeline;
+    if (isClaude) return claudeTelemetry(timeline);
     const latest = timeline.samples.at(-1);
     return {
       available: Boolean(latest), ...limits,

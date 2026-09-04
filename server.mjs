@@ -3,7 +3,7 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BenchmarkSupervisor } from "./benchmarking/v1/supervisor.mjs";
+import { BenchmarkSupervisor } from "./benchmarking/providers/supervisor.mjs";
 import { TokenTelemetry } from "./benchmarking/token-telemetry.mjs";
 import { isTrustedLocalRequest } from "./benchmarking/v1/http-security.mjs";
 import { decodeVoxelRoom, encodeVoxelRoom } from "./render/v1/voxel-world-v2.mjs";
@@ -105,6 +105,10 @@ async function saveV2Level(request, response, fileName) {
 
 async function benchmarkApi(request, response, url) {
   try {
+    if (request.method === "GET" && url.pathname === "/api/benchmark/v1/providers") {
+      sendJson(response, 200, await benchmarkSupervisor.providers({ force: url.searchParams.get("force") === "1" }));
+      return true;
+    }
     if (request.method === "GET" && url.pathname === "/api/benchmark/v1/status") {
       sendJson(response, 200, await benchmarkSupervisor.status({ force: url.searchParams.get("force") === "1" }));
       return true;

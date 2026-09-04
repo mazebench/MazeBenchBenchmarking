@@ -19,7 +19,8 @@ A deliberately small localhost site that renders the complete MazeBench main wor
 - `engine/v1/voxel_physics.wasm` — the exact copied UnitTest release engine; physics and exact search live here
 - `engine/v1/engine.mjs` — the small storage-v2/browser ABI boundary
 - `play/v1/` — play mode v1, driven by the engine's resumable per-tick command trace
-- `benchmarking/v1/` — local Codex benchmark runner with a read-only records MCP interface, optional isolated Python workspace, and live evaluation charts
+- `benchmarking/v1/` — shared game/MCP boundary and the frozen Codex runner
+- `benchmarking/providers/` — Claude Code adapter and provider routing; `benchmarking/ui/` contains the current dashboard modules
 - `editor/v1/` — editor v1 with face-mounted objects, 3D toolbox previews, Fast A*, and Exact Shortest gem solvers
 - `scripts/migrate-v1-to-v2.mjs` — deterministic v1 text to v2 object migration
 - `index.html` — the single page entry point
@@ -57,14 +58,14 @@ yellow while open and turn
 orange once searched or exhausted; the live red position is never drawn in a
 closed orange room.
 
-Open `/benchmarking/v1/` to run locally authenticated Codex models against the
+Open `/benchmarking/v1/` to select Codex or Claude Code and run locally authenticated models against the
 same engine and H×I start. Every condition receives `maze_observe`,
 `maze_action`, and `maze_sequence`; tools-on runs additionally receive
 `python_exec` in a preflighted persistent workspace. `maze_observe` is the only
 agent-facing reader for current state and the run's allowlisted read-only
 records. Authoritative results are stored under
 `~/records/mazebench-benchmark/` and are never exposed to Python.
-Every launch disables agent capabilities from the Codex feature inventory,
+Every Codex launch disables agent capabilities from the Codex feature inventory,
 keeps remote compaction v2 enabled for long conversations, and uses a frozen,
 hashed per-run model catalog that forces direct MCP tool calls and disables
 model-metadata overrides for shell, patching, delegation, and tool search. Both
@@ -75,6 +76,21 @@ endpoint, and distinguishes an available update from a benchmark-tested build.
 Run `codex update` to update the CLI, then restart this server; an untested
 release remains blocked until the capability checks pass and the version pin
 is deliberately updated.
+
+Claude Code uses the existing `claude auth login` session. Version 2.1.258 is
+admitted after real-CLI capability checks. Select an explicit model version and
+Python on/off, or launch a matched pair. The runner removes all built-in tools,
+ignores personal/project settings and CLAUDE.md, disables skills and memory,
+and loads only the MazeBench MCP with `dontAsk` permissions and an exact tool
+allowlist. Python is provided through the same OS-isolated MCP executor as
+Codex, never Claude's Bash tool. Provider source files and the CLI executable
+are frozen in each Claude run's manifest and checked before every MCP request.
+Unknown tools or model fallback invalidate the run. The installed version and
+authentication status are shown in the launcher; untested versions fail closed.
+See [Claude's CLI reference](https://code.claude.com/docs/en/cli-reference) for
+the supported restriction flags and [model configuration](https://code.claude.com/docs/en/model-config)
+for versioned model IDs and account availability. Run the offline provider check
+with `node scripts/check-claude-capabilities-v1.mjs` before admitting another build.
 
 Python runs saved `.py` files in a persistent workspace using a mandatory macOS
 Seatbelt profile installed before agent code starts. Private files, network,
@@ -101,10 +117,13 @@ inspected with a context-token timeline, compaction trigger and checkpoint
 markers, and cumulative input/output/cached-token totals. Its USD estimate uses
 published Standard API rates (dated in the UI), cache discounts, cache-write
 rates, and each request's context tier, including reported compaction usage;
-it is an API-equivalent estimate, not a ChatGPT subscription bill. Replay starts
-at 30 ms per frame. A run can be
-paused or stopped and then resumed from its existing Codex thread while the
-game remains nonterminal. The record page can also create any number of
+it is an API-equivalent estimate, not a ChatGPT subscription bill. Claude totals
+include cache reads and writes once; its cost is reported by Claude Code for
+completed turns, with the active turn pending. Claude context usage and
+compaction events are charted, but no trigger line is invented when the CLI
+does not report its compaction threshold. Replay starts at 30 ms per frame.
+A run can be paused or stopped and resumed from its existing provider session
+while the game remains nonterminal. Codex record pages can also create any number of
 isolated interview branches at the current move, accept free-form questions,
 and end chats without changing the benchmark thread or authoritative results.
 They report command speed, state visits, rooms, and collectible gems on the full

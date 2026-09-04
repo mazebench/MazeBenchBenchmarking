@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Launch local Codex MazeBench evaluations and browse agent run records.">
+    <meta name="description" content="Launch local Codex and Claude Code MazeBench evaluations and browse agent run records.">
     <title>MazeBench — Benchmark v1</title>
     <link rel="stylesheet" href="./styles.css">
   </head>
@@ -18,7 +18,7 @@
       </nav>
       <div class="identity">
         <span class="pulse" aria-hidden="true"></span>
-        <div><strong>Agent Benchmark</strong><span>Codex local · engine v1</span></div>
+        <div><strong>Agent Benchmark</strong><span>Codex + Claude Code · engine v1</span></div>
       </div>
       <output id="connection-status" class="connection-status" aria-live="polite">Connecting…</output>
     </header>
@@ -28,7 +28,7 @@
         <div class="launch-heading">
           <div>
             <span class="eyebrow">New evaluation</span>
-            <h1 id="launch-title">Send a Codex model into the maze</h1>
+            <h1 id="launch-title">Send an agent into the maze</h1>
             <p>Start at H×I with the canonical prompt and choose whether the model gets an isolated Python workspace.</p>
           </div>
           <div class="goal-chip"><span>Objective</span><strong>Collect 100 gems</strong></div>
@@ -38,7 +38,8 @@
           <button id="check-codex" type="button">Check for updates</button>
         </div>
         <form id="launch-form" class="launch-controls">
-          <label><span>Codex model</span><select id="model" required></select></label>
+          <label><span>Agent</span><select id="provider"><option value="codex">Codex</option><option value="claude-code">Claude Code</option></select></label>
+          <label><span>Model</span><select id="model" required></select></label>
           <label><span>Reasoning</span><select id="effort" required></select></label>
           <label><span>Action limit</span><select id="action-limit"><option value="100">100 actions</option><option value="unlimited">Unlimited</option></select></label>
           <label class="tool-toggle">
@@ -71,6 +72,6 @@
       </section>
     </main>
 
-    <script type="module" src="./main.mjs"></script>
+    <script type="module" src="../ui/launcher.mjs"></script>
   </body>
 </html>

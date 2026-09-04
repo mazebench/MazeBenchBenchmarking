@@ -27,7 +27,7 @@ function render(value) {
   const rates = pricing?.rates_per_million;
   document.getElementById("token-pricing-detail").textContent = rates
     ? `${pricing.basis} Rates checked ${pricing.pricing_date}: $${rates.input} input, $${rates.cached_input} cached input, $${rates.cache_writes} cache writes, and $${rates.output} output per million tokens. Requests over 272,000 input tokens use 2× input/cache rates and 1.5× output rates. ${pricing.request_count} reported responses counted, with duplicate records removed. Unreported usage and non-token fees are excluded.`
-    : "No verified API price or detailed usage is available for this record.";
+    : pricing?.basis || "No verified API price or detailed usage is available for this record.";
   if (!value.available || !value.samples.length) {
     current.textContent = "Waiting for token data";
     chart.innerHTML = '<text x="550" y="110" text-anchor="middle" class="token-empty">Token usage appears after the first model response.</text>';

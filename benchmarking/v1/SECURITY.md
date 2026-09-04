@@ -7,6 +7,9 @@ from obtaining hidden world/solver data or changing scores through the known
 tool and filesystem escape paths; they are not protection against a malicious
 host administrator or an OS vulnerability.
 
+Claude Code's authentication client is likewise trusted. The Claude provider
+uses the same game, score, records and mandatory Python OS boundary below.
+
 ## Conditions
 
 | Mode | Permitted activity |
@@ -102,3 +105,44 @@ the signed game checkpoint before making any change. It preserves the original
 manifest and run metadata in `repairs/remote-compaction-v2/`, records the repair,
 and leaves game state, score, history, prompt and Codex thread intact. This is
 not a general bypass for runtime changes and is not available through MCP.
+
+## Claude Code
+
+The Claude adapter lives in `benchmarking/providers/`. Its source inventory,
+policy, versioned model ID, effort, Python condition, exact native CLI binary,
+and prompt are frozen in the run manifest in addition to the shared runtime.
+A serial MCP gate checks this extra provenance before forwarding each request
+to the unchanged shared MCP. The gate translates the sequence tool's top-level
+`oneOf` discovery schema for Claude compatibility; the shared server still
+validates exactly one of `sequence` or `actions` on every invocation.
+
+Claude starts with `--restricted`, an empty built-in `--tools` list, empty
+`--setting-sources`, `--strict-mcp-config`, `--disable-slash-commands`,
+`--no-chrome`, and `dontAsk` permissions. Only exact MazeBench tool names are
+preapproved. CLAUDE.md, memory, background tasks, IDE connection, tool search,
+personal hooks and plugins are disabled. No inherited API keys, alternate
+endpoint/model settings, SDK sockets, or Node options enter the child process.
+The OS account name is passed because Claude's native keychain lookup needs it;
+credentials remain in the trusted authentication client, outside Python.
+Administrator-managed policy and the authentication client are part of the
+trusted host boundary, not defenses against a hostile machine administrator.
+
+Every initialization must report the exact model, tool catalog, connected
+MazeBench server and permission mode. Streamed tool calls, full responses and
+reported model usage are checked for unexpected tools or model fallback.
+Violations write a permanent invalidation marker and prohibit resume. Claude
+uses an explicit session ID for pause/resume/continuation; it cannot choose a
+different session through a tool. Claude interviews are currently unavailable.
+
+Run `node scripts/check-claude-capabilities-v1.mjs` and the full test suite before
+admitting another Claude version. The CLI check uses an unauthenticated local
+Anthropic fixture, a temporary home with hostile personal/project instructions,
+and an extra project MCP configuration. It checks discovery, resume, real maze
+and Python calls, native private-file/network denial after removing Python's
+audit hook, and attempted shell/file/web/delegation/disabled-Python calls.
+Live smoke records belong in `~/records/mazebench-validation/claude-code/`,
+separate from benchmark results.
+
+The current dashboard modules live under `benchmarking/ui/`; the original
+v1 dashboard modules remain unchanged to preserve the existing Codex run's
+frozen runtime inventory. UI and read-only telemetry code are not agent tools.

@@ -94,7 +94,7 @@ h1, h2, h3, p { margin-top: 0; }
 .goal-chip { display: flex; align-items: baseline; gap: 10px; padding: 10px 12px; background: #0b1115; border: 1px solid #263944; border-radius: 6px; white-space: nowrap; }
 .goal-chip span { color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; }
 .goal-chip strong { color: var(--cyan); font-size: 13px; }
-.launch-controls { display: grid; grid-template-columns: minmax(190px, 1.2fr) minmax(130px, .65fr) minmax(130px, .65fr) minmax(155px, .7fr) auto; gap: 12px; margin-top: 22px; align-items: end; position: relative; z-index: 1; }
+.launch-controls { display: grid; grid-template-columns: minmax(115px, .7fr) minmax(190px, 1.2fr) minmax(100px, .6fr) minmax(115px, .6fr) minmax(145px, .7fr) auto; gap: 12px; margin-top: 22px; align-items: end; position: relative; z-index: 1; }
 .launch-controls label { display: grid; gap: 7px; }
 .launch-controls label > span { color: var(--muted); font-size: 11px; font-weight: 700; }
 select { min-height: 40px; padding: 0 34px 0 11px; }
