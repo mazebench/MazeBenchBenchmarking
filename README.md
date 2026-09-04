@@ -64,7 +64,8 @@ same engine and H×I start. Every condition receives `maze_observe`,
 agent-facing reader for current state and the run's allowlisted read-only
 records. Authoritative results are stored under
 `~/records/mazebench-benchmark/` and are never exposed to Python.
-Every launch starts from a deny-all Codex feature inventory and uses a frozen,
+Every launch disables agent capabilities from the Codex feature inventory,
+keeps remote compaction v2 enabled for long conversations, and uses a frozen,
 hashed per-run model catalog that forces direct MCP tool calls and disables
 model-metadata overrides for shell, patching, delegation, and tool search. Both
 Node/JavaScript hosts and their in-process fallback are disabled. The launcher
@@ -89,11 +90,19 @@ runtime, engine, and world assets. Authenticated checkpoints protect state and
 score across continuations. Unexpected tools or integrity changes invalidate a
 run. Earlier runs remain readable and available for interviews, but cannot
 resume under the current boundary. Failed records show the service error and
-offer a new run with the same settings. See [the integrity policy](benchmarking/v1/SECURITY.md)
+offer a new run with the same settings. Known compaction transport failures can
+resume the existing conversation after integrity validation; the affected
+September 4 build has a narrowly scoped, audited operator repair. See [the integrity policy](benchmarking/v1/SECURITY.md)
 for the threat model and upgrade checks.
 The benchmark landing page is the launcher and agent-record library; each
 record opens a dedicated live model report with the engine's colored ASCII
 frame, heatmap, novelty trace, activity, and workspace inventory. A run can be
+inspected with a context-token timeline, compaction trigger and checkpoint
+markers, and cumulative input/output/cached-token totals. Its USD estimate uses
+published Standard API rates (dated in the UI), cache discounts, cache-write
+rates, and each request's context tier, including reported compaction usage;
+it is an API-equivalent estimate, not a ChatGPT subscription bill. Replay starts
+at 30 ms per frame. A run can be
 paused or stopped and then resumed from its existing Codex thread while the
 game remains nonterminal. The record page can also create any number of
 isolated interview branches at the current move, accept free-form questions,

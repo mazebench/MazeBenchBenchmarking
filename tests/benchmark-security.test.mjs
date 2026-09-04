@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { runSandboxedPython, preflightPythonSandbox, workspaceInventory } from "../benchmarking/v1/python-sandbox.mjs";
 import { createRunIntegrity, verifyRunIntegrity, verifyCheckpoint, signCheckpoint, assertRunConfiguration, CAPABILITY_POLICY_VERSION } from "../benchmarking/v1/integrity.mjs";
-import { buildCodexArguments, buildInterviewArguments, assertHardenedCodexArguments, eventBoundaryViolation, publicRunError, BenchmarkSupervisor } from "../benchmarking/v1/supervisor.mjs";
+import { buildCodexArguments, buildInterviewArguments, assertHardenedCodexArguments, eventBoundaryViolation, publicRunError, BenchmarkSupervisor, isRecoverableCompactionError } from "../benchmarking/v1/supervisor.mjs";
 import { checkLatestCodex, codexInstallationStatus } from "../benchmarking/v1/codex-installation.mjs";
 import { isTrustedLocalRequest } from "../benchmarking/v1/http-security.mjs";
 import { BenchmarkGameRuntime, loadBenchmarkAssets } from "../benchmarking/v1/runtime.mjs";
@@ -150,11 +150,24 @@ test("new, resumed and interview launch arguments reject capability overrides", 
     buildInterviewArguments({ ...argsOptions, forkThreadId: "fork", outputFile: "/tmp/interview.txt", question: "test" })
   ]) {
     assertHardenedCodexArguments(args, argsOptions);
+    assert(args.includes("features.remote_compaction_v2=true"));
+    assert.throws(() => assertHardenedCodexArguments([...args, "--disable", "remote_compaction_v2"], argsOptions));
     for (const override of ['mcp_servers.evil.enabled=true', 'sandbox_mode="danger-full-access"', 'model_provider="untrusted"', 'features.code_mode.enabled=true']) {
       assert.throws(() => assertHardenedCodexArguments([...args, "-c", override], argsOptions));
     }
     assert.throws(() => assertHardenedCodexArguments([...args, "--enable", "shell_tool"], argsOptions));
     assert.throws(() => assertHardenedCodexArguments(args.filter(x => x !== "--ignore-user-config"), argsOptions));
+  }
+});
+
+test("legacy compaction inventory is upgraded without enabling agent capabilities", () => {
+  const args = buildCodexArguments({ ...argsOptions, disabledFeatures: ["remote_compaction_v2", "future_executor"] });
+  assert(args.includes("features.remote_compaction_v2=true"));
+  assert(!args.includes("remote_compaction_v2"));
+  assert(args.some((value, index) => value === "--disable" && args[index + 1] === "future_executor"));
+  assert.equal(isRecoverableCompactionError('Error running remote compact task: unexpected status 404 Not Found, url: https://chatgpt.com/backend-api/codex/responses/compact, request id: fixture'), true);
+  for (const error of ["Capability boundary violation", "Benchmark state or score was modified", "404 Not Found", "Error running remote compact task: status 403 Forbidden"]) {
+    assert.equal(isRecoverableCompactionError(error), false);
   }
 });
 

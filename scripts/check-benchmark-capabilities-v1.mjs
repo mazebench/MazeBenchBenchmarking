@@ -22,9 +22,17 @@ const server = createServer(async (request, response) => {
   for await (const chunk of request) chunks.push(chunk);
   const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   const groups = [...(payload.tools || []), ...(payload.input || []).filter(item => item.type === "additional_tools").flatMap(item => item.tools || [])];
-  requests.push({ model: payload.model, groups });
+  const compaction = (payload.input || []).some(item => item.type === "compaction_trigger");
+  requests.push({ model: payload.model, groups, compaction, url: request.url });
+  if (request.url.endsWith("/compact")) {
+    response.writeHead(404);
+    response.end('{"detail":"Not Found"}');
+    return;
+  }
   response.writeHead(200, { "Content-Type": "text/event-stream" });
-  const message = { id: "msg_validation", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: "Validation complete." }] };
+  const message = compaction
+    ? { id: "cmp_validation", type: "compaction", encrypted_content: "offline-compaction-fixture" }
+    : { id: "msg_validation", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: "Validation complete." }] };
   const events = [
     { type: "response.created", response: { id: "resp_validation", object: "response", status: "in_progress", output: [] } },
     { type: "response.output_item.added", output_index: 0, item: message },
@@ -35,12 +43,15 @@ const server = createServer(async (request, response) => {
 });
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 
-async function run(args, directory) {
+async function run(args, directory, { compact = false } = {}) {
   requests = [];
   // The production builder asserts OpenAI. Replace it ONLY in this offline
   // test process, with an unauthenticated loopback provider and isolated home.
   args = args.map(arg => arg === 'model_provider="openai"' ? 'model_provider="boundary_test"' : arg);
-  args.splice(args.length - 1, 0, "-c", `model_providers.boundary_test={name="boundary_test",base_url="http://127.0.0.1:${server.address().port}/v1",wire_api="responses",requires_openai_auth=false}`);
+  // Codex selects the OpenAI compaction protocol by provider name. Keep this
+  // protocol identity while all requests and credentials remain local fixtures.
+  args.splice(args.length - 1, 0, "-c", `model_providers.boundary_test={name="OpenAI",base_url="http://127.0.0.1:${server.address().port}/v1",wire_api="responses",requires_openai_auth=false}`);
+  if (compact) args.splice(args.length - 1, 0, "-c", "model_auto_compact_token_limit=1");
   const child = spawn(policy.codex_executable, args, {
     cwd: path.join(directory, "agent-cwd"),
     env: { HOME: os.homedir(), CODEX_HOME: home, PATH: process.env.PATH, CODEX_CODE_MODE_HOST_PATH: path.join(temporary, "disabled-host") },
@@ -53,9 +64,11 @@ async function run(args, directory) {
   try {
     const code = await new Promise((resolve, reject) => { child.on("close", resolve); child.on("error", reject); });
     assert.equal(code, 0, stderr);
-    assert.equal(requests.length, 1, `Expected one local model request. ${stderr}`);
+    assert.equal(requests.length, compact ? 2 : 1, `Unexpected local model requests: ${JSON.stringify(requests.map(r => ({ url: r.url, compaction: r.compaction })))} ${stderr}`);
+    assert(requests.every(request => request.url === "/v1/responses"));
+    assert.equal(requests[0].compaction, compact);
     const events = stdout.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
-    return { request: requests[0], thread: events.find(event => event.type === "thread.started")?.thread_id };
+    return { request: requests.at(-1), compaction: compact ? requests[0] : null, thread: events.find(event => event.type === "thread.started")?.thread_id };
   } finally { clearTimeout(timeout); }
 }
 
@@ -95,7 +108,16 @@ try {
       const followup = await run(buildInterviewArguments({ ...options, forkThreadId: interview.thread, outputFile: path.join(directory, "interview.txt"), question: "Continue the interview." }), directory);
       assert.equal(followup.thread, interview.thread);
       assert.deepEqual(toolNames(followup.request.groups), []);
-      console.log(`${model} Python ${toolsEnabled ? "on" : "off"}: new, resume, interview fork, interview follow-up PASS`);
+      const compactedRun = await run(buildCodexArguments({ ...options, resumeThreadId: initial.thread }), directory, { compact: true });
+      assert.equal(compactedRun.thread, initial.thread);
+      assert.equal(compactedRun.compaction.model, model);
+      assert.deepEqual(toolNames(compactedRun.compaction.groups), expected);
+      assert.deepEqual(toolNames(compactedRun.request.groups), expected);
+      const compactedInterview = await run(buildInterviewArguments({ ...options, forkThreadId: interview.thread, outputFile: path.join(directory, "interview.txt"), question: "Continue the interview." }), directory, { compact: true });
+      assert.equal(compactedInterview.thread, interview.thread);
+      assert.deepEqual(toolNames(compactedInterview.compaction.groups), []);
+      assert.deepEqual(toolNames(compactedInterview.request.groups), []);
+      console.log(`${model} Python ${toolsEnabled ? "on" : "off"}: new, resume, interview fork/follow-up, benchmark/interview compaction PASS`);
     }
   }
   console.log(`${policy.codex_version}: exact model/tool routing verified offline.`);

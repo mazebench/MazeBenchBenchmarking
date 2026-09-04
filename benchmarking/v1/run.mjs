@@ -1,3 +1,5 @@
+import { drawNovelty } from "../ui/novelty-chart.mjs";
+
 const ids = [
   "connection-status", "load-error", "error-copy", "run-content", "model-hero", "run-failure", "run-failure-reason", "retry-new-run",
   "model-monogram", "run-kicker", "run-title", "run-subtitle", "run-id", "run-status",
@@ -295,69 +297,6 @@ function drawHeatmap(positions, toolsEnabled) {
   );
 }
 
-function drawNovelty(values, toolsEnabled) {
-  const { context, width, height } = setCanvasSize(elements["novelty-chart"]);
-  context.clearRect(0, 0, width, height);
-  context.fillStyle = "#090b0e";
-  context.fillRect(0, 0, width, height);
-  const plot = (values || []).slice(1);
-  if (!plot.length) return;
-  const rolling = plot.map((_, index) => {
-    const start = Math.max(0, index - 9);
-    const windowValues = plot.slice(start, index + 1);
-    return windowValues.filter(Boolean).length / windowValues.length;
-  });
-  const padding = { left: 34, right: 18, top: 20, bottom: 26 };
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-  context.font = "10px ui-monospace, monospace";
-  context.textAlign = "right";
-  context.fillStyle = "#6f7985";
-  context.strokeStyle = "#20252c";
-  context.lineWidth = 1;
-  for (const rate of [0, 0.5, 1]) {
-    const y = padding.top + chartHeight * (1 - rate);
-    context.beginPath();
-    context.moveTo(padding.left, y);
-    context.lineTo(width - padding.right, y);
-    context.stroke();
-    context.fillText(`${Math.round(rate * 100)}%`, padding.left - 6, y + 3);
-  }
-  const xAt = (index) => padding.left + (rolling.length === 1 ? chartWidth : index / (rolling.length - 1) * chartWidth);
-  const yAt = (rate) => padding.top + (1 - rate) * chartHeight;
-  const accent = toolsEnabled ? "#ffbd5b" : "#6cd7ff";
-  const gradient = context.createLinearGradient(0, padding.top, 0, padding.top + chartHeight);
-  gradient.addColorStop(0, toolsEnabled ? "rgba(255,189,91,.28)" : "rgba(108,215,255,.28)");
-  gradient.addColorStop(1, "rgba(8,9,11,0)");
-  context.beginPath();
-  rolling.forEach((rate, index) => {
-    const x = xAt(index);
-    const y = yAt(rate);
-    if (index === 0) context.moveTo(x, y);
-    else context.lineTo(x, y);
-  });
-  context.lineTo(xAt(rolling.length - 1), padding.top + chartHeight);
-  context.lineTo(xAt(0), padding.top + chartHeight);
-  context.closePath();
-  context.fillStyle = gradient;
-  context.fill();
-  context.beginPath();
-  rolling.forEach((rate, index) => {
-    const x = xAt(index);
-    const y = yAt(rate);
-    if (index === 0) context.moveTo(x, y);
-    else context.lineTo(x, y);
-  });
-  context.strokeStyle = accent;
-  context.lineWidth = 2;
-  context.stroke();
-  context.fillStyle = "#6f7985";
-  context.textAlign = "left";
-  context.fillText("action 1", padding.left, height - 7);
-  context.textAlign = "right";
-  context.fillText(`action ${plot.length}`, width - padding.right, height - 7);
-}
-
 function drawProgress(run) {
   const { context, width, height } = setCanvasSize(elements["progress-chart"]);
   context.clearRect(0, 0, width, height);
@@ -652,7 +591,8 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   const resumableBoundary = Boolean(run.capability_boundary_verified);
   elements["pause-run"].hidden = !activeRun || run.status === "pausing";
   elements["pause-run"].disabled = !activeRun;
-  elements["resume-run"].hidden = terminalGame || !resumableBoundary || !["paused", "stopped"].includes(run.status);
+  elements["resume-run"].hidden = terminalGame || !resumableBoundary ||
+    (!["paused", "stopped"].includes(run.status) && !run.compaction_recoverable);
   elements["resume-run"].disabled = false;
   elements["stop-run"].hidden = terminalGame || ["stopped", "failed", "completed"].includes(run.status);
   elements["stop-run"].disabled = false;

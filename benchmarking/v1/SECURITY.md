@@ -82,3 +82,23 @@ Security regressions cover audit-hook replacement, native filesystem/fork
 calls, subprocess/re-exec, localhost access, symbolic and hard links, workspace
 substitution, unknown tool events, state/score/configuration/manifest tampering,
 and cross-origin requests. Keep these tests when changing the boundary.
+# Compaction and audited recovery
+
+Codex remote compaction v2 remains enabled in both benchmark conditions and in
+interviews. This is a Responses transport feature, not an MCP tool or an agent
+executor. Disabling it makes Codex 0.153.3 use the legacy `/responses/compact`
+endpoint, which returned 404 for ChatGPT-authenticated benchmark runs.
+
+The offline capability test forces compaction as well as ordinary turns and
+checks that the tool catalog stays restricted before and after compaction.
+Recoverable compaction failures can resume the same Codex conversation only
+after the ordinary integrity checks pass.
+
+For the affected September 4 build, the operator-only
+`scripts/repair-benchmark-compaction-v1.mjs <run-id>` accepts exactly the reviewed
+before/after hashes for the supervisor and Resume UI. It verifies all other
+assets, the original prompt and configuration, Codex binary and catalog, and
+the signed game checkpoint before making any change. It preserves the original
+manifest and run metadata in `repairs/remote-compaction-v2/`, records the repair,
+and leaves game state, score, history, prompt and Codex thread intact. This is
+not a general bypass for runtime changes and is not available through MCP.

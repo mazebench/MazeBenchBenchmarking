@@ -26,6 +26,9 @@ const DEFAULT_EFFORT = "medium";
 const MAZEBENCH_TOOL_NAMESPACE = "mcp__mazebench";
 const DIRECT_MODEL_CATALOG_FILE = "direct-model-catalog.json";
 const REQUIRED_CODEX_FEATURES = ["code_mode", "code_mode_host", "shell_tool", "unified_exec"];
+// This changes the compaction transport, not the agent's tool capabilities.
+// Disabling it sends ChatGPT-authenticated runs to the obsolete /responses/compact.
+const REQUIRED_RUNTIME_FEATURES = ["remote_compaction_v2"];
 const BASELINE_DISABLED_FEATURES = [
   "apps",
   "browser_use",
@@ -240,8 +243,9 @@ export function discoverCodexCapabilityPolicy(codexBin = "codex") {
   if (inventory.status !== 0) {
     throw new Error(`Cannot verify the Codex feature inventory: ${String(inventory.stderr || inventory.error || "unknown error").trim()}`);
   }
-  const disabledFeatures = parseCodexFeatureInventory(inventory.stdout);
-  const missing = REQUIRED_CODEX_FEATURES.filter((feature) => !disabledFeatures.includes(feature));
+  const featureInventory = parseCodexFeatureInventory(inventory.stdout);
+  const disabledFeatures = featureInventory.filter(feature => !REQUIRED_RUNTIME_FEATURES.includes(feature));
+  const missing = [...REQUIRED_CODEX_FEATURES, ...REQUIRED_RUNTIME_FEATURES].filter((feature) => !featureInventory.includes(feature));
   if (missing.length) {
     throw new Error(`This Codex build cannot prove the benchmark execution boundary; missing features: ${missing.join(", ")}.`);
   }
@@ -264,6 +268,7 @@ export function discoverCodexCapabilityPolicy(codexBin = "codex") {
     codex_executable: codexBin,
     codex_sha256: codexBinaryDigest(codexBin),
     disabled_features: disabledFeatures,
+    enabled_features: [...REQUIRED_RUNTIME_FEATURES],
     direct_only_namespaces: [MAZEBENCH_TOOL_NAMESPACE],
     model_tool_mode: "direct",
     javascript_host: "disabled",
@@ -274,8 +279,10 @@ export function discoverCodexCapabilityPolicy(codexBin = "codex") {
 
 function appendDisabledFeatureArguments(args, featureNames = BASELINE_DISABLED_FEATURES) {
   for (const feature of [...new Set([...BASELINE_DISABLED_FEATURES, ...featureNames])].sort()) {
+    if (REQUIRED_RUNTIME_FEATURES.includes(feature)) continue;
     args.push("--disable", feature);
   }
+  for (const feature of REQUIRED_RUNTIME_FEATURES) args.push("-c", `features.${feature}=true`);
   // Terra's model catalog currently forces code_mode_only. These table-form
   // overrides are deliberately applied after every --disable so the namespace
   // routing survives while both JavaScript hosts remain fail-closed.
@@ -334,7 +341,12 @@ export function assertHardenedCodexArguments(args, options = {}) {
   const disabledFeatures = [...new Set([
     ...BASELINE_DISABLED_FEATURES,
     ...(options.disabledFeatures || [])
-  ])];
+  ])].filter(feature => !REQUIRED_RUNTIME_FEATURES.includes(feature));
+  for (const feature of REQUIRED_RUNTIME_FEATURES) {
+    if (hasArgumentPair(args, "--disable", feature) || overrides.get(`features.${feature}`) !== "true") {
+      throw new Error(`Unsafe Codex launch: required runtime feature ${feature} must be enabled.`);
+    }
+  }
   for (const feature of disabledFeatures) {
     if (!hasArgumentPair(args, "--disable", feature)) {
       throw new Error(`Unsafe Codex launch: feature ${feature} was not disabled.`);
@@ -419,6 +431,12 @@ export function isTransientInterviewError(value) {
   return /Codex service returned 404/i.test(message) ||
     /(?:404 Not Found|status (?:429|5\d\d))[^\n]*(?:codex\/responses|codex\/models)/i.test(message) ||
     /(?:codex\/responses|codex\/models)[^\n]*(?:404 Not Found|status (?:429|5\d\d))/i.test(message);
+}
+
+export function isRecoverableCompactionError(value) {
+  const message = String(value || "");
+  return /Error running remote compact task:/i.test(message) &&
+    /404 Not Found/i.test(message) && /codex\/responses\/compact(?:[\s,]|$)/i.test(message);
 }
 
 function interviewRetryDelay(attempt) {
@@ -1122,8 +1140,9 @@ export class BenchmarkSupervisor {
     if (!metadata) throw new Error("Benchmark run not found.");
     metadata = await this.recoverThreadId(directory, metadata);
     if (this.active.has(id)) throw new Error("This benchmark is already running.");
-    if (!["paused", "stopped"].includes(metadata.status)) {
-      throw new Error("Only a paused or stopped benchmark can be resumed.");
+    const recoverCompaction = metadata.status === "failed" && isRecoverableCompactionError(metadata.error);
+    if (!["paused", "stopped"].includes(metadata.status) && !recoverCompaction) {
+      throw new Error("Only a paused, stopped, or recoverable compaction-failed benchmark can be resumed.");
     }
     if (metadata.capability_policy?.version !== CAPABILITY_POLICY_VERSION) {
       throw new Error("This legacy run used the unsafe Codex tool boundary and cannot be resumed. Its record and interview forks remain available.");
@@ -1138,6 +1157,13 @@ export class BenchmarkSupervisor {
       throw new Error("This benchmark has already reached its terminal game state.");
     }
     metadata.status = "queued";
+    if (recoverCompaction) {
+      metadata.recoveries = [...(metadata.recoveries || []), {
+        at: now(), reason: "remote-compaction-v2", previous_error: metadata.error,
+        action_count: summary.action_count, codex_thread_id: metadata.codex_thread_id
+      }];
+    }
+    metadata.error = null;
     metadata.paused_at = null;
     metadata.stopped_at = null;
     metadata.completed_at = null;
@@ -1151,7 +1177,7 @@ export class BenchmarkSupervisor {
       threadId: metadata.codex_thread_id
     };
     this.active.set(id, control);
-    const prompt = `Resume the same MazeBench benchmark from its paused state. Call maze_observe to re-anchor, then keep acting. Do not stop until the tool reports won or action-limit. You currently have ${summary.action_count || 0} accepted actions recorded.`;
+    const prompt = `Resume the same MazeBench benchmark from its saved state. Call maze_observe to re-anchor, then keep acting. Do not stop until the tool reports won or action-limit. You currently have ${summary.action_count || 0} accepted actions recorded.`;
     this.runLoop(id, directory, agentDirectory, prompt, control).catch(async (error) => {
       const current = await readJson(path.join(directory, "run.json"), metadata);
       if (!control.stopRequested && !control.pauseRequested) {
@@ -1748,6 +1774,7 @@ export class BenchmarkSupervisor {
       status: metadata.status,
       error: metadata.error ? publicRunError(metadata.error) : null,
       runner_active: this.active.has(id),
+      compaction_recoverable: metadata.status === "failed" && isRecoverableCompactionError(metadata.error),
       capability_boundary_verified: metadata.capability_policy?.version === CAPABILITY_POLICY_VERSION &&
         metadata.capability_policy?.model_catalog?.tool_mode === "direct" &&
         metadata.capability_policy?.model_catalog?.javascript_host === "disabled" &&

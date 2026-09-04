@@ -419,8 +419,8 @@ test("multiple interview chats retain independent snapshot moments and can be en
   }
 });
 
-test("nonterminal paused and stopped runs resume their existing Codex thread", async () => {
-  for (const status of ["paused", "stopped"]) {
+test("nonterminal paused, stopped and compaction-failed runs resume their existing Codex thread", async () => {
+  for (const status of ["paused", "stopped", "failed"]) {
     const recordsRoot = await mkdtemp(path.join(os.tmpdir(), `mazebench-resume-${status}-`));
     const id = `run-2026-09-03T12-34-44-317Z-${status === "paused" ? "a11ced" : "57a9ed"}`;
     const directory = path.join(recordsRoot, id);
@@ -435,6 +435,7 @@ test("nonterminal paused and stopped runs resume their existing Codex thread", a
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       status,
+      error: status === "failed" ? 'Error running remote compact task: unexpected status 404 Not Found, url: https://chatgpt.com/backend-api/codex/responses/compact, request id: fixture' : null,
       model: "gpt-5.6-terra",
       effort: "medium",
       tools_enabled: false,
@@ -471,6 +472,12 @@ test("nonterminal paused and stopped runs resume their existing Codex thread", a
       assert.equal(metadata.status, "queued");
       assert.equal(metadata.stopped_at, null);
       assert.equal(metadata.paused_at, null);
+      assert.equal(metadata.error, null);
+      if (status === "failed") {
+        assert.equal(metadata.recoveries.length, 1);
+        assert.match(metadata.recoveries[0].previous_error, /404 Not Found/);
+        assert.equal(metadata.recoveries[0].codex_thread_id, "existing-thread");
+      }
     } finally {
       if (release) {
         release();
