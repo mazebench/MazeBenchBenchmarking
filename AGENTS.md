@@ -250,7 +250,7 @@ or a weightless body hides a button, gem, or other face fixture at that voxel,
 but a floor or Ice surface remains rendered beneath the occupant at pitched
 camera angles. Do not use source-array order as a visibility rule.
 
-Buttons and lowered lifts are face fixtures rather than full cubes:
+Buttons, lowered lifts, and lowered gates are face fixtures rather than full cubes:
 
 - an exposed Orange Button is light orange (`#ffb347`) and occupies a centered
   2x2 region of the 4x4 ASCII face;
@@ -261,15 +261,19 @@ Buttons and lowered lifts are face fixtures rather than full cubes:
   remains a full cube; and
 - a button can render over a lowered lift on the same face.
 
+Lowered gates render as flat plates on their mounted faces, yield to occupants,
+and allow a button on the same face to remain visible. Raised gates render as
+full cubes. A top-down gate uses `y` when lowered and `Y` when raised; raised
+side faces use `y`. This retains the existing hidden-name glyph mapping.
+
 Objects marked `engineHidden`, hidden Orange Button states, and invisible
 Orange Wall volumes never render. When an Orange Wall retracts completely under
 a floor surface or into another solid, omit it so the covering surface is
 exposed. Coincident visible Orange Wall records resolve deterministically.
 
-Gate and puncher physics are now implemented upstream, including lowered/raised
-gate states and unsprung/sprung puncher states. Their ASCII face-fixture rules
-remain intentionally pending at the user's request; do not extend this contract
-to them until the user resumes that renderer work.
+Gate and puncher physics are implemented upstream. Gate ASCII rendering now
+reflects lowered/raised states. Puncher ASCII face-fixture rules remain pending
+at the user's request; do not extend this contract to punchers until requested.
 
 ## 3D room context
 

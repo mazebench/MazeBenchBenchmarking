@@ -184,7 +184,11 @@ export function glyphForObject(object, definition, yaw = 0, catalog = null) {
     case "orange-slope": return ORANGE_ICE_SLOPE_DIRECTION_GLYPHS[screenDirection];
     case "player": return ACTOR_GLYPHS.player;
     case "gem": return ACTOR_GLYPHS.gem;
-    case "gate": return TERRAIN_GLYPHS.player_gate;
+    case "gate": {
+      const gate = TERRAIN_GLYPHS.player_gate;
+      // Lowercase keeps a flat gate distinct even in the top-down view.
+      return glyphPair(mechanismIsRaised(object) ? gate.top : gate.side, gate.side);
+    }
     case "lift": {
       const lift = PLAYER_LIFT_GLYPHS.player_lift;
       return glyphPair(object.stateId === 1 ? lift.raisedTop : lift.loweredTop, lift.side);
@@ -235,22 +239,26 @@ function observationColor(object, definition) {
   return definition?.color || "#d6bd94";
 }
 
+function mechanismIsRaised(object) {
+  if (Number.isInteger(object.stateId)) return object.stateId === 1;
+  if (Number.isInteger(object.engineGenericId)) return object.engineGenericId % 2 === 1;
+  if (Number.isInteger(object.genericId)) return object.genericId % 2 === 1;
+  return false;
+}
+
 function isLoweredLift(object) {
-  if (object.blockId !== "lift") return false;
-  if (Number.isInteger(object.stateId)) return object.stateId !== 1;
-  if (Number.isInteger(object.engineGenericId)) return object.engineGenericId % 2 === 0;
-  if (Number.isInteger(object.genericId)) return object.genericId % 2 === 0;
-  return true;
+  return object.blockId === "lift" && !mechanismIsRaised(object);
 }
 
 function faceFixtureKind(object) {
   if (object.blockId === "orange-button") return "button";
   if (isLoweredLift(object)) return "lift";
+  if (object.blockId === "gate" && !mechanismIsRaised(object)) return "gate";
   return null;
 }
 
 function fixtureDrawPriority(fixture) {
-  return fixture === "lift" ? 0 : 1;
+  return fixture === "button" ? 1 : 0;
 }
 
 function isBaseSurface(definition) {
@@ -280,12 +288,12 @@ function visibilityPriority(object, definition) {
   if (object.blockId === "player") return 1000;
   if (definition?.occupancy === "solid" && definition?.category === "actor") return 950;
   if (definition?.occupancy === "solid" || object.blockId === "orange-wall" ||
-      (object.blockId === "lift" && !isLoweredLift(object))) return 900;
+      (["lift", "gate"].includes(object.blockId) && mechanismIsRaised(object))) return 900;
   if (object.blockId === "puncher") return 800;
   if (object.blockId === "gem") return 700;
   if (definition?.category === "actor") return 650;
   if (faceFixtureKind(object) === "button") return 120;
-  if (faceFixtureKind(object) === "lift") return 110;
+  if (["lift", "gate"].includes(faceFixtureKind(object))) return 110;
   if (isBaseSurface(definition)) return 10;
   return 600;
 }
@@ -521,7 +529,7 @@ function fixtureFacePixel(record, yaw, side = false) {
 
 function drawTopFixture(canvas, left, top, rows, record, yaw, canDraw = null) {
   const pixel = fixtureFacePixel(record, yaw);
-  if (record.fixture === "lift") {
+  if (record.fixture !== "button") {
     drawRect(canvas, left, top, ASCII_TILE_SIZE, rows, pixel, false, canDraw);
     return;
   }
@@ -541,7 +549,7 @@ function drawTopFixture(canvas, left, top, rows, record, yaw, canDraw = null) {
 
 function drawSideFixture(canvas, left, top, rows, record, yaw, canDraw = null) {
   const pixel = fixtureFacePixel(record, yaw, true);
-  if (record.fixture === "lift") {
+  if (record.fixture !== "button") {
     drawRect(canvas, left, top, ASCII_TILE_SIZE, rows, pixel, false, canDraw);
     return;
   }
