@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createWriteStream, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
-import { buildClaudeArguments, claudeBoundaryViolation, claudeEnvironment } from "./claude-policy.mjs";
+import { buildClaudeArguments, createClaudeBoundaryValidator, claudeEnvironment } from "./claude-policy.mjs";
 
 export async function atomicJson(file, value) {
   const temporary = `${file}.${randomUUID()}.tmp`;
@@ -28,6 +28,7 @@ export function runClaudeTurn({ projectRoot, directory, metadata, frozen, prompt
     let buffer = "", stderr = "", sessionId = metadata.claude_session_id, boundaryError = null, result = null, initialized = false;
     let persistence = Promise.resolve();
     const seen = new Set();
+    const validateBoundary = createClaudeBoundaryValidator({ model: metadata.model, toolsEnabled: metadata.tools_enabled });
     const invalidate = message => {
       boundaryError ||= message;
       writeFileSync(path.join(directory, "integrity-violation.json"), JSON.stringify({ error: boundaryError, at: new Date().toISOString() }), { mode: 0o600 });
@@ -46,7 +47,7 @@ export function runClaudeTurn({ projectRoot, directory, metadata, frozen, prompt
       event._received_at = new Date().toISOString();
       event._turn_id = turnId;
       raw.write(`${JSON.stringify(event)}\n`);
-      const violation = claudeBoundaryViolation(event, { model: metadata.model, toolsEnabled: metadata.tools_enabled });
+      const violation = validateBoundary(event);
       if (violation) { invalidate(violation); return; }
       if (event.type === "system" && event.subtype === "init") {
         initialized = true;

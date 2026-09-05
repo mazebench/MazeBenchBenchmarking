@@ -97,8 +97,26 @@ export async function verifyClaudeIntegrity(projectRoot, runDirectory, metadata)
   return frozen;
 }
 
-export function claudeBoundaryViolation(event, { model, toolsEnabled = false, interview = false } = {}) {
+const HEARTBEAT_FIELDS = new Set(["type", "tool_use_id", "tool_name", "parent_tool_use_id", "elapsed_time_seconds", "heartbeat", "session_id", "uuid", "_received_at", "_turn_id"]);
+
+function permittedToolHeartbeat(event, allowed, rootToolCalls) {
+  const parent = event.parent_tool_use_id;
+  const call = rootToolCalls?.get(parent);
+  return event.heartbeat === true && typeof parent === "string" && parent.length > 0 &&
+    typeof event.tool_use_id === "string" && event.tool_use_id.startsWith(`${parent}-heartbeat-`) &&
+    /^\d+$/.test(event.tool_use_id.slice(parent.length + "-heartbeat-".length)) &&
+    Number.isFinite(event.elapsed_time_seconds) && event.elapsed_time_seconds >= 0 &&
+    typeof event.session_id === "string" && call?.sessionId === event.session_id &&
+    call.name === event.tool_name && allowed.includes(event.tool_name) &&
+    Object.keys(event).every(key => HEARTBEAT_FIELDS.has(key));
+}
+
+export function claudeBoundaryViolation(event, { model, toolsEnabled = false, interview = false, rootToolCalls } = {}) {
   const allowed = interview ? [] : claudeTools(toolsEnabled);
+  // Claude Code uses parent_tool_use_id for long-running root-tool heartbeats
+  // as well as agent responses. Admit only progress tied to a validated call.
+  if (event.type === "tool_progress") return permittedToolHeartbeat(event, allowed, rootToolCalls)
+    ? null : "Claude emitted unverified tool progress.";
   if (event.parent_tool_use_id) return "Claude attempted a delegated agent response.";
   if (event.type === "stream_event") {
     const inner = event.event || {};
@@ -123,4 +141,28 @@ export function claudeBoundaryViolation(event, { model, toolsEnabled = false, in
   }
   if (event.type === "result" && Object.keys(event.modelUsage || {}).some(name => name !== model)) return "Claude reported usage for a different model.";
   return null;
+}
+
+export function createClaudeBoundaryValidator(options) {
+  const rootToolCalls = new Map();
+  let sessionId = null;
+  return event => {
+    const violation = claudeBoundaryViolation(event, { ...options, rootToolCalls });
+    if (violation) return violation;
+    if (event.type === "system" && event.subtype === "init") {
+      sessionId = event.session_id;
+      rootToolCalls.clear();
+    }
+    if (event.type === "assistant" && sessionId && event.session_id === sessionId) {
+      for (const block of event.message?.content || []) {
+        if (block.type === "tool_use" && typeof block.id === "string" && block.id)
+          rootToolCalls.set(block.id, { name: block.name, sessionId });
+      }
+    }
+    if (event.type === "user" && event.session_id === sessionId) {
+      for (const block of event.message?.content || [])
+        if (block.type === "tool_result") rootToolCalls.delete(block.tool_use_id);
+    }
+    return null;
+  };
 }

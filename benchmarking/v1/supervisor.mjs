@@ -20,6 +20,7 @@ import { BenchmarkGameRuntime, DEFAULT_START_ROOM } from "./runtime.mjs";
 import { inspectCodex, codexBinaryDigest, codexInstallationStatus, VERIFIED_CODEX_VERSIONS } from "./codex-installation.mjs";
 import { CAPABILITY_POLICY_VERSION, CAPABILITY_POLICY_NAME, createRunIntegrity, verifyRunIntegrity, assertRunConfiguration, verifyCheckpoint } from "./integrity.mjs";
 import { safeDirectory, safeReadFile } from "./safe-files.mjs";
+import { readCheckpointJson } from "./checkpoint-json.mjs";
 
 const DEFAULT_MODEL = "gpt-5.6-terra";
 const DEFAULT_EFFORT = "medium";
@@ -1224,7 +1225,7 @@ export class BenchmarkSupervisor {
     const backfill = (async () => {
       const [metadata, state] = await Promise.all([
         readJson(path.join(directory, "run.json")),
-        readJson(path.join(directory, "game-state.json"))
+        readCheckpointJson(directory)
       ]);
       if (!metadata || !state) throw new Error("Benchmark run state is unavailable.");
       const temporary = await mkdtemp(path.join(os.tmpdir(), "mazebench-display-history-"));

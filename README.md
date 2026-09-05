@@ -125,6 +125,13 @@ include cache reads and writes once; its cost is reported by Claude Code for
 completed turns, with the active turn pending. Claude context usage and
 compaction events are charted, but no trigger line is invented when the CLI
 does not report its compaction threshold. Replay starts at 30 ms per frame.
+MazeBench novelty compares the current room and its board configuration, ignoring
+gem objects, global gem collection progress, camera angle, and object-array order.
+The same configuration before and after collecting a gem therefore counts once.
+Novelty uses a separate fingerprint; the complete game-state hashes and signed
+checkpoints still retain gems and score. Historical analytics require an audited
+recalculation before an older MazeBench checkpoint can resume. The rolling trace
+uses all recorded actions, so camera-only actions contribute no new state.
 A run can be paused or stopped and resumed from its existing provider session
 while the game remains nonterminal. Codex record pages can also create any number of
 isolated interview branches at the current move, accept free-form questions,

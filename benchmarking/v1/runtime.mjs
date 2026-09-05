@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { signCheckpoint } from "./integrity.mjs";
+import { readCheckpointJson, writeCheckpointJson } from "./checkpoint-json.mjs";
+import { NOVELTY_VERSION, noveltyStateHash } from "./novelty.mjs";
 import { safeDirectory, safeReadFile } from "./safe-files.mjs";
 
 import {
@@ -42,18 +44,6 @@ function clone(value) {
 
 function now() {
   return new Date().toISOString();
-}
-
-async function atomicJson(filePath, value) {
-  const temporary = `${filePath}.${process.pid}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  await rename(temporary, filePath);
-}
-
-async function atomicText(filePath, value) {
-  const temporary = `${filePath}.${process.pid}.tmp`;
-  await writeFile(temporary, String(value), "utf8");
-  await rename(temporary, filePath);
 }
 
 function roomLabel(room) {
@@ -235,6 +225,7 @@ export class BenchmarkGameRuntime {
     this.displayHistoryDirectory = path.join(runDirectory, "display-history");
     this.assets = assets;
     this.internal = internal;
+    this.noveltySeen = new Set(internal.noveltyHashes || []);
   }
 
   static async create(projectRoot, runDirectory, options = {}) {
@@ -266,6 +257,8 @@ export class BenchmarkGameRuntime {
       visitedRooms: [room.fileName],
       roomEntryStates: { [room.fileName]: clone(startingState) },
       stateHashes: [],
+      noveltyVersion: NOVELTY_VERSION,
+      noveltyHashes: [],
       positions: [],
       deaths: 0,
       resets: 0,
@@ -274,6 +267,7 @@ export class BenchmarkGameRuntime {
       blockedActions: 0
     };
     internal.stateHashes.push(stateHash(internal));
+    internal.noveltyHashes.push(noveltyStateHash(internal.roomFile, internal.state, assets.definitions));
     internal.positions.push(positionFor(room, player, assets.roomWidth, assets.roomHeight));
     await mkdir(path.join(runDirectory, "workspace"), { recursive: true, mode: 0o700 });
     await mkdir(path.join(runDirectory, "sandbox-state"), { recursive: true, mode: 0o700 });
@@ -287,10 +281,13 @@ export class BenchmarkGameRuntime {
   static async open(projectRoot, runDirectory) {
     const [assets, internal] = await Promise.all([
       loadBenchmarkAssets(projectRoot),
-      readFile(path.join(runDirectory, "game-state.json"), "utf8").then(JSON.parse)
+      readCheckpointJson(runDirectory)
     ]);
     if (internal.version !== BENCHMARK_RUNTIME_VERSION) {
       throw new Error(`Unsupported benchmark runtime version ${internal.version}.`);
+    }
+    if (internal.noveltyVersion !== NOVELTY_VERSION || internal.noveltyHashes?.length !== internal.actionCount + 1) {
+      throw new Error("This checkpoint needs the audited gem-free novelty recalculation before resuming.");
     }
     return new BenchmarkGameRuntime(projectRoot, runDirectory, assets, internal);
   }
@@ -319,6 +316,7 @@ export class BenchmarkGameRuntime {
   }
 
   async renderObservation(options = {}) {
+    if (this.persistenceError) throw this.persistenceError;
     const room = this.room;
     const renderedRoom = this.assets.engine.roomFromState(this.internal.state, room);
     const frame = await renderAsciiFrameV1(renderedRoom, this.assets.blocks, {
@@ -378,6 +376,7 @@ export class BenchmarkGameRuntime {
   }
 
   async readRecord(requested) {
+    if (this.persistenceError) throw this.persistenceError;
     const record = String(requested || "").trim().replaceAll("\\", "/");
     const allowed = RECORD_NAMES.has(record) || /^move_history\/move_(?:0|[1-9]\d*)\.txt$/.test(record);
     if (!allowed || record.includes("..") || path.isAbsolute(record)) {
@@ -397,6 +396,7 @@ export class BenchmarkGameRuntime {
   }
 
   assertPlayable() {
+    if (this.persistenceError) throw this.persistenceError;
     const status = this.status();
     if (status === "won") throw new Error("The maze is already won.");
     if (status === "action-limit") throw new Error("The action limit is exhausted.");
@@ -508,7 +508,10 @@ export class BenchmarkGameRuntime {
     this.internal.actionCount += 1;
     this.internal.updatedAt = now();
     const hash = stateHash(this.internal);
-    const novel = !this.internal.stateHashes.includes(hash);
+    const noveltyHash = noveltyStateHash(this.internal.roomFile, this.internal.state, this.assets.definitions);
+    const novel = !this.noveltySeen.has(noveltyHash);
+    this.noveltySeen.add(noveltyHash);
+    this.internal.noveltyHashes.push(noveltyHash);
     this.internal.stateHashes.push(hash);
     this.internal.positions.push(afterPosition);
     const record = {
@@ -568,6 +571,7 @@ export class BenchmarkGameRuntime {
     const novelActions = this.internal.actions.filter((action) => action.novel).length;
     return {
       schema_version: 1,
+      novelty_version: NOVELTY_VERSION,
       updated_at: this.internal.updatedAt,
       game_status: this.status(),
       action_count: this.internal.actionCount,
@@ -590,54 +594,69 @@ export class BenchmarkGameRuntime {
   }
 
   async persist({ writeSnapshot = false } = {}) {
+    if (this.persistenceError) throw this.persistenceError;
     const observation = await this.renderObservation({ includeColor: true });
     const summary = this.summary();
-    await Promise.all([
-      atomicJson(path.join(this.runDirectory, "game-state.json"), this.internal),
-      atomicJson(path.join(this.runDirectory, "summary.json"), summary),
-      atomicJson(path.join(this.runDirectory, "display.json"), {
+    let staging;
+    try {
+      staging = await mkdtemp(path.join(this.runDirectory, ".checkpoint-"));
+      // Prepare every artifact before publishing any of them. A serialization
+      // or disk-write failure cannot advance the summary past the saved board.
+      const artifacts = [];
+      const json = async (relative, value) => {
+        const file = path.join(staging, relative);
+        await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+        await writeCheckpointJson(file, value);
+        artifacts.push(relative);
+      };
+      const text = async (relative, value) => {
+        const file = path.join(staging, relative);
+        await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+        await writeFile(file, value, { flag: "wx", mode: 0o600 });
+        artifacts.push(relative);
+      };
+      await json("game-state.json", this.internal);
+      await json("summary.json", summary);
+      await json("display.json", {
         observation_revision: observation.observation_revision,
         room: observation.room,
         level: observation.level,
         colored_level: observation.colored_level,
         ascii_legend: observation.ascii_legend
-      }),
-      atomicText(path.join(this.recordsDirectory, "current_board.txt"), `${observation.level}\n`),
-      atomicJson(path.join(this.recordsDirectory, "current_state.json"), {
-        ...observation,
-        level: undefined,
-        colored_level: undefined,
-        records: undefined
-      }),
-      atomicText(
-        path.join(this.recordsDirectory, "moves.txt"),
-        this.internal.actions.map((action) => action.action).join("\n") +
-          (this.internal.actions.length ? "\n" : "")
-      ),
-      atomicText(
-        path.join(this.recordsDirectory, "history.jsonl"),
-        this.internal.actions.map((action) => JSON.stringify(publicAction(action))).join("\n") +
-          (this.internal.actions.length ? "\n" : "")
-      )
-    ]);
-    if (writeSnapshot) {
-      const index = this.internal.actionCount;
-      const header = index === 0
-        ? `# move 0 · initial · ${observation.room}`
-        : `# move ${index} · ${this.internal.actions.at(-1).action} · ${observation.room}`;
-      await Promise.all([
-        atomicText(
-          path.join(this.moveHistoryDirectory, `move_${index}.txt`),
-          `${header}\n${observation.level}\n`
-        ),
-        atomicJson(path.join(this.displayHistoryDirectory, `move_${index}.json`), {
+      });
+      await text("records/current_board.txt", `${observation.level}\n`);
+      await json("records/current_state.json", {
+        ...observation, level: undefined, colored_level: undefined, records: undefined
+      });
+      await text("records/moves.txt", this.internal.actions.map(action => action.action).join("\n") +
+        (this.internal.actions.length ? "\n" : ""));
+      await text("records/history.jsonl", this.internal.actions.map(action => JSON.stringify(publicAction(action))).join("\n") +
+        (this.internal.actions.length ? "\n" : ""));
+      if (writeSnapshot) {
+        const index = this.internal.actionCount;
+        const header = index === 0
+          ? `# move 0 · initial · ${observation.room}`
+          : `# move ${index} · ${this.internal.actions.at(-1).action} · ${observation.room}`;
+        await text(`records/move_history/move_${index}.txt`, `${header}\n${observation.level}\n`);
+        await json(`display-history/move_${index}.json`, {
           observation_revision: observation.observation_revision,
           room: observation.room,
           level: observation.level,
           colored_level: observation.colored_level
-        })
-      ]);
+        });
+      }
+      const signed = await signCheckpoint(this.runDirectory, { artifactsDirectory: staging });
+      // The signature is published last. A process crash during these renames
+      // remains detectable by the existing fail-closed integrity check.
+      for (const relative of artifacts) await rename(path.join(staging, relative), path.join(this.runDirectory, relative));
+      if (signed) await rename(path.join(staging, "checkpoint.json"), path.join(this.runDirectory, "checkpoint.json"));
+    } catch (error) {
+      // Never serve or continue the in-memory action after an unsuccessful save.
+      // Reopening requires the normal checkpoint and capability verification.
+      this.persistenceError = new Error(`Benchmark save failed; reopen the last verified checkpoint: ${error.message}`, { cause: error });
+      throw this.persistenceError;
+    } finally {
+      if (staging) await rm(staging, { recursive: true, force: true });
     }
-    await signCheckpoint(this.runDirectory);
   }
 }

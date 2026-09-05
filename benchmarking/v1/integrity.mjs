@@ -1,7 +1,8 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { closeSync, readSync } from "node:fs";
 import { readdir, readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
-import { safeDirectory, safeReadFile } from "./safe-files.mjs";
+import { safeDirectory, safeOpenFile, safeReadFile } from "./safe-files.mjs";
 
 export const CAPABILITY_POLICY_VERSION = 4;
 export const CAPABILITY_POLICY_NAME = "os-isolated-v4";
@@ -49,24 +50,31 @@ export async function verifyRunIntegrity(projectRoot, runDirectory, expected = n
   return manifest;
 }
 
-function checkpointDigest(runDirectory) {
+function checkpointDigest(runDirectory, artifactsDirectory = runDirectory) {
   const key = safeReadFile(runDirectory, "sandbox-state/integrity-key", null);
-  return createHmac("sha256", key)
-    .update(safeReadFile(runDirectory, "game-state.json", null))
-    .update("\nSUMMARY\n")
-    .update(safeReadFile(runDirectory, "summary.json", null))
-    .digest("hex");
+  const hmac = createHmac("sha256", key);
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  for (const file of ["game-state.json", "summary.json"]) {
+    if (file === "summary.json") hmac.update("\nSUMMARY\n");
+    const fd = safeOpenFile(artifactsDirectory, file);
+    try {
+      let count;
+      while ((count = readSync(fd, buffer, 0, buffer.length, null))) hmac.update(buffer.subarray(0, count));
+    } finally { closeSync(fd); }
+  }
+  return hmac.digest("hex");
 }
 
-export async function signCheckpoint(runDirectory) {
+export async function signCheckpoint(runDirectory, { artifactsDirectory = runDirectory } = {}) {
   // Standalone engine/UI fixtures have no key. Production MCP requires a
   // manifest and key before it can open a run.
   try { safeReadFile(runDirectory, "integrity.json"); }
-  catch (error) { if (error.code === "ENOENT") return; throw error; }
-  const file = path.join(runDirectory, "checkpoint.json");
+  catch (error) { if (error.code === "ENOENT") return false; throw error; }
+  const file = path.join(artifactsDirectory, "checkpoint.json");
   const temporary = `${file}.${process.pid}.tmp`;
-  await writeFile(temporary, JSON.stringify({ version: CAPABILITY_POLICY_VERSION, hmac: checkpointDigest(runDirectory) }), { mode: 0o600 });
+  await writeFile(temporary, JSON.stringify({ version: CAPABILITY_POLICY_VERSION, hmac: checkpointDigest(runDirectory, artifactsDirectory) }), { mode: 0o600 });
   await rename(temporary, file);
+  return true;
 }
 
 export function verifyCheckpoint(runDirectory) {

@@ -21,7 +21,9 @@ export function safeDirectory(parent, relative, { create = false } = {}) {
   return current;
 }
 
-export function safeReadFile(root, relative, encoding = "utf8") {
+// The caller owns the returned descriptor. Streaming readers use the same
+// no-symlink/no-hardlink boundary as small record reads.
+export function safeOpenFile(root, relative) {
   const parts = String(relative).split("/");
   const name = parts.pop();
   if (!name || name === "." || name === ".." || name.includes("\\")) throw new Error("Unsafe file path.");
@@ -30,8 +32,14 @@ export function safeReadFile(root, relative, encoding = "utf8") {
   try {
     const info = fstatSync(fd);
     if (!info.isFile() || info.nlink !== 1) throw new Error("Records must be regular files without links.");
-    return readFileSync(fd, encoding);
-  } finally { closeSync(fd); }
+    return fd;
+  } catch (error) { closeSync(fd); throw error; }
+}
+
+export function safeReadFile(root, relative, encoding = "utf8") {
+  const fd = safeOpenFile(root, relative);
+  try { return readFileSync(fd, encoding); }
+  finally { closeSync(fd); }
 }
 
 export function writeWorkspaceScript(workspace, relative, source) {
