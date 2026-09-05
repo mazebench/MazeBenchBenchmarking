@@ -15,6 +15,17 @@ const now = () => new Date().toISOString();
 const makeId = () => `run-${now().replace(/[:.]/g, "-")}-${randomBytes(3).toString("hex")}`;
 const providerOf = metadata => metadata.provider || "codex";
 
+export function claudeContinuationPrompt(summary, { resume = false, stalledTurns = 0 } = {}) {
+  return `${resume ? "Resume" : "Continue"} the same MazeBench benchmark at ${summary.action_count} accepted actions. ` +
+    "The operator requires continued gameplay. Believing the puzzle is impossible, exhausted, or solved is not a stopping condition. " +
+    "Call maze_observe to re-anchor, then use maze_action or maze_sequence to execute at least one gameplay action this turn. " +
+    "Observations, camera changes, and a written conclusion do not satisfy that requirement. " +
+    "If stuck, reconsider your assumptions, revisit rooms, and test different action sequences using the permitted tools. Recover from death with undo or reset. " +
+    "Keep choosing and executing game actions; do not wait for another request or offer to continue later. " +
+    "Only the game's won or action-limit status, or an operator pause/stop, ends gameplay. " +
+    (stalledTurns > 0 ? `Your last ${stalledTurns} consecutive completed turn(s) contained no gameplay actions. Do not repeat the refusal or impossibility conclusion. Execute a gameplay action now.` : "");
+}
+
 export class BenchmarkSupervisor extends CodexSupervisor {
   constructor(projectRoot, options = {}) {
     super(projectRoot, options);
@@ -109,6 +120,10 @@ export class BenchmarkSupervisor extends CodexSupervisor {
     }).finally(() => this.active.delete(id));
   }
 
+  runClaudeTurn(options) {
+    return runClaudeTurn(options);
+  }
+
   async claudeLoop(id, directory, prompt, control) {
     const metadataPath = path.join(directory, "run.json");
     while (!control.stopRequested && !control.pauseRequested) {
@@ -118,7 +133,7 @@ export class BenchmarkSupervisor extends CodexSupervisor {
       await atomicJson(metadataPath, metadata);
       if (control.stopRequested || control.pauseRequested) break;
       const before = (await readJson(path.join(directory, "summary.json"))).action_count;
-      const turn = await runClaudeTurn({ projectRoot: this.projectRoot, directory, metadata, frozen, prompt, control,
+      const turn = await this.runClaudeTurn({ projectRoot: this.projectRoot, directory, metadata, frozen, prompt, control,
         onSession: async session => {
           const current = await readJson(metadataPath);
           if (current.claude_session_id === session) return;
@@ -138,9 +153,12 @@ export class BenchmarkSupervisor extends CodexSupervisor {
       if (!metadata.claude_session_id) throw new Error("Claude did not report a resumable session.");
       metadata.continuation_count += 1;
       metadata.last_turn_actions = summary.action_count - before;
+      metadata.last_turn_gameplay_actions = summary.actions.filter(action => action.index > before && !action.action.startsWith("camera ")).length;
+      metadata.consecutive_no_gameplay_turns = metadata.last_turn_gameplay_actions > 0
+        ? 0 : (metadata.consecutive_no_gameplay_turns || 0) + 1;
       metadata.updated_at = now();
       await atomicJson(metadataPath, metadata);
-      prompt = `Continue the same MazeBench benchmark. Call maze_observe to re-anchor, then keep acting until won or action-limit. You have ${summary.action_count} accepted actions recorded.`;
+      prompt = claudeContinuationPrompt(summary, { stalledTurns: metadata.consecutive_no_gameplay_turns });
     }
     const metadata = await readJson(metadataPath);
     metadata.status = control.pauseRequested ? "paused" : "stopped"; metadata.updated_at = now();
@@ -161,7 +179,9 @@ export class BenchmarkSupervisor extends CodexSupervisor {
     metadata.status = "queued"; metadata.error = null; metadata.completed_at = null; metadata.stopped_at = null; metadata.paused_at = null;
     metadata.resumed_at = now(); metadata.updated_at = now();
     await atomicJson(path.join(directory, "run.json"), metadata);
-    this.startClaude(id, directory, `Resume the same MazeBench benchmark. Call maze_observe to re-anchor, then keep acting until won or action-limit. You have ${summary.action_count} accepted actions recorded.`);
+    this.startClaude(id, directory, claudeContinuationPrompt(summary, {
+      resume: true, stalledTurns: metadata.consecutive_no_gameplay_turns || (metadata.last_turn_actions === 0 ? 1 : 0)
+    }));
     return this.get(id);
   }
 
