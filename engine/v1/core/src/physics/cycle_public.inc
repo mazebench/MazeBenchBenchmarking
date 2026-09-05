@@ -35,11 +35,12 @@ TickResult step_command_tick(
         current_depth_sum != tracker.last_orange_depth_sum) {
       const bool lowering =
           current_depth_sum > tracker.last_orange_depth_sum;
-      const int32_t target_depth = PressedOrangeButtonCount(
-          voxels, count, width, height);
+      int32_t target_depths[kOrangeScopeCount];
+      CountPressedOrangeButtons(voxels, count, width, height, target_depths);
       for (int32_t index = 0; index < count; ++index) {
         if (voxels[index].role != kOrangeWallRole) continue;
         const int32_t depth = OrangeWallDepth(voxels[index]);
+        const int32_t target_depth = target_depths[OrangeScope(voxels[index])];
         if ((lowering && depth > target_depth) ||
             (!lowering && depth < target_depth)) {
           // The pressure changed across this mechanism step, so the next

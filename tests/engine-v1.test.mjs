@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { countActiveRoleV1 } from "../engine/v1/adapter.mjs";
+import { loadBenchmarkAssets } from "../benchmarking/v1/runtime.mjs";
 import {
   ENGINE_SOURCE_COMMIT,
   ENGINE_SOURCE_REPOSITORY,
@@ -113,6 +114,25 @@ test("play v1 leaves ineffective commands out of moves and undo history", async 
   assert.equal(session.history.length, 1);
   assert.equal(session.undo(), true);
   assert.equal(session.state.objects[0].x, 0);
+});
+
+test("the shipped Play engine crosses LxL north into LxK and returns without losing input", async () => {
+  const assets = await loadBenchmarkAssets(new URL("..", import.meta.url).pathname);
+  const original = assets.roomsByLabel.get("LXL");
+  const session = new PlaySessionV1(assets.engine, assets.blocks, {
+    frameDelay: 0,
+    resolveCommand: (state, room, direction) => assets.connectedWorld.simulateCommand(state, room, direction)
+  });
+  session.open(original);
+  const initial = structuredClone(session.state);
+  for (let step = 0; step < 4; step += 1) await session.move("up");
+  assert.deepEqual(session.room.position, ["L", "K"]);
+  assert.deepEqual(session.state.objects.find(o => o.blockId === "player"), { x: 7, y: 14, z: 0, blockId: "player" });
+  assert.equal(session.moves, 4);
+  for (let step = 0; step < 4; step += 1) await session.move("down");
+  assert.equal(session.room, original);
+  assert.deepEqual(session.state.objects.find(o => o.blockId === "player"), initial.objects.find(o => o.blockId === "player"));
+  assert.equal(session.moves, 8);
 });
 
 test("connected play reloads rooms normally and undo crosses back with exact state", async () => {
@@ -551,4 +571,82 @@ test("play v1 continues accepting movement after the final gem is collected", as
   assert.equal(session.state.objects[0].y, 1);
   assert.equal(changes.at(-1).playerActive, true);
   assert.equal("solved" in changes.at(-1), false);
+});
+
+test("room scopes isolate orange pressure throughout entry and re-entry", async () => {
+  const { engine } = await loadEngine();
+  const definitions = [...blocks,
+    { id: "orange-button", roleId: "orange-button" },
+    { id: "orange-wall", roleId: "orange-wall" },
+    { id: "weightless-box", roleId: "weightless-pushable" }
+  ];
+  const floor = Array.from({ length: 24 }, (_, i) => ({ x: i % 6, y: Math.floor(i / 6), z: 0, blockId: "floor" }));
+  const source = {
+    fileName: "source.json", position: ["A", "A"], columnIndex: 0, rowIndex: 0, width: 6, height: 4,
+    objects: [...floor, { x: 5, y: 1, z: 0, blockId: "player" },
+      { x: 2, y: 2, z: 0, blockId: "orange-button", orientation: "top" },
+      { x: 1, y: 2, z: 0, blockId: "weightless-box", groupId: 0 }]
+  };
+  const destination = {
+    ...source, fileName: "destination.json", position: ["B", "A"], columnIndex: 1,
+    objects: [...floor, { x: 1, y: 3, z: 0, blockId: "player" },
+      { x: 0, y: 2, z: 0, blockId: "orange-button", orientation: "top" },
+      { x: 4, y: 2, z: 0, blockId: "orange-wall" },
+      { x: 4, y: 2, z: 1, blockId: "orange-wall" }]
+  };
+  const world = new ConnectedWorldSessionV1(engine, definitions, [source, destination]);
+  const initial = engine.createState(source);
+  initial.objects.find(o => o.blockId === "weightless-box").x = 2;
+  const entry = await world.simulateCommand(initial, source, "right");
+  const walls = state => state.objects.filter(o => o.blockId === "orange-wall").map(o => [o.z, o.mechanismDepth]);
+  assert.equal(entry.room, destination);
+  assert.deepEqual(walls(entry.final), [[0, 0], [1, 0]]);
+  for (const frame of entry.animationFrames.filter(frame => frame.room === destination)) {
+    assert.deepEqual(walls(frame.state), [[0, 0], [1, 0]]);
+    assert(frame.state.objects.every(object => object.connectedWorldOrangeScope === undefined));
+  }
+  assert.deepEqual(entry.animationFrames.at(-1).state, entry.final);
+  assert.deepEqual(entry.final.objects.find(o => o.blockId === "player"), { x: 0, y: 1, z: 0, blockId: "player" });
+  const held = await world.simulateCommand(entry.final, destination, "down");
+  assert.deepEqual(walls(held.final), [[-1, 1], [0, 1]]);
+  const released = await world.simulateCommand(held.final, destination, "up");
+  assert.deepEqual(walls(released.final), [[0, 0], [1, 0]]);
+  const back = await world.simulateCommand(released.final, destination, "left");
+  assert.equal(back.final.objects.find(o => o.blockId === "weightless-box").x, 1);
+  const reentry = await world.simulateCommand(back.final, source, "right");
+  assert.deepEqual(walls(reentry.final), [[0, 0], [1, 0]]);
+  assert.deepEqual(destination.objects.filter(o => o.blockId === "orange-wall").map(o => o.z), [0, 1]);
+});
+
+test("LxL box-on-button crossing keeps every LxK orange wall raised in every frame", async () => {
+  const assets = await loadBenchmarkAssets(new URL("..", import.meta.url).pathname);
+  const source = assets.roomsByLabel.get("LXL");
+  const destination = assets.roomsByLabel.get("LXK");
+  const authored = structuredClone(destination.objects);
+  const actions = [...Array(4).fill("left"), "down", ...Array(7).fill("right"), "left", ...Array(4).fill("up")];
+  let room = source;
+  let state = assets.engine.createState(source);
+  let destinationFrames = 0;
+  for (const [index, action] of actions.entries()) {
+    const command = await assets.connectedWorld.simulateCommand(state, room, action);
+    for (const frame of command.animationFrames) {
+      assert(frame.state.objects.every(object => object.connectedWorldOrangeScope === undefined));
+      if (frame.room !== destination) continue;
+      destinationFrames += 1;
+      const walls = frame.state.objects.filter(object => object.blockId === "orange-wall");
+      assert.equal(walls.length, 24);
+      assert(walls.every(wall => wall.z === 0 && wall.mechanismDepth === 0), `step ${index + 1}: neighboring button lowered a wall`);
+    }
+    state = command.final;
+    room = command.room || room;
+    if (index === 15) {
+      assert.equal(room, source);
+      assert(state.objects.some(object => object.blockId === "weightless-box" && object.x === 11 && object.y === 3));
+      assert(state.objects.filter(object => object.blockId === "orange-wall").every(wall => wall.mechanismDepth === 1));
+    }
+  }
+  assert.equal(room, destination);
+  assert(destinationFrames > 0);
+  assert.deepEqual(state.objects.find(object => object.blockId === "player"), { x: 9, y: 15, z: 0, blockId: "player" });
+  assert.deepEqual(destination.objects, authored);
 });

@@ -104,6 +104,22 @@ bool IsPassThroughVoxel(const Voxel& voxel) {
       voxel.role == kOrangeButtonRole;
 }
 
+bool HasOrangeScope(const Voxel& voxel) {
+  return (voxel.role == kOrangeButtonRole || voxel.role == kOrangeWallRole) &&
+      voxel.generic_id >= 0 && (voxel.generic_id & kOrangeScopedIdFlag) != 0;
+}
+
+int32_t OrangeScope(const Voxel& voxel) {
+  return HasOrangeScope(voxel)
+      ? (voxel.generic_id >> kOrangeScopeShift) & (kOrangeScopeCount - 1)
+      : 0;
+}
+
+int32_t OrangeLocalId(const Voxel& voxel) {
+  return HasOrangeScope(voxel) ? voxel.generic_id & kOrangeValueMask
+                               : voxel.generic_id;
+}
+
 int32_t OrangeWallDepth(const Voxel& voxel) {
   if (voxel.role != kOrangeWallRole) return 0;
   // Negative values are accepted only for compatibility with the former
@@ -114,13 +130,16 @@ int32_t OrangeWallDepth(const Voxel& voxel) {
         ? INT32_MAX - 1
         : -voxel.generic_id - 2;
   }
-  return voxel.generic_id > 0 ? voxel.generic_id : 0;
+  const int32_t local_id = OrangeLocalId(voxel);
+  return local_id > 0 ? local_id : 0;
 }
 
 void SetOrangeWallDepth(Voxel* voxel, int32_t depth) {
   if (voxel == nullptr || voxel->role != kOrangeWallRole) return;
   if (depth < 0) depth = 0;
-  voxel->generic_id = depth;
+  voxel->generic_id = HasOrangeScope(*voxel)
+      ? (voxel->generic_id & ~kOrangeValueMask) | (depth & kOrangeValueMask)
+      : depth;
 }
 
 // Orange walls retain their fully-raised anchor coordinate. Their deterministic
@@ -140,6 +159,7 @@ int32_t OrangeWallSupportZ(
   int32_t lowest_anchor_z = wall.z;
   for (int32_t index = 0; index < count; ++index) {
     if (voxels[index].role == kOrangeWallRole &&
+        OrangeScope(voxels[index]) == OrangeScope(wall) &&
         voxels[index].x == wall.x && voxels[index].y == wall.y &&
         voxels[index].z < lowest_anchor_z) {
       lowest_anchor_z = voxels[index].z;

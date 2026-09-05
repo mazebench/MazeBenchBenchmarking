@@ -8,6 +8,16 @@ constexpr int32_t kPhysicsAbiVersion = 4;
 constexpr int32_t kVoxelCapacity = 65536;
 constexpr int32_t kRoleBufferCapacity = 256;
 constexpr uint32_t kMotionStateVersion = 4;
+// Optional Orange Button/Wall control scope in the existing generic_id field.
+// Unflagged values retain their original meaning. A flagged value packs a
+// 13-bit scope and a 17-bit local value (wall depth or button orientation/state).
+// Hosts may combine independent scenes without sharing button pressure. These
+// tags must travel with the voxel for the duration of the command. Search uses
+// room-local, unscoped data and rejects scoped scenes.
+constexpr int32_t kOrangeScopedIdFlag = 1 << 30;
+constexpr int32_t kOrangeScopeShift = 17;
+constexpr int32_t kOrangeValueMask = (1 << kOrangeScopeShift) - 1;
+constexpr int32_t kOrangeScopeCount = 1 << 13;
 constexpr int32_t kPhysicsWorkspaceBytes = 8 * 1024 * 1024;
 
 struct PhysicsWorkspace {

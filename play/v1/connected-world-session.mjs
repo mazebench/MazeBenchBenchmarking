@@ -106,10 +106,19 @@ export class ConnectedWorldSessionV1 {
     }));
     const width = (maxColumn - minColumn + 1) * this.roomWidth;
     const height = (maxRow - minRow + 1) * this.roomHeight;
-    const objects = placements.flatMap(({ state, offsetX, offsetY }) =>
+    const objects = placements.flatMap(({ state, offsetX, offsetY }, roomIndex) =>
       state.objects
         .filter((object) => isInside(state, object))
-        .map((object) => shiftedObject(object, offsetX, offsetY)));
+        .map((object) => {
+          const shifted = shiftedObject(object, offsetX, offsetY);
+          const role = engineRoleIdForObject(object, this.definitionMap);
+          // Combining geometry must not combine the rooms' control circuits.
+          // The C++ engine keeps this scope through every intermediate tick.
+          if (placements.length > 1 && (role === "orange-button" || role === "orange-wall")) {
+            shifted.connectedWorldOrangeScope = roomIndex + 1;
+          }
+          return shifted;
+        }));
 
     const zValues = objects.map((object) => Number(object.z)).filter(Number.isFinite);
     const minimumZ = Math.min(0, ...zValues) - 2;
@@ -183,7 +192,7 @@ export class ConnectedWorldSessionV1 {
           object.x >= offsetX && object.y >= offsetY &&
           object.x < offsetX + this.roomWidth &&
           object.y < offsetY + this.roomHeight)
-        .map((object) => ({ ...object, x: object.x - offsetX, y: object.y - offsetY }))
+        .map(({ connectedWorldOrangeScope, ...object }) => ({ ...object, x: object.x - offsetX, y: object.y - offsetY }))
     };
   }
 

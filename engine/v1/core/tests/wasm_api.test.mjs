@@ -35,6 +35,59 @@ function simulate(engine, voxels, direction, width = 5, height = 5) {
   }));
 }
 
+test("held buttons never shift a partially normalized orange column's anchors", async () => {
+  const engine = await loadEngine();
+  let voxels = [
+    ...Array.from({ length: 24 }, (_, i) => ({ x: i % 6, y: Math.floor(i / 6), z: 0, roleId: "floor" })),
+    { x: 0, y: 1, z: 1, roleId: "player" },
+    { x: 2, y: 1, z: 1, roleId: "orange-button", genericId: 0 },
+    { x: 2, y: 2, z: 1, roleId: "orange-button", genericId: 0 },
+    { x: 2, y: 1, z: 1, roleId: "weightless-pushable", genericId: 0 },
+    { x: 4, y: 2, z: 1, roleId: "orange-wall", genericId: 0 },
+    { x: 4, y: 2, z: 2, roleId: "orange-wall", genericId: 0 },
+  ];
+  for (const [direction, depth] of [[1, 1], [2, 1], [1, 2], [3, 1]]) {
+    voxels = simulate(engine, voxels, direction, 6, 4);
+    assert.deepEqual(voxels.slice(-2).map(v => [v.z, v.genericId]), [[1, depth], [2, depth]]);
+  }
+});
+
+test("orange scopes isolate button pressure on every tick, including touching walls", async () => {
+  const engine = await loadEngine();
+  const scoped = (scope, value) => (1 << 30) | (scope << 17) | value;
+  const voxels = [
+    ...Array.from({ length: 24 }, (_, i) => ({ x: i % 6, y: Math.floor(i / 6), z: 0, roleId: "floor" })),
+    { x: 0, y: 1, z: 1, roleId: "player" },
+    { x: 2, y: 1, z: 1, roleId: "orange-button", genericId: scoped(1, 0) },
+    { x: 2, y: 2, z: 1, roleId: "orange-button", genericId: scoped(2, 0) },
+    { x: 2, y: 1, z: 1, roleId: "weightless-pushable", genericId: 0 },
+    { x: 4, y: 2, z: 1, roleId: "orange-wall", genericId: scoped(1, 0) },
+    { x: 5, y: 2, z: 1, roleId: "orange-wall", genericId: scoped(2, 0) },
+    { x: 4, y: 3, z: 1, roleId: "orange-wall", genericId: 0 },
+  ];
+  const stride = engine.voxel_stride();
+  const buffer = new Int32Array(engine.memory.buffer, engine.voxel_buffer(), voxels.length * stride);
+  voxels.forEach((v, i) => buffer.set([v.x, v.y, v.z, roleCode(engine, v.roleId), v.genericId ?? -1], i * stride));
+  engine.reset_command();
+  let complete = false;
+  for (let tick = 0; tick < 100; tick++) {
+    const status = engine.step_command_tick(voxels.length, 6, 4, 1);
+    assert.ok(status >= 0);
+    assert.equal(buffer[29 * stride + 4], scoped(2, 0), "another scope must never move even for one frame");
+    assert.equal(buffer[30 * stride + 4], 0, "unscoped walls must not listen to scoped buttons");
+    if (status === 0) { complete = true; break; }
+  }
+  assert(complete);
+  assert.equal(buffer[28 * stride + 4], scoped(1, 1));
+  const after = voxels.map((v, i) => ({ ...v, x:buffer[i*stride], y:buffer[i*stride+1], z:buffer[i*stride+2], genericId:buffer[i*stride+4] }));
+  const pressedSecond = simulate(engine, simulate(engine, after, 2, 6, 4), 1, 6, 4);
+  assert.deepEqual(pressedSecond.slice(-3).map(v => v.genericId), [scoped(1, 1), scoped(2, 1), 0]);
+  const releasedSecond = simulate(engine, pressedSecond, 3, 6, 4);
+  assert.deepEqual(releasedSecond.slice(-3).map(v => v.genericId), [scoped(1, 1), scoped(2, 0), 0]);
+  assert.equal(engine.search_edges(voxels.length, 6, 4, 100), -1,
+    "room-local search must reject transient multi-scope data instead of merging its controls");
+});
+
 test("the C++ engine pushes a pushable role and preserves negative Z", async () => {
   const engine = await loadEngine();
   const result = simulate(engine, [

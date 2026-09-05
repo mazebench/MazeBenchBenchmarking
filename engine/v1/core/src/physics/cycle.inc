@@ -240,6 +240,9 @@ void BeginCommandCycleTracking(
 
   for (int32_t index = 0; index < count; ++index) {
     tracker.baseline[index] = voxels[index];
+    // Independent scopes may raise and lower simultaneously, cancelling the
+    // aggregate depth delta. Use exact state repetition directly in that case.
+    if (HasOrangeScope(voxels[index])) tracker.wait_for_orange_transition = false;
   }
   if (!tracker.replay_workspace_initialized) {
     reset_workspace(&tracker.replay_workspace);

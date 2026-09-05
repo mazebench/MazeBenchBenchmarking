@@ -129,7 +129,7 @@ int32_t MechanismAttachmentVoxel(
   }
   if (mechanism.role == kPuncherRole) {
     const int32_t direction = mechanism.generic_id >= 0
-        ? mechanism.generic_id / 2
+        ? OrangeLocalId(mechanism) / 2
         : 0;
     int32_t support_x = mechanism.x;
     int32_t support_y = mechanism.y;
@@ -149,7 +149,7 @@ int32_t MechanismAttachmentVoxel(
     return support == g_ignored_support_voxel ? -1 : support;
   }
   const int32_t orientation = mechanism.generic_id >= 0
-      ? mechanism.generic_id / 2
+      ? OrangeLocalId(mechanism) / 2
       : 0;
   int32_t support_x = mechanism.x;
   int32_t support_y = mechanism.y;
@@ -185,7 +185,7 @@ bool OrangeButtonIsMountedToWall(
     return false;
   }
   const Voxel& button = voxels[button_index];
-  const int32_t orientation = button.generic_id / 2;
+  const int32_t orientation = OrangeLocalId(button) / 2;
   for (int32_t wall_index = 0; wall_index < g_spatial_voxel_count;
        ++wall_index) {
     const Voxel& wall = voxels[wall_index];
@@ -243,7 +243,7 @@ bool OrangeButtonTracksPlayerLift(
       lift.generic_id > 1) {
     return false;
   }
-  const int32_t orientation = button.generic_id / 2;
+  const int32_t orientation = OrangeLocalId(button) / 2;
   const int64_t raised_button_z = static_cast<int64_t>(button.z) +
       (PlayerLiftIsRaised(lift) ? 0 : 1);
   if (orientation == 0) {

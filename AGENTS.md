@@ -125,6 +125,11 @@ undo snapshot. Undoing a transition switches back to the previous room and
 restores its exact pre-command state; ordinary forward re-entry still starts
 from immutable authored room data.
 
+Orange buttons control only the orange walls in their own room, including every
+intermediate tick of a crossing. Combining room geometry must never combine its
+control circuits. Settling a destination after projection is insufficient: a
+neighboring button must not lower its walls even for one animation frame.
+
 The C++ engine accepts a rectangle, so an L-shaped temporary region represents
 unvisited holes with synthetic solid boundary columns. These columns must never
 be projected into room state or rendered. Do not eagerly combine a complete

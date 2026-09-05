@@ -4,13 +4,16 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { before, after } from "node:test";
+import { historicalRepairFixture } from "./historical-repair-fixture.mjs";
 import { repairCompactionRun, COMPACTION_REPAIR_FILES } from "../scripts/repair-benchmark-compaction-v1.mjs";
 import { createRunIntegrity, verifyRunIntegrity, verifyCheckpoint } from "../benchmarking/v1/integrity.mjs";
 import { BenchmarkGameRuntime } from "../benchmarking/v1/runtime.mjs";
 import { discoverCodexCapabilityPolicy, writeDirectToolModelCatalog } from "../benchmarking/v1/supervisor.mjs";
 
-const projectRoot = path.resolve(import.meta.dirname, "..");
+let projectRoot;
+before(async () => { projectRoot = await historicalRepairFixture(path.resolve(import.meta.dirname, "..")); });
+after(async () => { if (projectRoot) await rm(projectRoot, { recursive: true, force: true }); });
 const sha256 = value => createHash("sha256").update(value).digest("hex");
 
 async function fixture() {

@@ -1804,6 +1804,65 @@ void TestReleasedOrangeColumnRaisesEveryVoxelAfterJoining() {
         "every voxel in the newly joined orange column should fully raise");
 }
 
+void TestHeldButtonsPreserveOrangeWallAnchors() {
+  voxelbench::Voxel voxels[30]{};
+  int32_t count = 0;
+  for (int32_t y = 0; y < 4; ++y) {
+    for (int32_t x = 0; x < 6; ++x) {
+      voxels[count++] = {x, y, 0, Role("floor"), -1};
+    }
+  }
+  voxels[count++] = {0, 1, 1, Role("player"), -1};
+  voxels[count++] = {2, 1, 1, Role("orange-button"), 0};
+  voxels[count++] = {2, 2, 1, Role("orange-button"), 0};
+  voxels[count++] = {2, 1, 1, Role("weightless-pushable"), 0};
+  voxels[count++] = {4, 2, 1, Role("orange-wall"), 0};
+  voxels[count++] = {4, 2, 2, Role("orange-wall"), 0};
+  const int32_t directions[] = {1, 2, 1, 3};
+  const int32_t depths[] = {1, 1, 2, 1};
+  for (int32_t step = 0; step < 4; ++step) {
+    Check(voxelbench::simulate_turn(voxels, count, 6, 4, directions[step]) == 0,
+          "held-button orange regression command should run");
+    Check(voxels[28].z == 1 && voxels[29].z == 2 &&
+              voxels[28].generic_id == depths[step] &&
+              voxels[29].generic_id == depths[step],
+          "partially normalized orange walls must keep their raised anchors");
+  }
+}
+
+void TestOrangeControlScopesRemainIndependent() {
+  const auto scoped = [](int32_t scope, int32_t value) {
+    return voxelbench::kOrangeScopedIdFlag |
+        (scope << voxelbench::kOrangeScopeShift) | value;
+  };
+  voxelbench::Voxel voxels[31]{};
+  int32_t count = 0;
+  for (int32_t y = 0; y < 4; ++y) {
+    for (int32_t x = 0; x < 6; ++x) {
+      voxels[count++] = {x, y, 0, Role("floor"), -1};
+    }
+  }
+  voxels[count++] = {0, 1, 1, Role("player"), -1};
+  voxels[count++] = {2, 1, 1, Role("orange-button"), scoped(1, 0)};
+  voxels[count++] = {2, 2, 1, Role("orange-button"), scoped(2, 0)};
+  voxels[count++] = {2, 1, 1, Role("weightless-pushable"), 0};
+  voxels[count++] = {4, 2, 1, Role("orange-wall"), scoped(1, 0)};
+  voxels[count++] = {5, 2, 1, Role("orange-wall"), scoped(2, 0)};
+  voxels[count++] = {4, 3, 1, Role("orange-wall"), 0};
+  const int32_t directions[] = {1, 2, 1, 3};
+  const int32_t second_depths[] = {0, 0, 1, 0};
+  for (int32_t step = 0; step < 4; ++step) {
+    Check(voxelbench::simulate_turn(voxels, count, 6, 4, directions[step]) == 0,
+          "independent orange scopes should simulate");
+    Check(voxels[28].generic_id == scoped(1, 1) &&
+              voxels[29].generic_id == scoped(2, second_depths[step]) &&
+              voxels[30].generic_id == 0,
+          "even touching walls must listen only to buttons in their own scope");
+    Check(voxels[28].z == 1 && voxels[29].z == 1 && voxels[30].z == 1,
+          "independent controls must preserve raised wall anchors");
+  }
+}
+
 void TestOrangeWallsCountEveryPressedButton() {
   voxelbench::Voxel voxels[] = {
       {0, 2, 1, Role("player"), -1},
@@ -2227,6 +2286,8 @@ int main() {
   TestOrangeButtonRidesTopLiftAndChangesVisibility();
   TestMovingPolycubeCarriesButtonsMountedOnEveryFace();
   TestReleasedOrangeColumnRaisesEveryVoxelAfterJoining();
+  TestHeldButtonsPreserveOrangeWallAnchors();
+  TestOrangeControlScopesRemainIndependent();
   TestOrangeWallsCountEveryPressedButton();
   TestFlattenedOrangeWallIsPassThroughOnFloor();
   TestFloatingOrangeWallLowersAsACube();
@@ -2246,6 +2307,6 @@ int main() {
     std::cerr << failures << " C++ physics test(s) failed\n";
     return EXIT_FAILURE;
   }
-  std::cout << "all 87 C++ physics/search tests passed\n";
+  std::cout << "all 89 C++ physics/search tests passed\n";
   return EXIT_SUCCESS;
 }

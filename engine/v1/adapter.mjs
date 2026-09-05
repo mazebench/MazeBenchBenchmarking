@@ -10,6 +10,24 @@ const LIFT_ORIENTATIONS = ["top", "north", "east", "south", "west"];
 const BUTTON_ORIENTATIONS = [...LIFT_ORIENTATIONS, "bottom"];
 const GENERIC_ROLES = new Set(["weightless-pushable", "clone"]);
 const ENGINE_FALL_Z = -2_147_483_648;
+const ORANGE_SCOPE_FLAG = 1 << 30;
+const ORANGE_SCOPE_SHIFT = 17;
+const ORANGE_VALUE_MASK = (1 << ORANGE_SCOPE_SHIFT) - 1;
+
+function scopedOrangeId(object, value) {
+  const scope = object.connectedWorldOrangeScope;
+  if (scope === undefined) return value;
+  if (!Number.isInteger(scope) || scope < 1 || scope >= (1 << 13) ||
+      !Number.isInteger(value) || value < 0 || value > ORANGE_VALUE_MASK) {
+    throw new Error("Invalid connected-room orange mechanism scope or state.");
+  }
+  return ORANGE_SCOPE_FLAG | (scope << ORANGE_SCOPE_SHIFT) | value;
+}
+
+function localOrangeId(value) {
+  return value >= 0 && (value & ORANGE_SCOPE_FLAG) !== 0
+    ? value & ORANGE_VALUE_MASK : value;
+}
 
 function definitionMap(definitions) {
   return definitions instanceof Map
@@ -126,9 +144,9 @@ export function engineGenericIdForObject(object, definitions) {
   if (!block) return -1;
   if (block.roleId === "player-lift") return encodedLiftId(object);
   if (block.visual?.kind === "gate" || block.roleId === "player-gate") return encodedGateId(object);
-  if (block.roleId === "orange-button") return encodedButtonId(object);
+  if (block.roleId === "orange-button") return scopedOrangeId(object, encodedButtonId(object));
   if (block.roleId === "orange-wall") {
-    return Math.max(0, Math.floor(Number(object.mechanismDepth ?? object.stateId) || 0));
+    return scopedOrangeId(object, Math.max(0, Math.floor(Number(object.mechanismDepth ?? object.stateId) || 0)));
   }
   if (block.visual?.kind === "puncher" || block.roleId === "puncher") {
     return encodedPuncherId(object);
@@ -183,7 +201,9 @@ export function readEngineStateV1(template, definitions, buffer, stride) {
   const objects = template.objects.map((object, index) => {
     const block = blocks.get(object.blockId);
     const offset = index * stride;
-    const engineGenericId = buffer[offset + 4];
+    const rawGenericId = buffer[offset + 4];
+    const engineGenericId = block?.roleId === "orange-button" || block?.roleId === "orange-wall"
+      ? localOrangeId(rawGenericId) : rawGenericId;
     const filledFloatingFloor = block?.roleId === "floating-floor" && engineGenericId === 1;
     const next = {
       ...object,

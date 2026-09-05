@@ -1133,6 +1133,14 @@ bool InitializeSearch(
   if (*maximum_nodes > kSearchNodeCapacity) {
     *maximum_nodes = kSearchNodeCapacity;
   }
+  // Search stores one room-wide orange depth. Transient connected-world
+  // scopes belong to command simulation and cannot be collapsed into it.
+  for (int32_t index = 0; index < count; ++index) {
+    if ((voxels[index].role == kOrangeButtonRole || voxels[index].role == kOrangeWallRole) &&
+        voxels[index].generic_id >= 0 && (voxels[index].generic_id & kOrangeScopedIdFlag) != 0) {
+      return false;
+    }
+  }
 
   SearchData* data = Data(search_workspace);
   if (!search_workspace->initialized) {

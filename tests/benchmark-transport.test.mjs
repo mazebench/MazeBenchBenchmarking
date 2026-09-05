@@ -1,4 +1,5 @@
-import test from "node:test";
+import test, { before, after } from "node:test";
+import { historicalRepairFixture } from "./historical-repair-fixture.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile, rm, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -13,7 +14,9 @@ import { worldRuntimeHashes } from "../benchmarking/worlds/policy.mjs";
 import { digest, providerRuntimeHashes } from "../benchmarking/providers/claude-policy.mjs";
 import { repairTransportRun, TRANSPORT_REPAIR_FILE, TRANSPORT_REPAIR_HASHES } from "../scripts/repair-benchmark-transport-v1.mjs";
 
-const root = path.resolve(import.meta.dirname, "..");
+let root;
+before(async () => { root = await historicalRepairFixture(path.resolve(import.meta.dirname, "..")); });
+after(async () => { if (root) await rm(root, { recursive: true, force: true }); });
 const notice = { type: "item.completed", item: { id: "item_89", type: "error", message: "Falling back from WebSockets to HTTPS transport. stream disconnected before completion: idle timeout waiting for websocket" } };
 const failure = "Capability boundary violation: unexpected error. Run invalidated.";
 

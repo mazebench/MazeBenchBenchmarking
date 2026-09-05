@@ -623,20 +623,20 @@ bool OrangeButtonShouldBePressed(
       g_object_kind[object] == kPlayerObject;
 }
 
-int32_t PressedOrangeButtonCount(
+void CountPressedOrangeButtons(
     Voxel* voxels,
     int32_t count,
     int32_t width,
-    int32_t height) {
-  int32_t pressed = 0;
+    int32_t height,
+    int32_t* pressed) {
+  for (int32_t scope = 0; scope < kOrangeScopeCount; ++scope) pressed[scope] = 0;
   for (int32_t index = 0; index < count; ++index) {
     if (voxels[index].role == kOrangeButtonRole &&
         OrangeButtonShouldBePressed(
             voxels, index, width, height)) {
-      ++pressed;
+      ++pressed[OrangeScope(voxels[index])];
     }
   }
-  return pressed;
 }
 
 bool NormalizeInitialOrangeWallAnchors(
@@ -646,11 +646,12 @@ bool NormalizeInitialOrangeWallAnchors(
     int32_t height) {
   if (!ActiveWorkspace().scene_has_orange_mechanisms) return false;
   bool changed = RefreshOrangeButtonVisibility(voxels, count);
-  const int32_t pressed = PressedOrangeButtonCount(
-      voxels, count, width, height);
+  int32_t pressed_by_scope[kOrangeScopeCount];
+  CountPressedOrangeButtons(voxels, count, width, height, pressed_by_scope);
   for (int32_t index = 0; index < count; ++index) {
     Voxel& wall = voxels[index];
     if (wall.role != kOrangeWallRole) continue;
+    const int32_t pressed = pressed_by_scope[OrangeScope(wall)];
     const int32_t depth = OrangeWallDepth(wall);
     if (depth >= pressed) continue;
     // A frame imported while its buttons are already held may still carry the
@@ -672,12 +673,12 @@ bool OrangeMechanismsNeedTick(
     int32_t width,
     int32_t height) {
   if (!ActiveWorkspace().scene_has_orange_mechanisms) return false;
-  const int32_t pressed = PressedOrangeButtonCount(
-      voxels, count, width, height);
+  int32_t pressed_by_scope[kOrangeScopeCount];
+  CountPressedOrangeButtons(voxels, count, width, height, pressed_by_scope);
   for (int32_t index = 0; index < count; ++index) {
     if (voxels[index].role == kOrangeWallRole &&
         g_blocked_orange_walls[index] == 0 &&
-        OrangeWallDepth(voxels[index]) != pressed) {
+        OrangeWallDepth(voxels[index]) != pressed_by_scope[OrangeScope(voxels[index])]) {
       return true;
     }
   }
@@ -693,7 +694,7 @@ bool OrangeFixtureRidesWallSurface(
       fixture.generic_id < 0) {
     return false;
   }
-  const int32_t orientation = fixture.generic_id / 2;
+  const int32_t orientation = OrangeLocalId(fixture) / 2;
   if (orientation == 0) {
     return fixture.x == wall.x && fixture.y == wall.y &&
         fixture.z == wall_surface_z;
@@ -735,7 +736,7 @@ bool OrangeFixtureTracksWall(
       wall.role != kOrangeWallRole || fixture.generic_id < 0) {
     return false;
   }
-  const int32_t orientation = fixture.generic_id / 2;
+  const int32_t orientation = OrangeLocalId(fixture) / 2;
   const int64_t raised_fixture_z = static_cast<int64_t>(fixture.z) +
       OrangeWallDepth(wall);
   if (orientation == 0) {
@@ -757,6 +758,7 @@ bool OrangeWallsShareFace(const Voxel& left, const Voxel& right) {
   if (left.role != kOrangeWallRole || right.role != kOrangeWallRole) {
     return false;
   }
+  if (OrangeScope(left) != OrangeScope(right)) return false;
   const int64_t dx = static_cast<int64_t>(left.x) - right.x;
   const int64_t dy = static_cast<int64_t>(left.y) - right.y;
   const int64_t dz = static_cast<int64_t>(left.z) - right.z;
@@ -776,7 +778,7 @@ void PreflightOrangeWallComponents(
     int32_t player_index,
     int32_t width,
     int32_t height,
-    int32_t target_depth) {
+    const int32_t* target_depths) {
   for (int32_t index = 0; index < count; ++index) {
     g_orange_component_walls[index] = 0;
     g_orange_component_shifts[index] = 0;
@@ -789,6 +791,7 @@ void PreflightOrangeWallComponents(
     }
 
     int32_t queue_begin = 0;
+    const int32_t target_depth = target_depths[OrangeScope(voxels[seed])];
     int32_t queue_end = 0;
     g_object_queue[queue_end++] = seed;
     g_orange_component_walls[seed] = 2;
@@ -870,10 +873,13 @@ void PreflightOrangeWallComponents(
           SetOrangeWallDepth(
               &voxels[index],
               old_depth + (old_depth < target_depth ? 1 : -1));
-        } else if (component_delta >= INT8_MIN && component_delta <= INT8_MAX) {
+        } else if (target_depth == 0 && component_delta > 0 &&
+                   component_delta <= INT8_MAX) {
           // A wall cube that has no rise debt of its own is still part of the
           // same face-connected polycube. It rides the component motion while
           // retaining depth zero; disconnected zero-depth walls do not move.
+          // A member already normalized to a nonzero target depth must stay
+          // at its raised anchor while the remaining members catch up.
           g_orange_component_shifts[index] =
               static_cast<int8_t>(component_delta);
           voxels[index].z += component_delta;
@@ -970,10 +976,10 @@ bool AdvanceOrangeMechanismsOneTick(
     int32_t player_index,
     int32_t width,
     int32_t height) {
-  const int32_t target_depth = PressedOrangeButtonCount(
-      voxels, count, width, height);
+  int32_t target_depths[kOrangeScopeCount];
+  CountPressedOrangeButtons(voxels, count, width, height, target_depths);
   PreflightOrangeWallComponents(
-      voxels, count, player_index, width, height, target_depth);
+      voxels, count, player_index, width, height, target_depths);
   bool changed = false;
   bool player_moved_with_wall_component = false;
   for (int32_t object = 0; object < g_object_count; ++object) {
@@ -990,6 +996,7 @@ bool AdvanceOrangeMechanismsOneTick(
     }
     const int32_t old_depth = OrangeWallDepth(wall);
     const int32_t component_shift = g_orange_component_shifts[index];
+    const int32_t target_depth = target_depths[OrangeScope(wall)];
     if (old_depth == target_depth && component_shift == 0) continue;
     const int32_t new_depth = old_depth == target_depth
         ? old_depth
@@ -1074,9 +1081,10 @@ bool AdvanceOrangeMechanismsOneTick(
         if (voxels[wall_occupant].role == kOrangeWallRole) {
           const int32_t occupant_depth = OrangeWallDepth(
               voxels[wall_occupant]);
-          if (occupant_depth != target_depth) {
+          const int32_t occupant_target = target_depths[OrangeScope(voxels[wall_occupant])];
+          if (occupant_depth != occupant_target) {
             const int32_t occupant_new_depth = occupant_depth +
-                (occupant_depth < target_depth ? 1 : -1);
+                (occupant_depth < occupant_target ? 1 : -1);
             occupant_vacates =
                 OrangeWallIsFlatForDepth(
                     voxels, count, wall_occupant, occupant_new_depth) ||

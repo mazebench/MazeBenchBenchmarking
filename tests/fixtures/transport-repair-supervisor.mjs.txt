@@ -1189,7 +1189,7 @@ export class BenchmarkSupervisor {
       threadId: metadata.codex_thread_id
     };
     this.active.set(id, control);
-    const prompt = benchmarkResumePrompt(metadata, summary);
+    const prompt = `Resume the same MazeBench benchmark from its saved state. Call maze_observe to re-anchor, then keep acting. Do not stop until the tool reports won or action-limit. You currently have ${summary.action_count || 0} accepted actions recorded.`;
     this.runLoop(id, directory, agentDirectory, prompt, control).catch(async (error) => {
       const current = await readJson(path.join(directory, "run.json"), metadata);
       if (!control.stopRequested && !control.pauseRequested) {
@@ -1828,14 +1828,4 @@ export class BenchmarkSupervisor {
         : []
     };
   }
-}
-
-export function benchmarkResumePrompt(metadata, summary) {
-  let prompt = `Resume the same MazeBench benchmark from its saved state. Call maze_observe to re-anchor, then keep acting. Do not stop until the tool reports won or action-limit. You currently have ${summary.action_count || 0} accepted actions recorded.`;
-  const repair = metadata.runtime_repairs?.findLast(repair =>
-    repair.kind === "operator-engine-rollback" && repair.action_count === summary.action_count);
-  if (repair && Number.isSafeInteger(repair.previous_action_count) && repair.previous_action_count > summary.action_count) {
-    prompt += ` The operator repaired an engine state bug and rolled this run back from action ${repair.previous_action_count} to action ${summary.action_count}. Later actions were archived and are no longer part of the current game. Your conversation may still describe that discarded future; use maze_observe and the current move records as the authority. Reassess the board and continue from this checkpoint.`;
-  }
-  return prompt;
 }
