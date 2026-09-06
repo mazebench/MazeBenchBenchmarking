@@ -1830,6 +1830,12 @@ export class BenchmarkSupervisor {
 
 export function benchmarkResumePrompt(metadata, summary) {
   let prompt = `Resume the same MazeBench benchmark from its saved state. Call maze_observe to re-anchor, then keep acting. Do not stop until the tool reports won or action-limit. You currently have ${summary.action_count || 0} accepted actions recorded.`;
+  prompt += ` New actions include animation.index_record and animation.frame_count. When useful, use maze_observe to read that index and then its listed ASCII frame paths to inspect the move frame by frame, including moves inside maze_sequence. Frame 0 is before the move; the last frame is its final board. These reads cost no actions. Older moves may have only their final snapshot.`;
+  const update = metadata.runtime_repairs?.findLast(repair =>
+    repair.kind === "operator-runtime-update" && repair.action_count === summary.action_count);
+  if (typeof update?.resume_notice === "string" && update.resume_notice.trim()) {
+    prompt += ` Operator update: ${update.resume_notice.trim()}`;
+  }
   const repair = metadata.runtime_repairs?.findLast(repair =>
     repair.kind === "operator-engine-rollback" && repair.action_count === summary.action_count);
   if (repair && Number.isSafeInteger(repair.previous_action_count) && repair.previous_action_count > summary.action_count) {
