@@ -3,7 +3,7 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BenchmarkSupervisor } from "./benchmarking/worlds/supervisor.mjs";
+import { BenchmarkSupervisor } from "./benchmarking/slotski/supervisor.mjs";
 import { TokenTelemetry } from "./benchmarking/token-telemetry.mjs";
 import { isTrustedLocalRequest } from "./benchmarking/v1/http-security.mjs";
 import { decodeVoxelRoom, encodeVoxelRoom } from "./render/v1/voxel-world-v2.mjs";

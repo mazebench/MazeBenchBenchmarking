@@ -21,6 +21,9 @@ A deliberately small localhost site that renders the complete MazeBench main wor
 - `ice-maze/v1/` — World 2: the original 30 numbered Ice Maze puzzles, with independent 2D sliding rules
 - `level-data/ice-maze/v1/` — answer-free boards in original order and source provenance
 - `benchmarking/worlds/` — sequential-world routing, prompt, and attested MCP adapters
+- `slotski/v1/` — World 3: one classic sliding-block puzzle, shared human/benchmark rules
+- `level-data/slotski/v1/` — the starting board, with permanent block labels and no solution
+- `benchmarking/slotski/` — Slotski prompt, world routing, and restricted provider/MCP adapters
 - `play/v1/` — play mode v1, driven by the engine's resumable per-tick command trace
 - `benchmarking/v1/` — shared game/MCP boundary and the frozen Codex runner
 - `benchmarking/providers/` — Claude Code adapter and provider routing; `benchmarking/ui/` contains the current dashboard modules
@@ -62,7 +65,7 @@ orange once searched or exhausted; the live red position is never drawn in a
 closed orange room.
 
 Open `/benchmarking/v1/` to select Codex or Claude Code and run locally authenticated models against the
-selected world. Main World starts at H×I and targets 100 gems; Ice Maze starts at level 1 and targets all 30 levels in order. Every condition receives `maze_observe`,
+selected world. Main World starts at H×I and targets 100 gems; Ice Maze starts at level 1 and targets all 30 levels in order; Slotski has one sliding-block puzzle. Every condition receives `maze_observe`,
 `maze_action`, and `maze_sequence`; tools-on runs additionally receive
 `python_exec` in a preflighted persistent workspace. `maze_observe` is the only
 agent-facing reader for current state and the run's allowlisted read-only
@@ -218,3 +221,40 @@ The importer replays the source solutions transiently to verify rules parity,
 then writes board data only. The test suite independently solves all 30 boards
 with simultaneous cell stepping and verifies sequence boundaries, scoring,
 record access, tool catalogs, CLI restrictions, and tamper rejection.
+
+## Slotski — World 3
+
+Open `/slotski/v1/` for human play or select **Slotski · 1 level** at
+`/benchmarking/v1/?world=slotski` for Codex or Claude Code, with Python on or off.
+The launcher defaults to 1,000 actions for this puzzle; unlimited is also available.
+No agent is started by opening the page.
+
+The classic 4×5 board has ten permanently labelled rectangles, A–J. A is the
+2×2 target. Move it to the bottom-center 2×2 area (top-left coordinate `(1, 3)`)
+to win; the harness does not require an extra off-board action. Each move shifts
+one chosen block one cell, with no pushing, overlap, or rotation. The input
+parser supports A–Z and rejects labels absent from the board.
+
+- `maze_action({action: "block A move up"})` or `{action: "AU"}`
+- `maze_sequence({sequence: "AU BD CL"})` or `{sequence: "a up, b down c left"}`
+- `maze_sequence({sequence: "AU3"})` or `{sequence: "a up 3 times"}`
+- `maze_sequence({actions: ["AU3", "BD", "CL"]})`
+
+Sequences are validated before any move and expand to at most 1,000 one-cell
+actions. Blocked moves, undo, and reset all spend benchmark budget. Each step
+has its own signed action entry and before/after ASCII animation records.
+Novelty uses only labelled block positions. The move heatmap records the chosen
+block's top-left cell; undo/reset record A's position. Human play counts changed
+moves and lets undo reduce that display counter, like the other human worlds.
+
+The agent prompt is `benchmarking/slotski/EVAL-PROMPT.md`. The adapters preserve
+the existing CLI tool allowlists and Python isolation, pin the game rules,
+starting layout and prompt, and authenticate saved states and scores. There are
+no hint, solve, teleport, arbitrary-file or state-setting MCP tools. The
+independent solvability search exists only in `tests/slotski.test.mjs`; no
+solution is stored in the world assets or supplied to an agent. Existing worlds'
+attested runtime files are unchanged. Restart the local server to load the new
+world router, after pausing any active agent runs.
+
+Run `node --test tests/slotski.test.mjs` for rules, parsing, launch/resume,
+checkpoint integrity, and real MCP checks in both Python modes.

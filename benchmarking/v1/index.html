@@ -13,13 +13,14 @@
         <a href="../../">World</a>
         <a href="../../play/v1/">Play</a>
         <a href="../../ice-maze/v1/">Ice Maze</a>
+        <a href="../../slotski/v1/">Slotski</a>
         <a href="../../editor/v1/">Editor</a>
         <a href="../../world-solver/v1/">World Solver</a>
         <a class="active" href="./" aria-current="page">Benchmark</a>
       </nav>
       <div class="identity">
         <span class="pulse" aria-hidden="true"></span>
-        <div><strong>Agent Benchmark</strong><span>Codex + Claude Code · two worlds</span></div>
+        <div><strong>Agent Benchmark</strong><span>Codex + Claude Code · three worlds</span></div>
       </div>
       <output id="connection-status" class="connection-status" aria-live="polite">Connecting…</output>
     </header>
@@ -39,11 +40,11 @@
           <button id="check-codex" type="button">Check for updates</button>
         </div>
         <form id="launch-form" class="launch-controls">
-          <label class="world-select"><span>World</span><select id="world"><option value="main-world">Main World · 100 gems</option><option value="ice-maze">Ice Maze · 30 levels</option></select></label>
+          <label class="world-select"><span>World</span><select id="world"><option value="main-world">Main World · 100 gems</option><option value="ice-maze">Ice Maze · 30 levels</option><option value="slotski">Slotski · 1 level</option></select></label>
           <label><span>Agent</span><select id="provider"><option value="codex">Codex</option><option value="claude-code">Claude Code</option></select></label>
           <label><span>Model</span><select id="model" required></select></label>
           <label><span>Reasoning</span><select id="effort" required></select></label>
-          <label><span>Action limit</span><select id="action-limit"><option value="100">100 actions</option><option value="unlimited">Unlimited</option></select></label>
+          <label><span>Action limit</span><select id="action-limit"><option value="100">100 actions</option><option value="1000">1,000 actions</option><option value="unlimited">Unlimited</option></select></label>
           <label class="tool-toggle">
             <span>Python workspace</span>
             <input id="tools-enabled" type="checkbox" role="switch">

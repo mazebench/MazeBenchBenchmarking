@@ -1,3 +1,5 @@
+const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
+const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
 import { drawNovelty } from "../ui/novelty-chart.mjs";
 import { renderIceLevelTimings } from "./ice-level-timings.mjs";
 
@@ -149,7 +151,7 @@ async function showFrame(index, { keepPlaying = false } = {}) {
 
   if (selected === maximum && currentRun.display) {
     renderBoard(currentRun.display);
-    elements["board-room"].textContent = `${currentRun.world === "ice-maze" ? "" : "Room "}${currentRun.display.room || currentRun.room || "—"}`;
+    elements["board-room"].textContent = `${numberedWorld(currentRun) ? "" : "Room "}${currentRun.display.room || currentRun.room || "—"}`;
     elements["board-move"].textContent = `move ${selected}`;
     elements["frame-source"].textContent = "Live engine frame · exact colors";
   } else {
@@ -161,7 +163,7 @@ async function showFrame(index, { keepPlaying = false } = {}) {
     frameCache.set(selected, snapshot);
     if (request !== frameRequest) return;
     renderBoard(snapshot);
-    elements["board-room"].textContent = `${currentRun.world === "ice-maze" ? "" : "Room "}${snapshot.room}`;
+    elements["board-room"].textContent = `${numberedWorld(currentRun) ? "" : "Room "}${snapshot.room}`;
     elements["board-move"].textContent = `move ${selected}`;
     elements["frame-source"].textContent = `${snapshot.source_record || `records/move_history/move_${selected}.txt`} · exact engine colors`;
   }
@@ -256,13 +258,16 @@ function drawHeatmap(positions, toolsEnabled) {
   const columns = Math.max(5, maxX - minX + 1);
   const rows = Math.max(5, maxY - minY + 1);
   const padding = 24;
-  const cell = Math.max(3, Math.min((width - padding * 2) / columns, (height - padding * 2) / rows));
+  // Large explored regions must fit too, even when each tile is subpixel.
+  const cell = Math.min((width - padding * 2) / columns, (height - padding * 2) / rows);
   const offsetX = (width - columns * cell) / 2;
   const offsetY = (height - rows * cell) / 2;
+  const inset = Math.min(1, cell / 8);
+  const tileSize = cell - inset * 2;
   const maximum = Math.max(...points.map((point) => point.count));
 
   context.strokeStyle = "#151a21";
-  context.lineWidth = 1;
+  context.lineWidth = Math.min(1, cell / 8);
   for (let column = 0; column <= columns; column += 1) {
     const x = offsetX + column * cell;
     context.beginPath();
@@ -281,20 +286,21 @@ function drawHeatmap(positions, toolsEnabled) {
     const intensity = Math.log2(point.count + 1) / Math.log2(maximum + 1);
     context.fillStyle = heatColor(intensity);
     context.fillRect(
-      offsetX + (point.x - minX) * cell + 1,
-      offsetY + (point.y - minY) * cell + 1,
-      Math.max(1, cell - 2),
-      Math.max(1, cell - 2)
+      offsetX + (point.x - minX) * cell + inset,
+      offsetY + (point.y - minY) * cell + inset,
+      tileSize,
+      tileSize
     );
   }
   const current = valid.at(-1);
   context.strokeStyle = toolsEnabled ? "#ffbd5b" : "#6cd7ff";
   context.lineWidth = 2;
+  const markerSize = Math.max(4, tileSize);
   context.strokeRect(
-    offsetX + (current.worldX - minX) * cell + 1,
-    offsetY + (current.worldY - minY) * cell + 1,
-    Math.max(1, cell - 2),
-    Math.max(1, cell - 2)
+    offsetX + (current.worldX - minX + 0.5) * cell - markerSize / 2,
+    offsetY + (current.worldY - minY + 0.5) * cell - markerSize / 2,
+    markerSize,
+    markerSize
   );
 }
 
@@ -305,7 +311,7 @@ function drawProgress(run) {
   context.fillRect(0, 0, width, height);
   const accent = run.tools_enabled ? "#ffbd5b" : "#6cd7ff";
   const rows = [
-    run.world === "ice-maze" ? { label: "Levels solved", value: run.levels_solved || 0, total: run.levels_total || 30 } : { label: "Gems", value: run.gems_collected || 0, total: run.gems_total || 100 },
+    numberedWorld(run) ? { label: "Levels solved", value: run.levels_solved || 0, total: run.levels_total || (run.world === "slotski" ? 1 : 30) } : { label: "Gems", value: run.gems_collected || 0, total: run.gems_total || 100 },
     { label: "Action budget", value: run.action_count || 0, total: run.action_limit || Math.max(1, run.action_count || 1) }
   ];
   const left = 108;
@@ -410,7 +416,7 @@ function renderPair(run, allRuns) {
     const label = document.createElement("span");
     label.textContent = peer.tools_enabled ? "Python on" : "Python off";
     const result = document.createElement("strong");
-    result.textContent = `${peer.world === "ice-maze" ? `${peer.levels_solved || 0} levels solved` : `${peer.gems_collected || 0} gems`} · ${peer.action_count || 0} actions`;
+    result.textContent = `${numberedWorld(peer) ? `${peer.levels_solved || 0} levels solved` : `${peer.gems_collected || 0} gems`} · ${peer.action_count || 0} actions`;
     link.append(label, result);
     elements["pair-compare"].append(link);
   }
@@ -577,10 +583,10 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
     followingLatest = true;
   }
   document.body.classList.toggle("tools-on", Boolean(run.tools_enabled));
-  document.body.classList.toggle("ice-world", run.world === "ice-maze");
+  document.body.classList.toggle("ice-world", numberedWorld(run));
   document.title = `${run.model} · MazeBench record`;
   elements["model-monogram"].textContent = modelMonogram(run.model);
-  elements["run-kicker"].textContent = `${run.provider === "claude-code" ? "Claude Code" : "Codex"} model evaluation · ${run.world === "ice-maze" ? "Ice Maze" : "Main World"} · ${conditionLabel(run)}`;
+  elements["run-kicker"].textContent = `${run.provider === "claude-code" ? "Claude Code" : "Codex"} model evaluation · ${worldName(run)} · ${conditionLabel(run)}`;
   elements["run-title"].textContent = run.model;
   elements["run-subtitle"].textContent = `${run.effort} reasoning · started ${compactDate(run.created_at)} · ${run.action_limit ?? "unlimited"} action limit`;
   elements["run-id"].textContent = run.id;
@@ -588,31 +594,31 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["run-status"].className = `status-pill ${run.status}`;
   elements["run-failure"].hidden = run.status !== "failed";
   elements["run-failure-reason"].textContent = run.error || "The runner stopped before finishing. Inspect the activity record for details.";
-  document.querySelector("[aria-labelledby=interview-title]").hidden = run.provider === "claude-code" || run.world === "ice-maze";
+  document.querySelector("[aria-labelledby=interview-title]").hidden = run.provider === "claude-code" || numberedWorld(run);
   const terminalGame = ["won", "action-limit"].includes(run.game_status);
   const activeRun = Boolean(run.runner_active);
   const resumableBoundary = Boolean(run.capability_boundary_verified);
   elements["pause-run"].hidden = !activeRun || run.status === "pausing";
   elements["pause-run"].disabled = !activeRun;
   elements["resume-run"].hidden = terminalGame || !resumableBoundary ||
-    (!["paused", "stopped"].includes(run.status) && !run.compaction_recoverable);
+    (!["paused", "stopped"].includes(run.status) && !(run.world === "slotski" && run.status === "failed") && !run.compaction_recoverable);
   elements["resume-run"].disabled = false;
   elements["stop-run"].hidden = terminalGame || ["stopped", "failed", "completed"].includes(run.status);
   elements["stop-run"].disabled = false;
   elements["delete-run"].disabled = activeRun;
   elements["delete-run"].title = activeRun ? "Stop or pause this run before deleting it." : "Permanently delete this run record.";
   elements["stat-actions"].textContent = `${run.action_count || 0}${run.action_limit ? ` / ${run.action_limit}` : ""}`;
-  elements["stat-gems"].previousElementSibling.textContent = run.world === "ice-maze" ? "Levels solved" : "Gems";
-  elements["stat-rooms"].previousElementSibling.textContent = run.world === "ice-maze" ? "Current level" : "Rooms";
-  elements["stat-gems"].textContent = run.world === "ice-maze" ? `${run.levels_solved || 0} / ${run.levels_total || 30}` : `${run.gems_collected || 0} / ${run.gems_total || 100}`;
-  elements["stat-rooms"].textContent = formatNumber(run.world === "ice-maze" ? run.level_number : run.rooms_visited || 1);
+  elements["stat-gems"].previousElementSibling.textContent = numberedWorld(run) ? "Levels solved" : "Gems";
+  elements["stat-rooms"].previousElementSibling.textContent = numberedWorld(run) ? "Current level" : "Rooms";
+  elements["stat-gems"].textContent = numberedWorld(run) ? `${run.levels_solved || 0} / ${run.levels_total || (run.world === "slotski" ? 1 : 30)}` : `${run.gems_collected || 0} / ${run.gems_total || 100}`;
+  elements["stat-rooms"].textContent = formatNumber(numberedWorld(run) ? run.level_number : run.rooms_visited || 1);
   elements["stat-cells"].textContent = formatNumber(run.unique_cells || 0);
   elements["stat-novelty"].textContent = `${Math.round((run.novelty_rate || 0) * 100)}%`;
   elements["stat-blocked"].textContent = formatNumber(run.blocked_actions || 0);
-  elements["stat-deaths"].previousElementSibling.textContent = run.world === "ice-maze" ? "Goals covered" : "Deaths";
-  elements["stat-deaths"].textContent = run.world === "ice-maze" ? `${run.goals_covered || 0} / ${run.goals_total || 0}` : formatNumber(run.deaths || 0);
-  elements["progress-chart"].setAttribute("aria-label", run.world === "ice-maze" ? "Levels solved and action progress" : "Gem and action progress");
-  document.getElementById("board-legend").textContent = run.world === "ice-maze" ? "# wall · . ice · o goal · P player · @ covered goal" : "Move history playback";
+  elements["stat-deaths"].previousElementSibling.textContent = run.world === "slotski" ? "Target row" : run.world === "ice-maze" ? "Goals covered" : "Deaths";
+  elements["stat-deaths"].textContent = run.world === "slotski" ? `${(run.target_row || 0) + 1} / ${(run.board_height || 5) - 1}` : run.world === "ice-maze" ? `${run.goals_covered || 0} / ${run.goals_total || 0}` : formatNumber(run.deaths || 0);
+  elements["progress-chart"].setAttribute("aria-label", numberedWorld(run) ? "Levels solved and action progress" : "Gem and action progress");
+  document.getElementById("board-legend").textContent = run.world === "slotski" ? "A target · letters are blocks · . empty · vv exit" : run.world === "ice-maze" ? "# wall · . ice · o goal · P player · @ covered goal" : "Move history playback";
   elements["stat-tokens"].textContent = formatNumber(usageTotal(run.usage));
   elements["novelty-value"].textContent = `${Math.round((run.novelty_rate || 0) * 100)}% overall`;
   const progress = run.action_limit ? Math.min(100, (run.action_count || 0) / run.action_limit * 100) : 0;
@@ -622,11 +628,13 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   if (followingLatest || changedRun) {
     currentFrame = run.action_count || 0;
     renderBoard(run.display);
-    elements["board-room"].textContent = `${run.world === "ice-maze" ? "" : "Room "}${run.display?.room || run.room || "—"}`;
+    elements["board-room"].textContent = `${numberedWorld(run) ? "" : "Room "}${run.display?.room || run.room || "—"}`;
     elements["board-move"].textContent = `move ${run.display?.observation_revision ?? run.action_count ?? 0}`;
     elements["frame-source"].textContent = "Live engine frame · exact colors";
   }
   syncTransport();
+  elements.heatmap.setAttribute("aria-label", run.world === "slotski" ? "Top-left positions of selected blocks after actions" : "Heatmap of positions visited");
+  elements["heatmap-count"].title = run.world === "slotski" ? "Each action records the selected block’s top-left cell; undo and reset record A." : "Positions after actions";
   drawHeatmap(run.positions, run.tools_enabled);
   drawNovelty(run.novelty, run.tools_enabled);
   drawProgress(run);
