@@ -108,11 +108,15 @@ must not create an undo snapshot or increment the move counter.
 
 World topology and reset-on-leave policy belong to Play Mode, not the vendored
 C++ source. `play/v1/connected-world-session.mjs` begins every command with only
-the current room. If the authoritative engine trace stops at a room edge while
-walking outward, retaining Ice momentum, or carrying punch momentum, it adds
-only that neighboring room and reruns the same command from its original state.
-Repeat this on later edge contacts so one command may visit a straight or
-L-shaped chain of rooms without loading unrelated rooms.
+the current room. An outward command from an edge, or an intermediate engine
+frame reaching an edge with Ice or punch momentum, adds only that neighboring
+room and reruns the same command from its original state. Inspect contacts in
+time order: a temporary boundary can reflect a slope slide back into the room
+or cause a cycle before the command ends. Ignore the cycle's rollback frame as
+movement. Skip already attached rooms; if the neighboring geometry prevents
+entry, retain the original trace and continue checking later edge contacts.
+Repeat this so one command may visit a straight or L-shaped chain of rooms
+without loading unrelated rooms.
 
 Rooms attached during a command start from immutable authored data with their
 authored player removed; the incoming player is the only player carried across

@@ -212,6 +212,10 @@ bool TranslateSlopeMomentumObjects(
   AddSlopeCarriedObjects(
       voxels, player_index, width, height, !allow_push,
       player_moves_horizontally);
+  if (!ResolveSlopeCarriedCollisions(
+          voxels, player_index, width, height, player_moves_horizontally)) {
+    return false;
+  }
 
   for (int32_t object = 0; object < g_object_count; ++object) {
     if (g_mandatory_objects[object] == 0 ||
@@ -229,31 +233,9 @@ bool TranslateSlopeMomentumObjects(
             height)) {
       return false;
     }
-    for (int32_t member = g_object_head[object]; member >= 0;
-         member = g_next_object_voxel[member]) {
-      const int32_t next_x = voxels[member].x + g_object_dx[object];
-      const int32_t next_y = voxels[member].y + g_object_dy[object];
-      const int32_t next_z = voxels[member].z + g_object_dz[object];
-      if (!IsInsideRoom(next_x, next_y, width, height)) return false;
-      const int32_t occupant = FindVoxelAt(
-          voxels, next_x, next_y, next_z, width, height);
-      if (occupant < 0 || g_voxel_object[occupant] == object) continue;
-      if (occupant == player_index) {
-        if (player_moves_horizontally) continue;
-        return false;
-      }
-      const int32_t other = g_voxel_object[occupant];
-      if (other >= 0 && g_mandatory_objects[other] != 0 &&
-          ObjectProposalVacatesCell(
-              voxels, other, next_x, next_y, next_z)) {
-        continue;
-      }
-      if (other >= 0 && g_object_falling[other] != 0 &&
-          g_moving_objects[other] == 0 &&
-          !FallingObjectRefillsCell(
-              voxels, next_x, next_y, next_z, width, height)) {
-        continue;
-      }
+    if (!SlopeObjectDestinationIsClear(
+            voxels, object, player_index, width, height,
+            player_moves_horizontally)) {
       return false;
     }
   }
@@ -300,7 +282,10 @@ bool TranslateSlopeMomentumObjects(
   while (support_loss_changed) {
     support_loss_changed = false;
     for (int32_t object = 0; object < g_object_count; ++object) {
+      // A passenger denied its carry was supported at the start of this
+      // tick. Arm its fall after the carrier commits, for the following tick.
       if (g_component_objects[object] != 0 ||
+          g_rejected_carriers[object] != 0 ||
           !ObjectIsActive(voxels, object, width, height)) {
         continue;
       }

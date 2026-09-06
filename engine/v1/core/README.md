@@ -61,6 +61,12 @@ another cell beneath that rider is not a stationary foothold. These rules do
 not depend on whether an unrelated ramp exists elsewhere in the room. Carrier
 impulse scratch is reset when a workspace starts or rebuilds a command.
 
+A loose passenger blocked by terrain stays behind without cancelling the
+carrier's push; passengers above it stay with that stopped support too. If the
+carrier completely vacates its support, the blocked passenger starts descending
+on the next tick, not during the push. A blocked rigid mounted fixture still
+anchors its carrier. Unrelated ramps do not change these collision rules.
+
 After every physics change, run the repository-level test suite. A change is
 not complete until all native, WebAssembly, rotation, and web regression tests
 pass.

@@ -643,6 +643,83 @@ void AddSlopeCarriedObjects(
   }
 }
 
+bool SlopeObjectDestinationIsClear(
+    Voxel* voxels,
+    int32_t object,
+    int32_t player_index,
+    int32_t width,
+    int32_t height,
+    bool player_is_vacating) {
+  for (int32_t member = g_object_head[object]; member >= 0;
+       member = g_next_object_voxel[member]) {
+    const int32_t next_x = voxels[member].x + g_object_dx[object];
+    const int32_t next_y = voxels[member].y + g_object_dy[object];
+    const int32_t next_z = voxels[member].z + g_object_dz[object];
+    if (!IsInsideRoom(next_x, next_y, width, height)) return false;
+    const int32_t occupant = FindVoxelAt(
+        voxels, next_x, next_y, next_z, width, height);
+    if (occupant < 0 || g_voxel_object[occupant] == object) continue;
+    if (occupant == player_index) {
+      if (player_is_vacating) continue;
+      return false;
+    }
+    const int32_t other = g_voxel_object[occupant];
+    if (other >= 0 && g_mandatory_objects[other] != 0 &&
+        ObjectProposalVacatesCell(voxels, other, next_x, next_y, next_z)) {
+      continue;
+    }
+    if (other >= 0 && g_object_falling[other] != 0 &&
+        g_moving_objects[other] == 0 &&
+        !FallingObjectRefillsCell(
+            voxels, next_x, next_y, next_z, width, height)) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+bool ResolveSlopeCarriedCollisions(
+    Voxel* voxels,
+    int32_t player_index,
+    int32_t width,
+    int32_t height,
+    bool player_is_vacating) {
+  // Carrying is optional, unlike the deliberate push closure. A passenger
+  // caught by terrain stays behind; it does not anchor its moving support.
+  // Iterate to revoke passengers of a stopped passenger and proposals whose
+  // destination is no longer vacated. No coordinates change until validation.
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (int32_t object = 0; object < g_object_count; ++object) {
+      if (g_carried_objects[object] == 0 ||
+          g_rejected_carriers[object] != 0) continue;
+      const int32_t carrier = g_carrier_parent[object];
+      const bool carrier_moves =
+          carrier >= 0 && g_mandatory_objects[carrier] != 0;
+      if (carrier_moves && SlopeObjectDestinationIsClear(
+              voxels, object, player_index, width, height,
+              player_is_vacating)) continue;
+      if (carrier_moves && g_object_kind[object] == kMechanismObject) {
+        // Rigid mounted fixtures retain the existing attachment rule: a
+        // blocked raised fixture anchors its carrier, not a loose passenger.
+        return false;
+      }
+      g_rejected_carriers[object] = 1;
+      g_mandatory_objects[object] = 0;
+      g_moving_objects[object] = 0;
+      g_carrier_parent[object] = -1;
+      g_object_direction[object] = 0xff;
+      g_object_dx[object] = 0;
+      g_object_dy[object] = 0;
+      g_object_dz[object] = 0;
+      changed = true;
+    }
+  }
+  return true;
+}
+
 void PreserveSlopeCarriedMomentum(
     Voxel* voxels,
     int32_t width,

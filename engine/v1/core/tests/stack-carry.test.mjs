@@ -7,6 +7,50 @@ const world = { width: 6, height: 6, floorLayer: 0 };
 const box = (x, y, z, genericId) => ({ x, y, z, genericId, blockId: "weightless-pushbox-1826" });
 
 for (const remoteSlope of [false, true]) {
+  for (const losesSupport of [false, true]) {
+    for (const stacked of [false, true]) {
+      test(`blocked passenger: remote ramp=${remoteSlope}, loses support=${losesSupport}, stack=${stacked}`, () => {
+        const terrain = Array.from({ length: 36 }, (_, i) => ({ x: i % 6, y: Math.floor(i / 6), z: 0,
+          ...(remoteSlope && i === 35 ? { blockId: "ice-slope", orientation: "up" } : { blockId: "floor" }) }));
+        const riderY = losesSupport ? 3 : 2;
+        terrain.push({ x: 2, y: riderY - 1, z: 4, blockId: "wall" });
+        const carrier = [];
+        for (let x = 1; x <= 2; ++x) {
+          for (let y = 2; y <= 3; ++y) {
+            for (let z = 1; z <= 3; ++z) carrier.push(box(x, y, z, 17));
+          }
+        }
+        const player = { x: 2, y: 4, z: 1, blockId: "player" };
+        const passengers = [box(2, riderY, 4, 39)];
+        if (stacked) passengers.push(box(2, riderY, 5, 63));
+        const start = [...terrain, player, ...carrier, ...passengers];
+        const expected = Array.from({ length: losesSupport ? 3 : 1 }, (_, tick) => [
+          ...terrain, { ...player, y: 3 }, ...carrier.map(v => ({ ...v, y: v.y - 1 })),
+          ...passengers.map(v => ({ ...v, z: v.z - tick })),
+        ]);
+        for (let rotation = 0; rotation < 4; ++rotation) {
+          const bounds = rotateWorldClockwise(world, rotation);
+          for (const order of ["normal", "reverse", "interleaved"]) {
+            let input = rotateVoxelsClockwise(start, world, rotation);
+            if (order === "reverse") input.reverse();
+            if (order === "interleaved") input = [...input.filter((_, i) => i % 2), ...input.filter((_, i) => !(i % 2))];
+            const context = `${rotation * 90}°, ${order}`;
+            const frames = simulateFrames(input, rotation, bounds);
+            assert.equal(frames.length, expected.length, `${context}: exact fall timing`);
+            for (const [index, frame] of expected.entries()) {
+              assert.deepEqual(frameDifference(rotateVoxelsClockwise(frame, world, rotation), frames[index], bounds),
+                { missing: [], unexpected: [] }, `${context}: tick ${index + 1}`);
+            }
+            assert.deepEqual(frameDifference(rotateVoxelsClockwise(expected.at(-1), world, rotation),
+              simulateFinal(input, rotation, bounds), bounds), { missing: [], unexpected: [] }, `${context}: final-state API`);
+          }
+        }
+      });
+    }
+  }
+}
+
+for (const remoteSlope of [false, true]) {
   for (const sharesPlayer of [false, true]) {
     for (const startsOnIce of [false, true]) {
       test(`stack carry: remote ramp=${remoteSlope}, player foothold=${sharesPlayer}, initial Ice=${startsOnIce}`, () => {

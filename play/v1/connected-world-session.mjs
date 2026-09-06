@@ -196,19 +196,6 @@ export class ConnectedWorldSessionV1 {
     };
   }
 
-  lastMovementDirection(simulation, layout) {
-    const positions = [layout.state, ...simulation.frames]
-      .map((state) => this.activePlayer(state))
-      .filter(Boolean);
-    for (let index = positions.length - 1; index > 0; index -= 1) {
-      const current = positions[index];
-      const previous = positions[index - 1];
-      const direction = directionFromDelta(current.x - previous.x, current.y - previous.y);
-      if (direction) return direction;
-    }
-    return null;
-  }
-
   playerIsOnIce(state, player) {
     return state.objects.some((object) => {
       if (object === player || object.x !== player.x || object.y !== player.y) return false;
@@ -216,15 +203,6 @@ export class ConnectedWorldSessionV1 {
       return (roleId === "ice" || roleId.startsWith("ice-slope-")) &&
         (object.z === player.z || object.z === player.z - 1);
     });
-  }
-
-  traceHasPunch(simulation, direction) {
-    return simulation.frames.some((state) => state.objects.some((object) => {
-      const definition = this.definitionMap.get(object.blockId);
-      if (definition?.roleId !== "puncher" && definition?.visual?.kind !== "puncher") return false;
-      const sprung = object.stateId === 1 || object.engineGenericId % 2 === 1;
-      return sprung && ORIENTATION_DIRECTIONS[String(object.orientation).toLowerCase()] === direction;
-    }));
   }
 
   isAtRoomEdge(player, placement, direction) {
@@ -235,23 +213,44 @@ export class ConnectedWorldSessionV1 {
     return false;
   }
 
-  exitIntent(simulation, layout, requestedDirection) {
-    const located = this.playerPlacement(simulation.final, layout);
-    if (!located) return null;
-    const { player, placement } = located;
-    const movementDirection = this.lastMovementDirection(simulation, layout);
-    if (movementDirection && this.isAtRoomEdge(player, placement, movementDirection) &&
-        (this.playerIsOnIce(simulation.final, player) ||
-         this.traceHasPunch(simulation, movementDirection))) {
-      return { direction: movementDirection, placement };
-    }
+  exitIntent(simulation, layout, requestedDirection, blockedExits = new Set()) {
+    const attachedRooms = new Set(layout.placements.map(({ room }) => roomKey(room)));
+    const candidate = (located, direction) => {
+      if (!located || !direction || !this.isAtRoomEdge(located.player, located.placement, direction)) return null;
+      const { placement } = located;
+      const key = `${roomKey(placement.room)}:${direction}`;
+      const nextRoom = this.neighbor(placement.room, direction);
+      if (!nextRoom || attachedRooms.has(roomKey(nextRoom)) || blockedExits.has(key)) return null;
+      return { direction, placement, nextRoom, key };
+    };
 
+    // An outward command may reflect immediately if it starts on an edge slope.
     const initial = this.playerPlacement(layout.state, layout);
-    if (!movementDirection && initial &&
-        initial.player.x === player.x && initial.player.y === player.y &&
-        initial.placement.room === placement.room &&
-        this.isAtRoomEdge(player, placement, requestedDirection)) {
-      return { direction: requestedDirection, placement };
+    const initialExit = candidate(initial, requestedDirection);
+    if (initialExit) return initialExit;
+
+    let previous = initial?.player;
+    const punchedDirections = new Set();
+    // The final cycle frame is a rollback, not physical movement.
+    const frames = simulation.cycle ? simulation.frames.slice(0, -1) : simulation.frames;
+    for (const state of frames) {
+      for (const object of state.objects) {
+        const definition = this.definitionMap.get(object.blockId);
+        if (definition?.roleId !== "puncher" && definition?.visual?.kind !== "puncher") continue;
+        if (object.stateId === 1 || object.engineGenericId % 2 === 1) {
+          punchedDirections.add(ORIENTATION_DIRECTIONS[String(object.orientation).toLowerCase()]);
+        }
+      }
+      const located = this.playerPlacement(state, layout);
+      const player = located?.player;
+      const direction = player && previous
+        ? directionFromDelta(player.x - previous.x, player.y - previous.y)
+        : null;
+      previous = player;
+      const exit = candidate(located, direction);
+      // Inspect the first edge contact, before a temporary boundary can bounce
+      // the player back into the room or turn the command into a cycle.
+      if (exit && (this.playerIsOnIce(state, player) || punchedDirections.has(direction))) return exit;
     }
     return null;
   }
@@ -286,33 +285,33 @@ export class ConnectedWorldSessionV1 {
     }
 
     const visited = new Map([[roomKey(room), { room, state: cloneState(state) }]]);
-    let lastAddedKey = null;
-    let fallback = null;
-    for (let expansion = 0; expansion <= this.rooms.length; expansion += 1) {
-      const layout = this.buildLayout(visited);
-      const simulation = await this.engine.simulateCommand(
-        layout.state,
-        direction,
-        this.definitions
-      );
-      const projected = this.projectSimulation(simulation, layout, room);
-      const enteredRooms = new Set(projected.connectedRooms);
-      const addedRoom = lastAddedKey ? visited.get(lastAddedKey)?.room : null;
-      if (addedRoom && !enteredRooms.has(addedRoom.fileName) && fallback) {
-        return this.projectSimulation(fallback.simulation, fallback.layout, room);
-      }
-
-      const exit = this.exitIntent(simulation, layout, direction);
-      if (!exit || simulation.cycle) return projected;
-      const nextRoom = this.neighbor(exit.placement.room, exit.direction);
-      if (!nextRoom || visited.has(roomKey(nextRoom))) return projected;
-
-      fallback = { simulation, layout };
-      lastAddedKey = roomKey(nextRoom);
-      visited.set(lastAddedKey, {
+    const blockedExits = new Set();
+    let layout = this.buildLayout(visited);
+    let simulation = await this.engine.simulateCommand(layout.state, direction, this.definitions);
+    // Each attempt either attaches a room or rejects one of its four seams.
+    for (let attempt = 0; attempt <= this.rooms.length * 4; attempt += 1) {
+      const exit = this.exitIntent(simulation, layout, direction, blockedExits);
+      if (!exit) return this.projectSimulation(simulation, layout, room);
+      const { nextRoom } = exit;
+      const nextKey = roomKey(nextRoom);
+      visited.set(nextKey, {
         room: nextRoom,
         state: this.freshRoomState(nextRoom)
       });
+      const expandedLayout = this.buildLayout(visited);
+      const expandedSimulation = await this.engine.simulateCommand(
+        expandedLayout.state, direction, this.definitions
+      );
+      const projected = this.projectSimulation(expandedSimulation, expandedLayout, room);
+      if (!projected.connectedRooms.includes(nextRoom.fileName)) {
+        // A real obstruction still wins. Keep the original trace, but allow a
+        // later edge contact in that trace to try a different neighboring room.
+        visited.delete(nextKey);
+        blockedExits.add(exit.key);
+        continue;
+      }
+      layout = expandedLayout;
+      simulation = expandedSimulation;
     }
     throw new Error("Connected world crossed too many rooms in one command.");
   }

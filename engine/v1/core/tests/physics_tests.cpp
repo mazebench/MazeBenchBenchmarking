@@ -327,6 +327,76 @@ void TestCarrierMomentumCannotLeakIntoNextScene() {
         "all actors in the replacement scene should take only their one command step");
 }
 
+void TestBlockedPassengersDoNotAnchorTheirCarrier() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  voxelbench::reset_workspace(&workspace);
+  for (const bool remote_slope : {false, true}) {
+    for (const bool loses_support : {false, true}) {
+      for (const bool stacked : {false, true}) {
+        voxelbench::Voxel voxels[80];
+        int32_t count = 0;
+        voxels[count++] = {2, 4, 1, Role("player"), -1};
+        const int32_t rider_y = loses_support ? 3 : 2;
+        voxels[count++] = {2, rider_y, 4, Role("weightless-pushable"), 39};
+        if (stacked) {
+          voxels[count++] = {2, rider_y, 5, Role("weightless-pushable"), 63};
+        }
+        const int32_t carrier_begin = count;
+        for (int32_t x = 1; x <= 2; ++x) {
+          for (int32_t y = 2; y <= 3; ++y) {
+            for (int32_t z = 1; z <= 3; ++z) {
+              voxels[count++] = {x, y, z, Role("weightless-pushable"), 17};
+            }
+          }
+        }
+        const int32_t terrain_begin = count;
+        voxels[count++] = {2, rider_y - 1, 4, Role("solid"), -1};
+        for (int32_t x = 0; x < 6; ++x) {
+          for (int32_t y = 0; y < 6; ++y) {
+            voxels[count++] = {x, y, 0,
+                Role(remote_slope && x == 5 && y == 5
+                    ? "ice-slope-up" : "floor"), -1};
+          }
+        }
+        voxelbench::Voxel before[80];
+        std::memcpy(before, voxels, sizeof(voxelbench::Voxel) *
+            static_cast<size_t>(count));
+        voxelbench::reset_motion_state(&state);
+        const int32_t expected_ticks = loses_support ? 3 : 1;
+        bool complete = false;
+        for (int32_t call = 0; call < 8; ++call) {
+          const auto result = voxelbench::step_tick(
+              &workspace, &state, voxels, count, 6, 6, 0);
+          Check(result == voxelbench::TickResult::kMore ||
+                    result == voxelbench::TickResult::kComplete,
+                "blocked-passenger command should be valid");
+          Check(state.tick >= 1 && state.tick <= expected_ticks,
+                "the carrier push must precede exactly two falling ticks");
+          const int32_t fall = loses_support ? state.tick - 1 : 0;
+          for (int32_t index = 0; index < count; ++index) {
+            const bool rider = index >= 1 && index < carrier_begin;
+            const bool moves = index == 0 ||
+                (index >= carrier_begin && index < terrain_begin);
+            Check(voxels[index].x == before[index].x &&
+                      voxels[index].y == before[index].y - (moves ? 1 : 0) &&
+                      voxels[index].z == before[index].z - (rider ? fall : 0) &&
+                      voxels[index].role == before[index].role &&
+                      voxels[index].generic_id == before[index].generic_id,
+                  "each frame must preserve the blocked passenger stack and terrain");
+          }
+          if (result == voxelbench::TickResult::kComplete) {
+            complete = true;
+            break;
+          }
+        }
+        Check(complete && state.tick == expected_ticks,
+              "blocked passengers should settle in the authored number of ticks");
+      }
+    }
+  }
+}
+
 void TestPushableIceSlide() {
   voxelbench::Voxel voxels[] = {
       {2, 4, 1, Role("player"), -1},
@@ -2431,6 +2501,7 @@ int main() {
   TestRampCrestPushesOnlyUnblockedWeightlessChains();
   TestSparseStackCarryIgnoresUnrelatedSlopes();
   TestCarrierMomentumCannotLeakIntoNextScene();
+  TestBlockedPassengersDoNotAnchorTheirCarrier();
   TestPushableIceSlide();
   TestPlayerAndPushedBodySlideTogetherOnIce();
   TestIceStopsAtObstacle();
@@ -2520,6 +2591,6 @@ int main() {
     std::cerr << failures << " C++ physics test(s) failed\n";
     return EXIT_FAILURE;
   }
-  std::cout << "all 95 C++ physics/search tests passed\n";
+  std::cout << "all 96 C++ physics/search tests passed\n";
   return EXIT_SUCCESS;
 }
