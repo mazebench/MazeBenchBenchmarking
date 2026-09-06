@@ -234,6 +234,99 @@ void TestRampCrestPushesOnlyUnblockedWeightlessChains() {
   }
 }
 
+void TestSparseStackCarryIgnoresUnrelatedSlopes() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  voxelbench::reset_workspace(&workspace);
+  for (const bool remote_slope : {false, true}) {
+    for (const bool shares_player : {false, true}) {
+      for (const bool slippery_start : {false, true}) {
+        voxelbench::Voxel voxels[80];
+        int32_t count = 0;
+        voxels[count++] = {0, 5, 2, Role("player"), -1};
+        for (int32_t x = 0; x < 2; ++x) {
+          for (int32_t y = 2; y <= 4; ++y) {
+            if (x != 0 || y != 3) {
+              voxels[count++] = {x, y, 2, Role("weightless-pushable"), 17};
+            }
+            voxels[count++] = {x, y, 3, Role("weightless-pushable"), 39};
+          }
+        }
+        if (shares_player) {
+          voxels[count++] = {0, 5, 3, Role("weightless-pushable"), 39};
+        }
+        const int32_t dynamic_count = count;
+        for (int32_t x = 0; x < 6; ++x) {
+          for (int32_t y = 0; y < 6; ++y) {
+            voxels[count++] = {x, y, 0,
+                Role(remote_slope && x == 5 && y == 5
+                    ? "ice-slope-up" : "floor"), -1};
+          }
+        }
+        for (int32_t x = 0; x < 2; ++x) {
+          for (int32_t y = 1; y <= 4; ++y) {
+            voxels[count++] = {x, y, 1,
+                Role(slippery_start && y >= 2 ? "ice" : "solid"), -1};
+          }
+        }
+        voxels[count++] = {0, 5, 1, Role("solid"), -1};
+        voxelbench::Voxel before[80];
+        std::memcpy(before, voxels, sizeof(voxelbench::Voxel) *
+            static_cast<size_t>(count));
+        Check(voxelbench::simulate_command(
+                  &workspace, &state, voxels, count, 6, 6, 0) == 0 &&
+                  state.tick == 1,
+              "a sparse carried stack should stop with its grounded carrier");
+        for (int32_t index = 0; index < count; ++index) {
+          Check(voxels[index].x == before[index].x &&
+                    voxels[index].z == before[index].z &&
+                    voxels[index].y == before[index].y -
+                        (index < dynamic_count ? 1 : 0),
+                "the shared player/box support should carry every rider cell once");
+        }
+      }
+    }
+  }
+}
+
+void TestCarrierMomentumCannotLeakIntoNextScene() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  voxelbench::reset_workspace(&workspace);
+  voxelbench::Voxel stack[] = {
+      {2, 5, 1, Role("player"), -1},
+      {2, 4, 1, Role("weightless-pushable"), 17},
+      {2, 4, 2, Role("weightless-pushable"), 39},
+      {2, 5, 0, Role("floor"), -1},
+      {2, 4, 0, Role("floor"), -1},
+      {2, 3, 0, Role("ice"), -1},
+      {2, 2, 0, Role("ice"), -1},
+      {2, 1, 0, Role("floor"), -1},
+      {5, 5, 0, Role("ice-slope-up"), -1},
+  };
+  voxelbench::reset_motion_state(&state);
+  Check(voxelbench::step_tick(&workspace, &state, stack, 9, 6, 6, 0) ==
+            voxelbench::TickResult::kMore && stack[2].y == 3,
+        "the first scene should leave a carried Ice impulse in its workspace");
+  voxelbench::Voxel next[] = {
+      {0, 5, 1, Role("player"), -1},
+      {2, 5, 1, Role("clone"), 0},
+      {3, 5, 1, Role("clone"), 1},
+      {0, 5, 0, Role("floor"), -1},
+      {0, 4, 0, Role("floor"), -1},
+      {2, 5, 0, Role("floor"), -1},
+      {2, 4, 0, Role("floor"), -1},
+      {3, 5, 0, Role("floor"), -1},
+      {3, 4, 0, Role("floor"), -1},
+      {3, 3, 0, Role("floor"), -1},
+  };
+  Check(voxelbench::simulate_command(
+            &workspace, &state, next, 10, 6, 6, 0) == 0 && state.tick == 1,
+        "reusing an interrupted workspace must not give a new clone momentum");
+  Check(next[0].y == 4 && next[1].y == 4 && next[2].y == 4,
+        "all actors in the replacement scene should take only their one command step");
+}
+
 void TestPushableIceSlide() {
   voxelbench::Voxel voxels[] = {
       {2, 4, 1, Role("player"), -1},
@@ -2336,6 +2429,8 @@ int main() {
   TestWalkingCannotEnterRampSide();
   TestRampSideSlideStillCollidesWithSolids();
   TestRampCrestPushesOnlyUnblockedWeightlessChains();
+  TestSparseStackCarryIgnoresUnrelatedSlopes();
+  TestCarrierMomentumCannotLeakIntoNextScene();
   TestPushableIceSlide();
   TestPlayerAndPushedBodySlideTogetherOnIce();
   TestIceStopsAtObstacle();
@@ -2425,6 +2520,6 @@ int main() {
     std::cerr << failures << " C++ physics test(s) failed\n";
     return EXIT_FAILURE;
   }
-  std::cout << "all 93 C++ physics/search tests passed\n";
+  std::cout << "all 95 C++ physics/search tests passed\n";
   return EXIT_SUCCESS;
 }

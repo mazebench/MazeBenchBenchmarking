@@ -54,6 +54,13 @@ bitsets, without recursive searches or per-tick allocations. A level external
 foot prevents a long or tall polycube from descending through its support;
 unsupported overhangs do not count as extra feet.
 
+Carried riders retain their carrier relationship throughout a simultaneous
+tick; promotion into the moving set does not give them independent momentum.
+If the carrier stops on non-Ice support, its rider stops too. A player vacating
+another cell beneath that rider is not a stationary foothold. These rules do
+not depend on whether an unrelated ramp exists elsewhere in the room. Carrier
+impulse scratch is reset when a workspace starts or rebuilds a command.
+
 After every physics change, run the repository-level test suite. A change is
 not complete until all native, WebAssembly, rotation, and web regression tests
 pass.

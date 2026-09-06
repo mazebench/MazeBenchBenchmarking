@@ -591,13 +591,19 @@ void AddSlopeCarriedObjects(
     int32_t player_index,
     int32_t width,
     int32_t height,
-    bool preserve_matching_latent_motion) {
-  BuildCarriedObjects(voxels, player_index, false, width, height);
+    bool preserve_matching_latent_motion,
+    bool player_is_vacating) {
+  BuildCarriedObjects(
+      voxels, player_index, false, width, height, player_is_vacating);
   bool promoted = true;
   while (promoted) {
     promoted = false;
     for (int32_t object = 0; object < g_object_count; ++object) {
       if (g_carried_objects[object] == 0) continue;
+      // A previous pass already copied this carrier's proposal. Do not
+      // reinterpret that newly promoted rider as independent momentum and
+      // erase the parent needed to stop it when the carrier leaves Ice.
+      if (g_mandatory_objects[object] != 0) continue;
       const int32_t carrier = g_carrier_parent[object];
       bool carrier_is_movable_ramp = false;
       if (carrier >= 0) {
@@ -614,21 +620,15 @@ void AddSlopeCarriedObjects(
           g_object_direction[object] <= 3 &&
           g_object_direction[object] == g_component_indegree[carrier];
       if (g_object_falling[object] != 0 ||
-          (g_mandatory_objects[object] != 0 &&
-           g_object_direction[object] <= 3 &&
-           !carrier_is_movable_ramp) ||
           rider_continues_before_redirect) {
-        // A body already committed to gravity or to an active horizontal
-        // proposal keeps that proposal as support departs. A latent falling
+        // A body already committed to gravity or matching latent momentum
+        // keeps that proposal as support departs. A latent falling
         // stack which arrived with its carrier also continues vertically when
         // that support moves out underneath it. Otherwise, a body arriving
         // from another axis has just been caught and follows its carrier.
         g_carried_objects[object] = 0;
         g_moving_objects[object] = g_mandatory_objects[object];
         g_carrier_parent[object] = -1;
-        continue;
-      }
-      if (g_mandatory_objects[object] != 0) {
         continue;
       }
       if (carrier < 0 || g_mandatory_objects[carrier] == 0) continue;

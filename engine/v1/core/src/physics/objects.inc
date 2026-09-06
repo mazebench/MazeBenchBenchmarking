@@ -4,6 +4,7 @@ int32_t CreateObject(uint8_t kind) {
   g_object_kind[object] = kind;
   g_object_gravity_armed[object] = 0;
   g_object_falling[object] = 0;
+  g_inherited_support_motion[object] = 0;
   return object;
 }
 
@@ -346,6 +347,9 @@ void ResetObjectMotion() {
   for (int32_t object = 0; object < g_object_count; ++object) {
     g_object_gravity_armed[object] = 0;
     g_object_falling[object] = 0;
+    // This is proposal scratch, not serialized momentum. A reused search or
+    // test workspace must not inherit a different command's carrier impulse.
+    g_inherited_support_motion[object] = 0;
   }
 }
 

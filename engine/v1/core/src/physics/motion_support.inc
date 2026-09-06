@@ -149,7 +149,8 @@ int32_t MovingSupportBelowObject(
     int32_t player_index,
     bool carry_from_player,
     int32_t width,
-    int32_t height) {
+    int32_t height,
+    bool player_is_vacating = false) {
   // A mounted fixture participates in the carrier footprint of its complete
   // rigid assembly. If that fixture is resting on a moving body, the mount
   // transmits the carry even when another part of the assembly also has a
@@ -206,6 +207,11 @@ int32_t MovingSupportBelowObject(
         voxels, voxel.x, voxel.y, voxel.z - 1, width, height);
     if (support < 0) continue;
     if (g_voxel_object[support] == object) continue;
+    if (support == player_index && player_is_vacating && !carry_from_player) {
+      // The player's old cell is not a stationary foothold during a shared
+      // motion tick. A moving box beneath another foot may carry this rider.
+      continue;
+    }
     if (carry_from_player && support == player_index) {
       moving_support = -2;
       continue;
@@ -268,7 +274,8 @@ void BuildCarriedObjects(
     int32_t player_index,
     bool carry_from_player,
     int32_t width,
-    int32_t height) {
+    int32_t height,
+    bool player_is_vacating = false) {
   for (int32_t object = 0; object < g_object_count; ++object) {
     g_moving_objects[object] = g_mandatory_objects[object];
     g_carried_objects[object] = 0;
@@ -287,7 +294,8 @@ void BuildCarriedObjects(
         continue;
       }
       const int32_t carrier = MovingSupportBelowObject(
-          voxels, object, player_index, carry_from_player, width, height);
+          voxels, object, player_index, carry_from_player, width, height,
+          player_is_vacating);
       if (carrier != -1) {
         g_moving_objects[object] = 1;
         g_carried_objects[object] = 1;

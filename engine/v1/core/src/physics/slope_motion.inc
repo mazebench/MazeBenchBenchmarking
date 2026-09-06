@@ -210,7 +210,8 @@ bool TranslateSlopeMomentumObjects(
   // the same support graph, then copy each carrier's exact 3D proposal to its
   // riders before validating the transaction.
   AddSlopeCarriedObjects(
-      voxels, player_index, width, height, !allow_push);
+      voxels, player_index, width, height, !allow_push,
+      player_moves_horizontally);
 
   for (int32_t object = 0; object < g_object_count; ++object) {
     if (g_mandatory_objects[object] == 0 ||
