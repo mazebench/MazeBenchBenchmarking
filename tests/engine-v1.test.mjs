@@ -52,8 +52,8 @@ test("play arrows rotate from screen space into world space at every camera head
   assert.equal(cameraRelativeMoveDirection("up", -1), "right");
 });
 
-test("play animation timing defaults to 105 ms and zero skips to the final frame", async () => {
-  assert.equal(DEFAULT_PLAY_FRAME_DELAY_MS, 105);
+test("play animation timing defaults to 20 ms and zero skips to the final frame", async () => {
+  assert.equal(DEFAULT_PLAY_FRAME_DELAY_MS, 20);
   const room = {
     width: 1,
     height: 3,

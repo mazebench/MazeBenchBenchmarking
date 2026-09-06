@@ -2,7 +2,7 @@ import { countActiveRoleV1, engineStatesEqualV1 } from "../../engine/v1/adapter.
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-export const DEFAULT_PLAY_FRAME_DELAY_MS = 105;
+export const DEFAULT_PLAY_FRAME_DELAY_MS = 20;
 
 function cloneState(state) {
   return {

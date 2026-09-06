@@ -94,7 +94,7 @@ serialization, command/tick playback, input, or rendering.
 ## Play animation timing
 
 Play Mode presents each C++ engine tick as one animation frame. Its default
-delay is 105 ms per engine frame (about 9.52 FPS). The Play sidebar can set the
+delay is 20 ms per engine frame (50 FPS). The Play sidebar can set the
 frame delay directly in milliseconds. A delay of 0 ms is Instant mode: it skips
 intermediate tick frames and renders only the command's final engine state.
 Camera motion is independent and continues to use `requestAnimationFrame` at
