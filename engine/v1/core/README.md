@@ -31,18 +31,59 @@ The WebAssembly ABI exposes the same lifecycle as `reset_command`,
 `step_command_tick`, and `command_tick`. Its motion-state buffer is explicit so
 future save-game and replay formats can persist a partially completed command.
 
-Current authored tests define gravity settlement as part of a horizontal tick;
-Ice continuation produces additional ticks. If future fixtures require each
-vertical cell to be a separate visible tick, that cadence can be tightened in
-`step_tick` without changing either public API.
+Each returned frame is one discrete tick. Horizontal continuation and gravity
+advance by one cell on their respective axes; slope moves may combine axes.
+The authored timeline length, every intermediate frame, and the exact global
+cycle interval are part of the contract, not just the final arrangement.
 
 The `floor` role is intentionally distinct from ordinary solid support: a
 player may deliberately walk off a floor edge, but cannot deliberately walk
 off other support. Ice momentum may carry it beyond any support.
 
+Entering an Ice ramp sideways from level terrain requires existing sliding
+momentum. The entry tick stays at the same elevation; the next tick turns
+downhill and follows the ramp. A deliberate step remains blocked from the
+side, even when the player is standing on Ice. This exception does not bypass
+solid occupants or change the ramp's low-edge entry restriction.
+
+Uphill momentum may push a stationary weightless-box chain at a ramp's crest,
+including boxes on non-Ice support. A blocked chain still reflects downhill;
+flat-Ice momentum alone does not gain this push. Feasibility uses the same
+whole-polycube elevation calculation as the transaction and fixed workspace
+bitsets, without recursive searches or per-tick allocations. A level external
+foot prevents a long or tall polycube from descending through its support;
+unsupported overhangs do not count as extra feet.
+
 After every physics change, run the repository-level test suite. A change is
 not complete until all native, WebAssembly, rotation, and web regression tests
 pass.
+
+Run `npm run test:physics:sanitize` for native address/undefined-behavior
+checks as well. It stops on the first diagnostic, including invalid array
+accesses that may not affect observable expectations in an optimized build.
+
+## Internal module map
+
+The `.inc` files remain one optimized translation unit. Splitting their source
+does not add virtual dispatch, heap allocations, or a separate physics engine.
+
+| Module | Responsibility |
+| --- | --- |
+| `workspace.inc`, `objects.inc` | Workspace-owned scratch storage, spatial indexes, rigid body membership |
+| `motion_support.inc` | Carrying, independent support, interlocking support graphs |
+| `gravity_motion.inc`, `gravity_queries.inc` | One-cell falling and order-independent quiescence checks |
+| `translations.inc` | Rigid translations and rider movement |
+| `slope_geometry.inc`, `slope_proposals.inc`, `slope_motion.inc` | Contact geometry, whole-body proposals, simultaneous slope motion |
+| `lifts.inc`, `gates.inc`, `punchers.inc`, `orange_mechanisms.inc` | Mechanism-specific transitions |
+| `command_state.inc`, `passive_commands.inc` | Command state and prepared quiescent evaluation |
+| `tick.inc`, `simulate.inc`, `cycle*.inc` | Tick orchestration, stationary-state API, complete-world cycle detection |
+
+`movement.inc` is an include-only grouping of the motion modules, not a second
+implementation. `tests/invariants.test.mjs` permutes voxel storage across every
+active authored case. `tests/audit-regressions.test.mjs` specifies additional
+slope and pedestal expectations independently of the engine. See
+[the audit report](../ENGINE_AUDIT.md) for the bugs these checks uncovered and
+[the test catalogue](../docs/TEST_CATALOG.md) for stable case IDs and old names.
 
 `npm run benchmark:physics` builds the native benchmark with release LTO and
 the host CPU instruction set. Its `flat_single_push_ice_lane` workload restores

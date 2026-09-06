@@ -1277,7 +1277,8 @@ TickResult step_tick(
           state->direction,
           player_dz,
           width,
-          height)) {
+          height,
+          automatic_ice_motion)) {
     return store_and_finish(kMotionComplete, records_initial_tick);
   }
   const int32_t player_from_x = player.x;
@@ -1442,7 +1443,13 @@ TickResult step_tick(
     const bool descending_slope_impact = automatic_ice_motion &&
         player_dz != 0 && object >= 0 &&
         g_object_kind[object] == kWeightlessObject;
-    if ((automatic_ice_motion && !descending_slope_impact) || object < 0) {
+    const int32_t crest_support = automatic_ice_motion && player_dz == 0
+        ? SlopeSupportingVoxel(voxels, player, width, height) : -1;
+    const bool crest_slope_impact = crest_support >= 0 && object >= 0 &&
+        g_object_kind[object] == kWeightlessObject &&
+        IceSlopeDirection(voxels[crest_support].role) == state->direction;
+    if ((automatic_ice_motion && !descending_slope_impact &&
+         !crest_slope_impact) || object < 0) {
       return store_and_finish(kMotionComplete, records_initial_tick);
     }
     if (automatic_punch_motion && !player_punch_activated_this_tick) {

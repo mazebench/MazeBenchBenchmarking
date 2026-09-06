@@ -334,6 +334,8 @@ struct WorkspaceData {
   uint8_t component_objects[kVoxelCapacity];
   int32_t component_indegree[kVoxelCapacity];
   int32_t object_queue[kVoxelCapacity];
+  uint64_t slope_push_seen[kVoxelCapacity / 64];
+  uint64_t slope_push_pending[kVoxelCapacity / 64];
   int32_t column_heads[kDenseColumnCapacity];
   int32_t next_column_voxel[kVoxelCapacity];
   int32_t static_column_heads[kDenseColumnCapacity];
@@ -496,6 +498,22 @@ void HashInsert(uint64_t key, int32_t value) {
   g_hash_entries[slot] = {key, value, g_hash_generation};
 }
 
+// Orange volume may overlap another solid while an actuator proposal is
+// checked. Keep the obstacle visible to collision queries regardless of which
+// voxel was inserted last. Ordinary non-overlapping scenes use HashInsert.
+void HashInsertOrangeScene(uint64_t key, int32_t value, const Voxel* voxels) {
+  int32_t slot = HashSlot(key);
+  while (g_hash_entries[slot].stamp == g_hash_generation &&
+         g_hash_entries[slot].key != key) {
+    slot = (slot + 1) & kHashMask;
+  }
+  const HashEntry& previous = g_hash_entries[slot];
+  if (previous.stamp == g_hash_generation &&
+      voxels[value].role == kOrangeWallRole &&
+      voxels[previous.value].role != kOrangeWallRole) return;
+  g_hash_entries[slot] = {key, value, g_hash_generation};
+}
+
 void ResetStaticHash() {
   ++g_static_hash_generation;
   if (g_static_hash_generation != 0) return;
@@ -607,9 +625,9 @@ void BuildSpatialIndex(Voxel* voxels, int32_t count, int32_t width, int32_t heig
         g_next_dynamic_column_voxel[index] = g_dynamic_column_heads[cell];
         g_dynamic_column_heads[cell] = index;
       }
-      HashInsert(
+      HashInsertOrangeScene(
           SpatialKey(voxel.x, voxel.y, VoxelPhysicalZ(voxels, count, index), width),
-          index);
+          index, voxels);
     }
     return;
   }
@@ -653,9 +671,9 @@ void BuildSpatialIndex(Voxel* voxels, int32_t count, int32_t width, int32_t heig
       g_next_column_voxel[index] = g_column_heads[cell];
       g_column_heads[cell] = index;
     }
-    HashInsert(
+    HashInsertOrangeScene(
         SpatialKey(voxel.x, voxel.y, VoxelPhysicalZ(voxels, count, index), width),
-        index);
+        index, voxels);
   }
 }
 
@@ -668,6 +686,7 @@ int32_t FindVoxelAt(
     int32_t height) {
   if (!IsInsideRoom(x, y, width, height)) return -1;
   if (g_linear_spatial) {
+    int32_t orange_occupant = -1;
     for (int32_t index = 0; index < g_spatial_voxel_count; ++index) {
       if (VoxelBlocksSpace(voxels, g_spatial_voxel_count, index) &&
           voxels[index].x == x && voxels[index].y == y &&
@@ -675,10 +694,11 @@ int32_t FindVoxelAt(
               ? OrangeWallOccupiesZ(
                     voxels, g_spatial_voxel_count, index, z)
               : voxels[index].z == z)) {
-        return index;
+        if (voxels[index].role != kOrangeWallRole) return index;
+        orange_occupant = index;
       }
     }
-    return -1;
+    return orange_occupant;
   }
   const uint64_t key = SpatialKey(x, y, z, width);
   const int32_t dynamic = HashFind(key);

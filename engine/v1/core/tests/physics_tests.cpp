@@ -120,6 +120,120 @@ void TestApproachingIceFromWallDoesNotStartSlidingEarly() {
         "the command should stop before the player actually enters Ice");
 }
 
+void TestSlidingMomentumEntersRampSide() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  for (int32_t side = 0; side < 2; ++side) {
+    voxelbench::Voxel voxels[] = {
+        {2, 5, 2, Role("player"), -1},
+        {2, 5, 1, Role("ice"), -1},
+        {2, 4, 1, Role("ice"), -1},
+        {2, 3, 1, Role("ice"), -1},
+        {2, 2, 1, Role(side == 0 ? "ice-slope-left" : "ice-slope-right"), -1},
+        {1, 2, 0, Role("floor"), -1},
+        {3, 2, 0, Role("floor"), -1},
+    };
+    voxelbench::Voxel final_only[7];
+    std::memcpy(final_only, voxels, sizeof(voxels));
+    const int32_t exit_x = side == 0 ? 3 : 1;
+    voxelbench::reset_workspace(&workspace);
+    voxelbench::reset_motion_state(&state);
+    for (int32_t tick = 1; tick <= 4; ++tick) {
+      const auto result = voxelbench::step_tick(
+          &workspace, &state, voxels, 7, 6, 6, 0);
+      Check(result != voxelbench::TickResult::kInvalid,
+            "side-entry slide should advance successfully");
+      Check(state.tick == tick &&
+                voxels[0].x == (tick < 4 ? 2 : exit_x) &&
+                voxels[0].y == (tick < 4 ? 5 - tick : 2) &&
+                voxels[0].z == (tick < 4 ? 2 : 1),
+            "slide should enter the ramp level, then turn downhill next tick");
+    }
+    Check(voxelbench::step_tick(
+              &workspace, &state, voxels, 7, 6, 6, 0) ==
+              voxelbench::TickResult::kComplete && state.tick == 4,
+          "side-entry slide should finish after exactly four observable ticks");
+    Check(voxelbench::simulate_turn(final_only, 7, 6, 6, 0) == 0 &&
+              final_only[0].x == exit_x && final_only[0].y == 2 &&
+              final_only[0].z == 1,
+          "final-state API should agree with the side-entry tick trace");
+  }
+}
+
+void TestWalkingCannotEnterRampSide() {
+  for (int32_t side = 0; side < 2; ++side) {
+    for (int32_t icy_support = 0; icy_support < 2; ++icy_support) {
+      voxelbench::Voxel voxels[] = {
+          {2, 3, 2, Role("player"), -1},
+          {2, 3, 1, Role(icy_support ? "ice" : "solid"), -1},
+          {2, 2, 1, Role(side == 0 ? "ice-slope-left" : "ice-slope-right"), -1},
+          {1, 2, 0, Role("floor"), -1},
+          {3, 2, 0, Role("floor"), -1},
+      };
+      Check(voxelbench::simulate_turn(voxels, 5, 6, 6, 0) == 0 &&
+                voxels[0].x == 2 && voxels[0].y == 3 && voxels[0].z == 2,
+            "walking onto a ramp side stays blocked even when standing on Ice");
+    }
+  }
+}
+
+void TestRampSideSlideStillCollidesWithSolids() {
+  voxelbench::Voxel voxels[] = {
+      {2, 5, 2, Role("player"), -1},
+      {2, 5, 1, Role("ice"), -1},
+      {2, 4, 1, Role("ice"), -1},
+      {2, 3, 1, Role("ice"), -1},
+      {2, 2, 1, Role("ice-slope-left"), -1},
+      {2, 2, 2, Role("solid"), -1},
+  };
+  Check(voxelbench::simulate_turn(voxels, 6, 6, 6, 0) == 0 &&
+            voxels[0].x == 2 && voxels[0].y == 3 && voxels[0].z == 2,
+        "sliding momentum must not bypass a solid above the destination ramp");
+}
+
+void TestRampCrestPushesOnlyUnblockedWeightlessChains() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  voxelbench::reset_workspace(&workspace);
+  // Crossing a 64-bit frontier boundary and reversing object storage exercise
+  // both traversal orders and scratch cleanup across successive commands.
+  for (const int32_t length : {1, 65}) {
+    for (const bool reverse : {false, true}) {
+      for (const bool blocked : {false, true}) {
+        voxelbench::Voxel voxels[256];
+        int32_t count = 0;
+        const int32_t height = length + 5;
+        voxels[count++] = {0, length + 2, 1, Role("player"), -1};
+        for (int32_t index = 0; index < length; ++index) {
+          const int32_t y = reverse ? index + 1 : length - index;
+          voxels[count++] = {0, y, 2, Role("weightless-pushable"), 1000 + y};
+        }
+        for (int32_t y = 0; y < height; ++y) {
+          voxels[count++] = {0, y, 0, Role("floor"), -1};
+        }
+        for (int32_t y = 0; y <= length; ++y) {
+          voxels[count++] = {0, y, 1, Role("solid"), -1};
+        }
+        voxels[count++] = {0, length + 1, 1, Role("ice-slope-up"), -1};
+        if (blocked) voxels[count++] = {0, 0, 2, Role("solid"), -1};
+        Check(voxelbench::simulate_command(
+                  &workspace, &state, voxels, count, 1, height, 0) == 0,
+              "ramp-crest chain command should complete");
+        Check(state.tick == 2 && voxels[0].x == 0 &&
+                  voxels[0].y == (blocked ? length + 2 : length) &&
+                  voxels[0].z == (blocked ? 1 : 2),
+              "the crest should push a clear chain or reflect from a blocked one");
+        for (int32_t index = 1; index <= length; ++index) {
+          Check(voxels[index].x == 0 && voxels[index].z == 2 &&
+                    voxels[index].y == voxels[index].generic_id - 1000 -
+                        (blocked ? 0 : 1),
+                "crest contact must move the whole chain exactly once or none of it");
+        }
+      }
+    }
+  }
+}
+
 void TestPushableIceSlide() {
   voxelbench::Voxel voxels[] = {
       {2, 4, 1, Role("player"), -1},
@@ -2218,6 +2332,10 @@ int main() {
   TestPlayerGateRisesWhenPlayerApproaches();
   TestPlayerIceSlide();
   TestApproachingIceFromWallDoesNotStartSlidingEarly();
+  TestSlidingMomentumEntersRampSide();
+  TestWalkingCannotEnterRampSide();
+  TestRampSideSlideStillCollidesWithSolids();
+  TestRampCrestPushesOnlyUnblockedWeightlessChains();
   TestPushableIceSlide();
   TestPlayerAndPushedBodySlideTogetherOnIce();
   TestIceStopsAtObstacle();
@@ -2307,6 +2425,6 @@ int main() {
     std::cerr << failures << " C++ physics test(s) failed\n";
     return EXIT_FAILURE;
   }
-  std::cout << "all 89 C++ physics/search tests passed\n";
+  std::cout << "all 93 C++ physics/search tests passed\n";
   return EXIT_SUCCESS;
 }

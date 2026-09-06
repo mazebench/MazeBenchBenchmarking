@@ -350,6 +350,11 @@ void ResetObjectMotion() {
 }
 
 bool ObjectIsActive(Voxel* voxels, int32_t object, int32_t width, int32_t height) {
+  // Single-cell players and static supports have no rigid object (ID -1).
+  // Callers may query those sentinels while resolving clone/support contacts.
+  if (static_cast<uint32_t>(object) >= static_cast<uint32_t>(g_object_count)) {
+    return false;
+  }
   const int32_t head = g_object_head[object];
   return head >= 0 && g_voxel_object[head] == object &&
       IsInsideRoom(voxels[head].x, voxels[head].y, width, height);
