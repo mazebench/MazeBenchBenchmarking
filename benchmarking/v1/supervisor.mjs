@@ -279,12 +279,15 @@ export function discoverCodexCapabilityPolicy(codexBin = "codex") {
   };
 }
 
-function appendDisabledFeatureArguments(args, featureNames = BASELINE_DISABLED_FEATURES) {
+function appendDisabledFeatureArguments(args, featureNames = BASELINE_DISABLED_FEATURES, serviceTier = null) {
   for (const feature of [...new Set([...BASELINE_DISABLED_FEATURES, ...featureNames])].sort()) {
     if (REQUIRED_RUNTIME_FEATURES.includes(feature)) continue;
+    if (feature === "fast_mode" && serviceTier === "fast") continue;
     args.push("--disable", feature);
   }
   for (const feature of REQUIRED_RUNTIME_FEATURES) args.push("-c", `features.${feature}=true`);
+  // Service selection changes inference scheduling, not the model's tools.
+  if (serviceTier === "fast") args.push("-c", "features.fast_mode=true", "-c", 'service_tier="fast"');
   // Terra's model catalog currently forces code_mode_only. These table-form
   // overrides are deliberately applied after every --disable so the namespace
   // routing survives while both JavaScript hosts remain fail-closed.
@@ -302,6 +305,9 @@ function hasArgumentPair(args, flag, value) {
 }
 
 export function assertHardenedCodexArguments(args, options = {}) {
+  if (options.serviceTier != null && options.serviceTier !== "fast") {
+    throw new Error("Unsupported benchmark service tier.");
+  }
   for (const flag of ["--ignore-user-config", "--ignore-rules", "--strict-config"]) {
     if (!args.includes(flag)) throw new Error(`Unsafe Codex launch: missing ${flag}.`);
   }
@@ -340,10 +346,17 @@ export function assertHardenedCodexArguments(args, options = {}) {
         (options.toolsEnabled === true && toolList !== on)) throw new Error("Unexpected benchmark tool catalog.");
     if (overrides.get("mcp_servers.mazebench.required") !== "true") throw new Error("Benchmark MCP must be required.");
   }
+  if (options.serviceTier === "fast") {
+    if (overrides.get("service_tier") !== '"fast"' || overrides.get("features.fast_mode") !== "true" ||
+        hasArgumentPair(args, "--disable", "fast_mode")) throw new Error("Fast service tier was not configured correctly.");
+  } else if (overrides.has("service_tier") || overrides.get("features.fast_mode") === "true") {
+    throw new Error("Unexpected service tier override.");
+  }
   const disabledFeatures = [...new Set([
     ...BASELINE_DISABLED_FEATURES,
     ...(options.disabledFeatures || [])
-  ])].filter(feature => !REQUIRED_RUNTIME_FEATURES.includes(feature));
+  ])].filter(feature => !REQUIRED_RUNTIME_FEATURES.includes(feature) &&
+    !(feature === "fast_mode" && options.serviceTier === "fast"));
   for (const feature of REQUIRED_RUNTIME_FEATURES) {
     if (hasArgumentPair(args, "--disable", feature) || overrides.get(`features.${feature}`) !== "true") {
       throw new Error(`Unsafe Codex launch: required runtime feature ${feature} must be enabled.`);
@@ -538,7 +551,7 @@ export function buildCodexArguments(options) {
       MAZEBENCH_CAPABILITY_POLICY: CAPABILITY_POLICY_NAME
     })}`
   );
-  appendDisabledFeatureArguments(args, options.disabledFeatures);
+  appendDisabledFeatureArguments(args, options.disabledFeatures, options.serviceTier);
   args.push(
     "-c", 'model_reasoning_summary="detailed"',
     "-m", options.model,
@@ -549,7 +562,8 @@ export function buildCodexArguments(options) {
   assertHardenedCodexArguments(args, {
     disabledFeatures: options.disabledFeatures,
     modelCatalogPath,
-    toolsEnabled: options.toolsEnabled
+    toolsEnabled: options.toolsEnabled,
+    serviceTier: options.serviceTier
   });
   return args;
 }
@@ -730,6 +744,19 @@ export class BenchmarkSupervisor {
       metadata.model,
       metadata.capability_policy.model_catalog
     );
+    if (metadata.service_tier === "fast") {
+      const catalog = JSON.parse(safeReadFile(directory, `sandbox-state/${DIRECT_MODEL_CATALOG_FILE}`));
+      const model = catalog.models.find(entry => entry.slug === metadata.model);
+      if (!model?.additional_speed_tiers?.includes("fast") &&
+          !model?.service_tiers?.some(tier => ["fast", "priority"].includes(tier.id))) {
+        throw new Error("The pinned model catalog does not advertise Fast mode for this model.");
+      }
+      if (!capabilityPolicy.disabled_features.includes("fast_mode")) {
+        throw new Error("This Codex build cannot verify Fast mode support.");
+      }
+      capabilityPolicy.disabled_features = capabilityPolicy.disabled_features.filter(feature => feature !== "fast_mode");
+      capabilityPolicy.enabled_features.push("fast_mode");
+    }
     if (capabilityPolicy.codex_sha256 !== metadata.capability_policy.codex_sha256) {
       throw new Error("The Codex executable changed since this run started; start a new run.");
     }
@@ -993,6 +1020,7 @@ export class BenchmarkSupervisor {
         agentDirectory,
         model: metadata.model,
         effort: metadata.effort,
+        serviceTier: metadata.service_tier,
         toolsEnabled: metadata.tools_enabled,
         disabledFeatures: capabilityPolicy.disabled_features,
         modelCatalogPath: modelCatalog.path,

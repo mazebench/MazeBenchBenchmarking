@@ -87,6 +87,12 @@ export function verifyCheckpoint(runDirectory) {
 }
 
 export function assertRunConfiguration(metadata, manifest) {
+  if (metadata.service_tier != null && metadata.service_tier !== "fast") {
+    throw new Error("Unsupported benchmark service tier.");
+  }
+  if ((metadata.service_tier ?? null) !== (manifest.configuration.service_tier ?? null)) {
+    throw new Error("Run configuration changed (service_tier); start a new run.");
+  }
   for (const key of ["model", "effort", "tools_enabled", "action_limit", "start_room", "effective_prompt_sha256"]) {
     if (metadata[key] !== manifest.configuration[key]) throw new Error(`Run configuration changed (${key}); start a new run.`);
   }

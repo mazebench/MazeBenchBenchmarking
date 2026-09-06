@@ -171,6 +171,33 @@ test("legacy compaction inventory is upgraded without enabling agent capabilitie
   }
 });
 
+test("Fast mode preserves the tool boundary on new and resumed runs and requires a signed selection", () => {
+  const disabledFeatures = ["fast_mode", "shell_tool", "code_mode", "code_mode_host", "future_executor"];
+  for (const toolsEnabled of [false, true]) {
+    for (const resumeThreadId of [undefined, "same-thread"]) {
+      const options = { ...argsOptions, toolsEnabled, resumeThreadId, disabledFeatures, serviceTier: "fast" };
+      const args = buildCodexArguments(options);
+      assertHardenedCodexArguments(args, options);
+      assert(args.includes('service_tier="fast"'));
+      assert(args.includes("features.fast_mode=true"));
+      assert(args.includes('model_reasoning_effort="low"'));
+      for (const feature of disabledFeatures.filter(feature => feature !== "fast_mode")) {
+        assert(args.some((value, i) => value === "--disable" && args[i + 1] === feature));
+      }
+      assert.throws(() => assertHardenedCodexArguments(args, { ...options, serviceTier: undefined }), /service tier/);
+      assert.throws(() => assertHardenedCodexArguments([...args, "--disable", "fast_mode"], options), /Fast service tier/);
+      assert.throws(() => assertHardenedCodexArguments([...args, "-c", "features.code_mode.enabled=true"], options));
+      assert.throws(() => assertHardenedCodexArguments([...args, "--enable", "shell_tool"], options));
+    }
+  }
+  assert.throws(() => buildCodexArguments({ ...argsOptions, serviceTier: "unreviewed" }), /Unsupported benchmark service tier/);
+  const config = { model: "gpt-6-astra", effort: "max", tools_enabled: false, action_limit: null, start_room: "HxI", effective_prompt_sha256: "test" };
+  assertRunConfiguration(config, { configuration: config });
+  assertRunConfiguration({ ...config, service_tier: "fast" }, { configuration: { ...config, service_tier: "fast" } });
+  assert.throws(() => assertRunConfiguration({ ...config, service_tier: "fast" }, { configuration: config }), /configuration changed/);
+  assert.throws(() => assertRunConfiguration(config, { configuration: { ...config, service_tier: "fast" } }), /configuration changed/);
+});
+
 test("unexpected tools invalidate benchmark turns and all interview tool calls", () => {
   const event = tool => ({ type: "item.started", item: { type: "mcp_tool_call", server: "mazebench", tool } });
   assert.equal(eventBoundaryViolation(event("maze_action")), null);
