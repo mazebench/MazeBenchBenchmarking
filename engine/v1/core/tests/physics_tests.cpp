@@ -90,6 +90,39 @@ void TestPlayerGateRisesWhenPlayerApproaches() {
         "player gate should become a raised cube one tick later");
 }
 
+void TestPlayerGateBlockedByEveryPushableFamily() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  voxelbench::reset_workspace(&workspace);
+  for (const char* role : {"pushable", "weightless-pushable", "floating-floor"}) {
+    voxelbench::Voxel voxels[] = {
+        {2, 4, 1, Role("player"), -1},
+        {2, 3, 1, Role(role), Role(role) == Role("weightless-pushable") ? 47 : -1},
+        {2, 2, 1, Role("player-gate"), 0},
+        {2, 0, 0, Role("floor"), -1},
+        {2, 1, 0, Role("floor"), -1},
+        {2, 2, 0, Role("floor"), -1},
+        {2, 3, 0, Role("floor"), -1},
+        {2, 4, 0, Role("floor"), -1},
+        {2, 5, 0, Role("floor"), -1},
+    };
+    for (int32_t command = 1; command <= 3; ++command) {
+      Check(voxelbench::simulate_command(
+                &workspace, &state, voxels, 9, 6, 6, 0) == 0,
+            "pushing a body through a lowered gate should run");
+      Check(state.tick == (command == 3 ? 2 : 1),
+            "an occupied gate must not schedule a spurious raising tick");
+      Check(voxels[0].y == 4 - command && voxels[0].z == 1 &&
+                voxels[1].y == 3 - command && voxels[1].z == 1 &&
+                voxels[1].role == Role(role),
+            "the pushable body and player should cross the gate without changing height");
+      Check(voxels[2].x == 2 && voxels[2].y == 2 && voxels[2].z == 1 &&
+                voxels[2].generic_id == (command == 3 ? 1 : 0),
+            "the gate should stay down while occupied, then raise after the player leaves");
+    }
+  }
+}
+
 void TestPlayerIceSlide() {
   voxelbench::Voxel voxels[] = {
       {2, 4, 1, Role("player"), -1},
@@ -2423,6 +2456,47 @@ void TestAuthoredFloatingFloorHoversAndSlopeJamReflectsPlayer() {
         "the authored platform should hover while the blocked slope actor recoils");
 }
 
+void TestSlopeMomentumPushesSupportedFloatingFloor() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  for (int scenario = 0; scenario < 3; ++scenario) {
+    const bool downhill = scenario == 2;
+    const bool supported = scenario != 1;
+    voxelbench::Voxel voxels[11] = {
+        {0, 5, downhill ? 2 : 1, Role("player"), -1},
+        {0, 3, downhill ? 1 : 2, Role("floating-floor"), -1},
+        {0, 4, 1, Role(downhill ? "ice-slope-down" : "ice-slope-up"), -1},
+        {0, downhill ? 5 : 3, 1, Role("solid"), -1},
+    };
+    int32_t count = 4;
+    for (int32_t y = 0; y < 6; ++y) {
+      voxels[count++] = {0, y, 0, Role("floor"), -1};
+    }
+    if (!downhill && supported) {
+      voxels[count++] = {0, 2, 1, Role("solid"), -1};
+    }
+    voxelbench::reset_workspace(&workspace);
+    voxelbench::reset_motion_state(&state);
+    Check(voxelbench::step_tick(
+              &workspace, &state, voxels, count, 6, 6, 0) ==
+              voxelbench::TickResult::kMore,
+          "ramp entry must expose its intermediate frame");
+    Check(state.tick == 1 && voxels[0].y == 4 && voxels[0].z == 2 &&
+              voxels[1].y == 3,
+          "ramp entry must not push the Floating Floor a tick early");
+    Check(voxelbench::step_tick(
+              &workspace, &state, voxels, count, 6, 6, 0) ==
+              voxelbench::TickResult::kComplete,
+          "ramp contact should resolve on the second tick");
+    Check(state.tick == 2 && voxels[0].y == (supported ? 3 : 5) &&
+              voxels[0].z == (downhill || !supported ? 1 : 2) &&
+              voxels[1].y == (supported ? 2 : 3) &&
+              voxels[1].z == (downhill ? 1 : 2) &&
+              voxels[1].role == Role("floating-floor"),
+          "supported ramp contact pushes; unsupported crest contact reflects");
+  }
+}
+
 void TestSearchTracksFilledFloatingFloorState() {
   static voxelbench::PhysicsWorkspace physics_workspace;
   static voxelbench::SearchWorkspace search_workspace;
@@ -2493,6 +2567,7 @@ void TestReachableEdgesWithoutGems() {
 int main() {
   TestSimplePush();
   TestPlayerGateRisesWhenPlayerApproaches();
+  TestPlayerGateBlockedByEveryPushableFamily();
   TestPlayerIceSlide();
   TestApproachingIceFromWallDoesNotStartSlidingEarly();
   TestSlidingMomentumEntersRampSide();
@@ -2585,12 +2660,13 @@ int main() {
   TestFloatingFloorIsNotWalkableOrPushableIntoHighVoid();
   TestCloneDoesNotEnterPlayerCellWhenPlayerPushIsBlocked();
   TestAuthoredFloatingFloorHoversAndSlopeJamReflectsPlayer();
+  TestSlopeMomentumPushesSupportedFloatingFloor();
   TestSearchTracksFilledFloatingFloorState();
   TestReachableEdgesWithoutGems();
   if (failures != 0) {
     std::cerr << failures << " C++ physics test(s) failed\n";
     return EXIT_FAILURE;
   }
-  std::cout << "all 96 C++ physics/search tests passed\n";
+  std::cout << "all 98 C++ physics/search tests passed\n";
   return EXIT_SUCCESS;
 }

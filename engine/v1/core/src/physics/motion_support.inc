@@ -43,6 +43,13 @@ bool DeliberatePushMayRecruit(int32_t source, int32_t target) {
   return true;
 }
 
+bool ObjectAcceptsSlopeContactPush(Voxel* voxels, int32_t object) {
+  // Floating Floors can be nudged by ramp momentum, but unlike weightless
+  // boxes their destination must retain support (or fill a Row-0 hole).
+  return object >= 0 && (g_object_kind[object] == kWeightlessObject ||
+      ObjectIsFloatingFloor(voxels, object));
+}
+
 bool FloatingFloorDestinationIsSupportedOrFillable(
     Voxel* voxels,
     int32_t object,

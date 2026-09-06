@@ -67,10 +67,10 @@ int32_t ObjectSlopeVerticalDelta(
 // Read-only contact closure for a crest impact. Reuse the same whole-body
 // elevation rule as movement, and visit each contacted polycube once without
 // recursion, allocations, or changing the tick's existing motion proposals.
-bool CanPushWeightlessSlopeChain(
+bool CanPushSlopeContactChain(
     Voxel* voxels, int32_t object, int32_t direction,
     int32_t width, int32_t height) {
-  if (object < 0 || g_object_kind[object] != kWeightlessObject) return false;
+  if (!ObjectAcceptsSlopeContactPush(voxels, object)) return false;
   constexpr int32_t kDx[] = {0, 1, 0, -1};
   constexpr int32_t kDy[] = {-1, 0, 1, 0};
   WorkspaceData& workspace = ActiveWorkspace();
@@ -79,6 +79,7 @@ bool CanPushWeightlessSlopeChain(
   workspace.slope_push_seen[object / 64] = uint64_t{1} << (object % 64);
   workspace.slope_push_pending[object / 64] = uint64_t{1} << (object % 64);
   bool clear = true;
+  bool has_floating_floor = false;
   while (pending > 0 && clear) {
     for (int32_t word = 0; word < words && clear; ++word) {
       while (workspace.slope_push_pending[word] != 0 && clear) {
@@ -88,6 +89,17 @@ bool CanPushWeightlessSlopeChain(
         --pending;
         const int32_t dz = ObjectSlopeVerticalDelta(
             voxels, moving, direction, width, height, false);
+        if (ObjectIsFloatingFloor(voxels, moving)) {
+          // Match the committing push closure's single ordinary-body limit.
+          if (has_floating_floor ||
+              !FloatingFloorDestinationIsSupportedOrFillable(
+                  voxels, moving, kDx[direction], kDy[direction], dz,
+                  width, height)) {
+            clear = false;
+            break;
+          }
+          has_floating_floor = true;
+        }
         for (int32_t member = g_object_head[moving]; member >= 0;
              member = g_next_object_voxel[member]) {
           const int32_t x = voxels[member].x + kDx[direction];
@@ -101,7 +113,7 @@ bool CanPushWeightlessSlopeChain(
           if (occupant < 0) continue;
           const int32_t other = g_voxel_object[occupant];
           if (other == moving) continue;
-          if (other < 0 || g_object_kind[other] != kWeightlessObject) {
+          if (!ObjectAcceptsSlopeContactPush(voxels, other)) {
             clear = false;
             break;
           }

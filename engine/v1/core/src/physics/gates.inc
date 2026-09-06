@@ -1,5 +1,8 @@
 bool PlayerGateBlockingActor(uint32_t role) {
-  return role == kPushableRole || IsWeightlessObjectRole(role);
+  // Floating Floors use the same push/collision semantics as ordinary boxes
+  // until they fill a hole. They also keep an occupied gate from rising.
+  return role == kPushableRole || role == kFloatingFloorRole ||
+      IsWeightlessObjectRole(role);
 }
 
 bool IsPlayerGateTrigger(uint32_t role) {

@@ -1364,11 +1364,13 @@ TickResult step_tick(
   if (automatic_ice_motion && player_dz == -1 && target_index >= 0 &&
       voxels[target_index].role != kPlayerLiftRole &&
       g_voxel_object[target_index] >= 0 &&
+      !ObjectIsFloatingFloor(voxels, g_voxel_object[target_index]) &&
       !ObjectIsFullyOnIce(
           voxels, g_voxel_object[target_index], width, height)) {
     // Automatic downhill momentum stops before a lower body. A later
     // deliberate command may step onto that body as level support, but the
-    // current slide must not reinterpret it as a downhill push.
+    // current slide must not reinterpret it as a downhill push. Floating
+    // Floors accept the push directly, subject to their destination support.
     return store_and_finish(kMotionComplete, records_initial_tick);
   }
   bool pushed = false;
@@ -1441,12 +1443,11 @@ TickResult step_tick(
       object = support_object;
     }
     const bool descending_slope_impact = automatic_ice_motion &&
-        player_dz != 0 && object >= 0 &&
-        g_object_kind[object] == kWeightlessObject;
+        player_dz != 0 && ObjectAcceptsSlopeContactPush(voxels, object);
     const int32_t crest_support = automatic_ice_motion && player_dz == 0
         ? SlopeSupportingVoxel(voxels, player, width, height) : -1;
-    const bool crest_slope_impact = crest_support >= 0 && object >= 0 &&
-        g_object_kind[object] == kWeightlessObject &&
+    const bool crest_slope_impact = crest_support >= 0 &&
+        ObjectAcceptsSlopeContactPush(voxels, object) &&
         IceSlopeDirection(voxels[crest_support].role) == state->direction;
     if ((automatic_ice_motion && !descending_slope_impact &&
          !crest_slope_impact) || object < 0) {

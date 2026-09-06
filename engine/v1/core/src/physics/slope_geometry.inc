@@ -22,7 +22,7 @@ int32_t SlopeSupportingVoxel(
       : -1;
 }
 
-bool CanPushWeightlessSlopeChain(
+bool CanPushSlopeContactChain(
     Voxel* voxels, int32_t object, int32_t direction,
     int32_t width, int32_t height);
 
@@ -73,9 +73,9 @@ int32_t RedirectSlopeDirection(
       // which is no longer there at the end of this tick.
       return direction;
     }
-    if (CanPushWeightlessSlopeChain(
+    if (CanPushSlopeContactChain(
             voxels, occupant_object, direction, width, height)) {
-      // Crest momentum pushes a movable blue-box chain instead of reflecting.
+      // Crest momentum pushes eligible cargo instead of reflecting.
       // This query checks every member before the ordinary transaction commits.
       return direction;
     }

@@ -54,6 +54,12 @@ bitsets, without recursive searches or per-tick allocations. A level external
 foot prevents a long or tall polycube from descending through its support;
 unsupported overhangs do not count as extra feet.
 
+Ramp momentum can also push one Floating Floor at a crest or downhill exit.
+The floor must keep destination support, except for the existing Row-0 hole
+fill. An unsupported high push reflects at the crest instead of stalling there.
+This uses the same contact closure and one ordinary-body weight budget as
+deliberate pushes; it does not enable ordinary crates or flat-Ice impacts.
+
 Carried riders retain their carrier relationship throughout a simultaneous
 tick; promotion into the moving set does not give them independent momentum.
 If the carrier stops on non-Ice support, its rider stops too. A player vacating
@@ -66,6 +72,11 @@ carrier's push; passengers above it stay with that stopped support too. If the
 carrier completely vacates its support, the blocked passenger starts descending
 on the next tick, not during the push. A blocked rigid mounted fixture still
 anchors its carrier. Unrelated ramps do not change these collision rules.
+
+Floating Floors prevent a same-level player or clone from raising a gate
+occupied by that floor, just like crates and weightless boxes. Pushing the
+floor into or through the lowered plate adds no mechanism tick. Once the
+player leaves the unoccupied plate, normal delayed gate activation resumes.
 
 After every physics change, run the repository-level test suite. A change is
 not complete until all native, WebAssembly, rotation, and web regression tests

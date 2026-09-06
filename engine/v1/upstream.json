@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "3868495749317ec1e33e1531fd73a68151623597",
-  "sourceTree": "7138afe1156d42eab3e4f8f1ca7d30f0980e69e1",
+  "sourceCommit": "366f4e4a82c6bbb8c214b2fd65db91e792ddd989",
+  "sourceTree": "14be44edc9da6d840b1fafb49674d47e62099b69",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "sourcePath": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "5f360486d88e4bd99d899254019626b36fe2979e9e32627a5c9a82748099d7b5",
-    "bytes": 465366
+    "sha256": "fa89255e3c7c250d75494aa06f24b08593556254a4b9f83395805a467e9d4fff",
+    "bytes": 468649
   },
   "files": [
     {
@@ -49,7 +49,7 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "3964c6bf5f22f62f55cb72ee2a65ee5eea8508b237fdaadf475f414cad1598d2"
+      "sha256": "d666595da6245b7a1ce60a7e695b8d7cb076ea25c90206f127af1353d02c9e26"
     },
     {
       "mode": "100644",
@@ -74,7 +74,7 @@
     {
       "mode": "100644",
       "path": "src/physics/gates.inc",
-      "sha256": "a30da8ed7bea14d0f0ccffc2afad6421bc944308b38349b84cdd7e2aa583a61a"
+      "sha256": "9be14cc25d6a3286c64c566f7a3372be34752502e41124955e93e583f3ed7b5f"
     },
     {
       "mode": "100644",
@@ -94,7 +94,7 @@
     {
       "mode": "100644",
       "path": "src/physics/motion_support.inc",
-      "sha256": "5c2de4191fb2d5e3e69ab4d9e6012067bda3f045756a0b0432dc8da404587e88"
+      "sha256": "6a77d8e19b1b3371882fe2601b1efba47c8e415a5350c1d9dac9789fc4abe666"
     },
     {
       "mode": "100644",
@@ -134,22 +134,22 @@
     {
       "mode": "100644",
       "path": "src/physics/slope_geometry.inc",
-      "sha256": "cf2545a8e68fae48f067a4c3194904ff69ed33c874c2f4cdd1402f0bf44575cd"
+      "sha256": "7f99f896effcee5bf4d2c19be8f2586f425fd2f7a168e349a33af250ed0f2c07"
     },
     {
       "mode": "100644",
       "path": "src/physics/slope_motion.inc",
-      "sha256": "1fa19059e0febb5fd429a006b4b8ae4881ee938fd127ad8791a4a33b8bfd294a"
+      "sha256": "b6cdf3497a8b953f74feb30e19414e8e45a5bcce0c7180e20a31b61390bf908b"
     },
     {
       "mode": "100644",
       "path": "src/physics/slope_proposals.inc",
-      "sha256": "143dd9f3b71fc66c8e2833b0354a3d3bfe83d242b22214d3d9938c441fa658a2"
+      "sha256": "942f9dd4ff534701e9710e592bbae6af62446ed5ab4d53dcdfee13007e9c27fc"
     },
     {
       "mode": "100644",
       "path": "src/physics/tick.inc",
-      "sha256": "850a861bacc95cd22a9ecfd8e7d25395a8a4df3bd10e55f70ee45b95030bd133"
+      "sha256": "35116662fc55ef7948a5584f8ca61958722bed529fc845d0ac04991342132f57"
     },
     {
       "mode": "100644",
@@ -178,6 +178,16 @@
     },
     {
       "mode": "100644",
+      "path": "tests/floating-floor-slopes.test.mjs",
+      "sha256": "263e4d40c4f3835705aab080419e501b3385c10288d21ce4e07859cd16e44ba9"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/gate-blockers.test.mjs",
+      "sha256": "496183362edfa91337cd43bd788090d0b1be5ed34f3aef474483b361ca04170a"
+    },
+    {
+      "mode": "100644",
       "path": "tests/helpers/project-engine.mjs",
       "sha256": "841f8855e09f3983395b5d2ebdf6569b5b4637c89b17d93b4ab548da120d4234"
     },
@@ -194,7 +204,7 @@
     {
       "mode": "100644",
       "path": "tests/physics_tests.cpp",
-      "sha256": "031af60025034e2039277016ba38d12052c622bebf6449984814677c04ee18a4"
+      "sha256": "c9f340adcf2ac0274825832272c9c3318bfaaa530e58ee06f92597ddca2dc1ec"
     },
     {
       "mode": "100644",

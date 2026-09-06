@@ -103,7 +103,8 @@ bool TranslateSlopeMomentumObjects(
              ObjectIsFullyOnIce(voxels, other, width, height));
         const bool downhill_ice_contact_push =
             allow_downhill_contact_push && g_component_objects[object] != 0 &&
-            ObjectIsFullyOnIce(voxels, other, width, height);
+            (ObjectIsFullyOnIce(voxels, other, width, height) ||
+             ObjectIsFloatingFloor(voxels, other));
         const bool crest_contact_push = allow_downhill_contact_push &&
             (g_component_objects[object] & 2) != 0;
         const bool recruit_deliberate = deliberate_contact_push &&
@@ -112,8 +113,17 @@ bool TranslateSlopeMomentumObjects(
             (downhill_ice_contact_push || crest_contact_push) &&
             (g_object_kind[object] == kWeightlessObject ||
              g_object_kind[object] == kCloneObject ||
-             g_object_kind[object] == kPlayerObject) &&
-            g_object_kind[other] == kWeightlessObject;
+             g_object_kind[object] == kPlayerObject ||
+             ObjectIsFloatingFloor(voxels, object)) &&
+            ObjectAcceptsSlopeContactPush(voxels, other) &&
+            DeliberatePushMayRecruit(object, other) &&
+            (!ObjectIsFloatingFloor(voxels, other) ||
+             FloatingFloorDestinationIsSupportedOrFillable(
+                voxels, other, g_object_dx[object], g_object_dy[object],
+                ObjectSlopeVerticalDelta(
+                    voxels, other, g_object_direction[object], width, height,
+                    false),
+                width, height));
         if (recruit_deliberate || recruit_downhill) {
           g_mandatory_objects[other] = 1;
           g_moving_objects[other] = 1;
