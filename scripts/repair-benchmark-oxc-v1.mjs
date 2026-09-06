@@ -77,7 +77,10 @@ export async function replayCorrectedOxcEntry(runtime, originalRoomBytes) {
   assert.deepEqual(state.roomEntryStates[roomFile], state.state);
   for (const file of Object.keys(original.roomEntryStates)) if (file !== roomFile) assert.deepEqual(state.roomEntryStates[file], original.roomEntryStates[file]);
   assert.deepEqual(state.actions.slice(0, -1), original.actions.slice(0, -1));
-  assert.deepEqual({ ...state.actions.at(-1), stateHash: last.stateHash }, last);
+  // Corrected geometry invalidates the original animation. This historical
+  // repair writes final snapshots only, so never advertise the stale frames.
+  const { animation: discardedAnimation, ...originalAction } = last;
+  assert.deepEqual({ ...state.actions.at(-1), stateHash: last.stateHash }, originalAction);
   assert.deepEqual(state.stateHashes.slice(0, -1), original.stateHashes.slice(0, -1));
   assert.equal(state.actions.at(-1).stateHash, state.stateHashes.at(-1));
   assert.notEqual(state.stateHashes.at(-1), original.stateHashes.at(-1));

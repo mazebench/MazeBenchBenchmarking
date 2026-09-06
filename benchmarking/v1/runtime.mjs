@@ -4,7 +4,8 @@ import path from "node:path";
 import { signCheckpoint } from "./integrity.mjs";
 import { readCheckpointJson, writeCheckpointJson } from "./checkpoint-json.mjs";
 import { NOVELTY_VERSION, noveltyStateHash } from "./novelty.mjs";
-import { safeDirectory, safeReadFile } from "./safe-files.mjs";
+import { safeDirectory } from "./safe-files.mjs";
+import { moveRecordIndex, readMoveRecord, stageMoveAnimation } from "./move-animation.mjs";
 
 import {
   countActiveRoleV1,
@@ -24,12 +25,6 @@ export const BENCHMARK_RUNTIME_VERSION = 1;
 export const GAME_WON_GEM_COUNT = 100;
 export const DEFAULT_START_ROOM = "HxI";
 
-const RECORD_NAMES = new Set([
-  "current_board.txt",
-  "current_state.json",
-  "moves.txt",
-  "history.jsonl"
-]);
 const MOVEMENT_ACTIONS = new Set(["up", "right", "down", "left"]);
 const CAMERA_ACTIONS = new Set([
   "camera up",
@@ -118,7 +113,8 @@ function publicAction(action) {
     roomsVisited: action.roomsVisited,
     novel: action.novel,
     stateHash: action.stateHash,
-    player: action.player
+    player: action.player,
+    ...(action.animation ? { animation: action.animation } : {})
   };
 }
 
@@ -366,31 +362,15 @@ export class BenchmarkGameRuntime {
   }
 
   recordIndex() {
-    return [
-      "current_board.txt",
-      "current_state.json",
-      "moves.txt",
-      "history.jsonl",
-      ...this.internal.actions.map((action) => `move_history/move_${action.index}.txt`)
-    ];
+    return moveRecordIndex(this.internal.actions);
   }
 
   async readRecord(requested) {
     if (this.persistenceError) throw this.persistenceError;
-    const record = String(requested || "").trim().replaceAll("\\", "/");
-    const allowed = RECORD_NAMES.has(record) || /^move_history\/move_(?:0|[1-9]\d*)\.txt$/.test(record);
-    if (!allowed || record.includes("..") || path.isAbsolute(record)) {
-      throw new Error("Unknown benchmark record. Use a path from the records index.");
-    }
-    const filePath = path.resolve(this.recordsDirectory, record);
-    if (!filePath.startsWith(`${this.recordsDirectory}${path.sep}`)) {
-      throw new Error("Record paths must remain inside the read-only records directory.");
-    }
     try {
-      safeDirectory(this.runDirectory, "records");
-      return { record, content: safeReadFile(this.recordsDirectory, record) };
+      return readMoveRecord(this.runDirectory, this.internal.actions, this.internal.actionCount, requested);
     } catch (error) {
-      if (error?.code === "ENOENT") throw new Error(`Record ${record} does not exist yet.`);
+      if (error?.code === "ENOENT") throw new Error("Record does not exist yet.");
       throw error;
     }
   }
@@ -424,6 +404,9 @@ export class BenchmarkGameRuntime {
     const beforeState = clone(this.internal.state);
     const beforePlayer = playerIn(beforeState, this.assets.definitions);
     const undoSnapshot = this.snapshotForUndo();
+    const beforeCamera = { yaw: this.internal.yaw, pitch: this.internal.pitch };
+    let animationFrames = [];
+    let animationCycle = null;
     let changed = false;
 
     if (MOVEMENT_ACTIONS.has(action)) {
@@ -436,6 +419,8 @@ export class BenchmarkGameRuntime {
       const frames = simulation.animationFrames?.length
         ? simulation.animationFrames
         : [{ room: simulation.room || beforeRoom, state: simulation.final }];
+      animationFrames = frames;
+      animationCycle = simulation.cycle || null;
       for (const frame of frames) {
         this.noteVisited(frame.room, frame.state);
         this.collectMissingGems(frame.room, frame.state);
@@ -532,7 +517,17 @@ export class BenchmarkGameRuntime {
       player: afterPosition
     };
     this.internal.actions.push(record);
-    await this.persist({ writeSnapshot: true });
+    const camera = { yaw: this.internal.yaw, pitch: this.internal.pitch };
+    const lastFrame = animationFrames.at(-1);
+    if (!lastFrame || lastFrame.room.fileName !== afterRoom.fileName ||
+        !engineStatesEqualV1(lastFrame.state, this.internal.state, this.assets.definitions)) {
+      animationFrames.push({ room: afterRoom, state: this.internal.state });
+    }
+    animationFrames = [
+      { room: beforeRoom, state: beforeState, camera: beforeCamera },
+      ...animationFrames.map(frame => ({ ...frame, camera }))
+    ];
+    await this.persist({ writeSnapshot: true, animationFrames, animationCycle });
     return { action: publicAction(record), observation: await this.renderObservation() };
   }
 
@@ -593,10 +588,8 @@ export class BenchmarkGameRuntime {
     };
   }
 
-  async persist({ writeSnapshot = false } = {}) {
+  async persist({ writeSnapshot = false, animationFrames = null, animationCycle = null } = {}) {
     if (this.persistenceError) throw this.persistenceError;
-    const observation = await this.renderObservation({ includeColor: true });
-    const summary = this.summary();
     let staging;
     try {
       staging = await mkdtemp(path.join(this.runDirectory, ".checkpoint-"));
@@ -615,6 +608,17 @@ export class BenchmarkGameRuntime {
         await writeFile(file, value, { flag: "wx", mode: 0o600 });
         artifacts.push(relative);
       };
+      if (animationFrames) {
+        this.internal.actions.at(-1).animation = await stageMoveAnimation({
+          action: this.internal.actions.at(-1), frames: animationFrames, cycle: animationCycle, writeText: text,
+          render: async ({ room, state, camera }) => ({
+            room: roomLabel(room), camera,
+            level: (await renderAsciiFrameV1(this.assets.engine.roomFromState(state, room), this.assets.blocks, camera)).text
+          })
+        });
+      }
+      const observation = await this.renderObservation({ includeColor: true });
+      const summary = this.summary();
       await json("game-state.json", this.internal);
       await json("summary.json", summary);
       await json("display.json", {
@@ -648,7 +652,10 @@ export class BenchmarkGameRuntime {
       const signed = await signCheckpoint(this.runDirectory, { artifactsDirectory: staging });
       // The signature is published last. A process crash during these renames
       // remains detectable by the existing fail-closed integrity check.
-      for (const relative of artifacts) await rename(path.join(staging, relative), path.join(this.runDirectory, relative));
+      for (const relative of artifacts) {
+        if (path.dirname(relative) !== ".") safeDirectory(this.runDirectory, path.dirname(relative), { create: true });
+        await rename(path.join(staging, relative), path.join(this.runDirectory, relative));
+      }
       if (signed) await rename(path.join(staging, "checkpoint.json"), path.join(this.runDirectory, "checkpoint.json"));
     } catch (error) {
       // Never serve or continue the in-memory action after an unsuccessful save.

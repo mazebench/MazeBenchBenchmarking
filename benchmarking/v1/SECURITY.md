@@ -27,6 +27,31 @@ Other MCP servers, personal instructions, skills, memories, connectors, native
 shell/patch/JavaScript tools, web, and delegation are disabled. The single-model
 catalog also removes metadata that would otherwise override feature flags.
 
+## Move animation records
+
+New actions in both worlds write `records/move_history/move_N/index.json`
+and `frame_0000.txt`, `frame_0001.txt`, etc. beneath that move's directory.
+Frame 0 is the pre-action board; the last is the final board. MazeBench uses
+the actual engine animation frames with their projected active room and saved
+camera. Ice Maze advances all players one cell along their recorded paths per
+frame. Blocked and non-movement actions have before/after frames. Legacy final
+snapshots remain available; old animations are not reconstructed with newer
+engines or authored levels.
+
+Action responses and sequence steps advertise only the frame count and index
+path. The index lists exact frame paths, rooms and content hashes. Its hash is
+stored in the action history authenticated by the existing checkpoint HMAC.
+`maze_observe` and the HTTP record reader verify the index/frame hashes and
+require the move to belong to the current action prefix. Stale files remaining
+after rollback are inaccessible; a replacement or legacy action without an
+animation descriptor cannot expose them. Safe file reads still reject links
+and traversal. No raw engine objects, unentered rooms or solver data are
+published. These reads cost no actions and do not contribute to novelty.
+
+Both runtimes stage frames and checkpoint files before publication, publishing
+the checkpoint signature last. A failed preparation preserves the old saved
+checkpoint and prevents further use of the unsaved in-memory action.
+
 ## Python boundary
 
 The trusted bootstrap installs a deny-by-default Seatbelt profile before

@@ -184,6 +184,16 @@ test("real Ice MCP exposes only selected tools and rejects cheating paths and sk
         assert.equal(python.result.structuredContent.stdout.trim(), "4\nunseen-levels-blocked");
       }
       const action = await call("maze_action", { action: "up" }); assert.equal(action.result.structuredContent.observation.action_count, 1);
+      const animation = action.result.structuredContent.action.animation;
+      const animationIndex = await call("maze_observe", { record: animation.index_record });
+      const frames = JSON.parse(animationIndex.result.structuredContent.content).frames;
+      assert.equal(frames.length, animation.frame_count);
+      const tick = await call("maze_observe", { record: frames[1].record });
+      assert.equal(tick.result.isError, false); assert.equal(tick.result.structuredContent.observation_revision, 1);
+      assert(tick.result.structuredContent.content.includes("frame 1/"));
+      for (const record of ["move_history/move_2/index.json", "move_history/move_1/frame_9999.txt", "move_history/move_1/../../game-state.json"]) {
+        assert.equal((await call("maze_observe", { record })).result.isError, true);
+      }
       const frame = await call("maze_observe", { record: "move_history/move_1.txt" }); assert(frame.result.structuredContent.content.includes("move 1"));
       verifyCheckpoint(directory);
     } finally { child?.kill("SIGTERM"); if (child && child.exitCode === null) await new Promise(resolve => child.once("exit", resolve)); await rm(directory, { recursive: true, force: true }); }

@@ -143,6 +143,17 @@ test("maze_observe is the records reader and Python is advertised only when enab
       );
       const action = await request("tools/call", { name: "maze_action", arguments: { action: "camera left" } });
       assert.equal(action.result.structuredContent.observation.action_count, 1);
+      const animation = action.result.structuredContent.action.animation;
+      assert.equal(animation.frame_count, 2);
+      const animationIndex = await request("tools/call", { name: "maze_observe", arguments: { record: animation.index_record } });
+      const framePath = JSON.parse(animationIndex.result.structuredContent.content).frames[1].record;
+      const animationFrame = await request("tools/call", { name: "maze_observe", arguments: { record: framePath } });
+      assert.match(animationFrame.result.structuredContent.content, /# move 1 .*frame 1\/1/);
+      assert.equal(animationFrame.result.structuredContent.observation_revision, 1);
+      for (const record of ["move_history/move_2/index.json", "move_history/move_1/frame_9999.txt", "move_history/move_1/../../game-state.json"]) {
+        const forbidden = await request("tools/call", { name: "maze_observe", arguments: { record } });
+        assert.equal(forbidden.result.isError, true);
+      }
       const record = await request("tools/call", {
         name: "maze_observe",
         arguments: { record: "moves.txt" }
@@ -154,6 +165,8 @@ test("maze_observe is the records reader and Python is advertised only when enab
         arguments: { record: "../game-state.json" }
       });
       assert.equal(denied.result.isError, true);
+      const sequence = await request("tools/call", { name: "maze_sequence", arguments: { actions: ["camera right", "camera up"] } });
+      assert(sequence.result.structuredContent.steps.every(step => step.action.animation.frame_count === 2));
     } finally {
       child.kill("SIGTERM");
       await rm(directory, { recursive: true, force: true });

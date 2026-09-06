@@ -42,13 +42,13 @@ const stateDirectory = path.join(runDirectory, "sandbox-state");
 const tools = [
   {
     name: "maze_observe",
-    description: "Direct-only tool. Read the current MazeBench board and game state, or read one safe relative file from the run's read-only records. With no record argument, returns the live observation and records index. Allowed records include current_board.txt, current_state.json, moves.txt, history.jsonl, and numbered move_history snapshots. This tool never changes game state and does not consume an action. Never call or orchestrate it from a code executor.",
+    description: "Direct-only tool. Read the current MazeBench board and game state, or read one safe relative file from the run's read-only records. With no record argument, returns the live observation and records index. Allowed records include current_board.txt, current_state.json, moves.txt, history.jsonl, numbered move_history snapshots, and per-move animation indexes and ASCII frame files. Read an action's animation.index_record first to discover its frame paths. This tool never changes game state and does not consume an action. Never call or orchestrate it from a code executor.",
     inputSchema: {
       type: "object",
       properties: {
         record: {
           type: "string",
-          description: "Optional relative path copied exactly from the records index."
+          description: "Optional relative path copied exactly from the records index or a move animation index."
         }
       },
       additionalProperties: false

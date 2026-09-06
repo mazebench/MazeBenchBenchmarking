@@ -20,6 +20,7 @@ import { BenchmarkGameRuntime, DEFAULT_START_ROOM } from "./runtime.mjs";
 import { inspectCodex, codexBinaryDigest, codexInstallationStatus, VERIFIED_CODEX_VERSIONS } from "./codex-installation.mjs";
 import { CAPABILITY_POLICY_VERSION, CAPABILITY_POLICY_NAME, createRunIntegrity, verifyRunIntegrity, assertRunConfiguration, verifyCheckpoint } from "./integrity.mjs";
 import { safeDirectory, safeReadFile } from "./safe-files.mjs";
+import { readMoveRecord } from "./move-animation.mjs";
 import { readCheckpointJson } from "./checkpoint-json.mjs";
 
 const DEFAULT_MODEL = "gpt-5.6-terra";
@@ -469,6 +470,8 @@ Benchmark harness
 This run starts in room ${options.startRoom} and ends after exactly ${options.actionLimit ?? "unlimited"} accepted actions or after all 100 unique gems are collected. Do not stop while playable action budget remains.
 
 maze_observe is the only read interface for the run's read-only records. Call it directly with no arguments for the current board, state, recent history, and records index. Call it directly with a listed relative record path to read that immutable record. maze_observe never consumes an action.
+
+Every new action reports animation.frame_count and animation.index_record. Read that index with maze_observe to find its numbered ASCII animation frames, then read individual listed frame paths. Frame 0 is before the action; the last frame is its final board. This also works for each action inside maze_sequence. Frames record the camera and active room at the time, cost no actions to inspect, and do not add novelty. Older moves may have only their final move_history/move_N.txt snapshot.
 
 Call maze_action and maze_sequence directly. Never place MazeBench tool calls inside a program, loop, callback, batch executor, or functions.exec. maze_action applies one action. maze_sequence applies either a compact UDRL string or an explicit ordered action list. Every accepted step—including blocked movement and camera actions—counts separately. Inspect the returned observation after acting. If the player dies, recover with undo, reset, or a previously visited room.
 
@@ -1207,17 +1210,11 @@ export class BenchmarkSupervisor {
 
   async record(idValue, recordValue) {
     const id = safeRunId(idValue);
-    const record = String(recordValue || "").replaceAll("\\", "/");
-    const allowed = ["current_board.txt", "current_state.json", "moves.txt", "history.jsonl"].includes(record) ||
-      /^move_history\/move_(?:0|[1-9]\d*)\.txt$/.test(record);
-    if (!allowed || record.includes("..") || path.isAbsolute(record)) {
-      throw new Error("Unknown benchmark record.");
-    }
-    const recordsDirectory = path.join(this.runDirectory(id), "records");
-    const filePath = path.resolve(recordsDirectory, record);
-    if (!filePath.startsWith(`${recordsDirectory}${path.sep}`)) throw new Error("Invalid benchmark record path.");
-    safeDirectory(this.runDirectory(id), "records");
-    return safeReadFile(recordsDirectory, record);
+    const directory = this.runDirectory(id);
+    if (existsSync(path.join(directory, "integrity.json"))) verifyCheckpoint(directory);
+    const summary = await readJson(path.join(directory, "summary.json"));
+    if (!summary) throw new Error("Benchmark run not found.");
+    return readMoveRecord(directory, summary.actions || [], summary.action_count, recordValue).content;
   }
 
   async backfillDisplayHistory(id, directory) {

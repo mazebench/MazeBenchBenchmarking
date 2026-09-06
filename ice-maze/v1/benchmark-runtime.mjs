@@ -1,19 +1,15 @@
-import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { signCheckpoint, verifyCheckpoint } from "../../benchmarking/v1/integrity.mjs";
-import { safeReadFile } from "../../benchmarking/v1/safe-files.mjs";
+import { safeDirectory, safeReadFile } from "../../benchmarking/v1/safe-files.mjs";
+import { moveRecordIndex, readMoveRecord, stageMoveAnimation } from "../../benchmarking/v1/move-animation.mjs";
 import { parseIceLevel, slideIce, iceSolved, goalsCovered, iceAscii, normalizeIceAction, validatePlayers } from "./engine.mjs";
 
 const clone = value => structuredClone(value);
 const now = () => new Date().toISOString();
 const hash = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const terminal = status => ["won", "action-limit"].includes(status);
-const records = ["current_board.txt", "current_state.json", "moves.txt", "history.jsonl"];
-async function atomic(file, value) {
-  const temp = `${file}.${process.pid}.tmp`;
-  await writeFile(temp, value, { mode: 0o600 }); await rename(temp, file);
-}
 export function expandIceSequence(input) {
   const actions = Array.isArray(input) ? input : /^[udrl\s,]+$/i.test(String(input)) ? [...input.replace(/[\s,]/g, "")] : String(input).split(/[\n,]+/);
   if (!actions.length || actions.length > 1000 || actions.some(action => typeof action !== "string")) throw new Error("Supply 1–1000 Ice Maze actions.");
@@ -52,12 +48,13 @@ export class IceBenchmarkRuntime {
     if (this.internal.actionLimit !== null && this.internal.actionCount >= this.internal.actionLimit) return "action-limit";
     return iceSolved(this.level, this.internal.players) ? "level-complete" : "playing";
   }
-  recordIndex() { return [...records, "move_history/move_0.txt", ...this.internal.actions.map(a => `move_history/move_${a.index}.txt`)]; }
+  recordIndex() { return moveRecordIndex(this.internal.actions); }
   async readRecord(value) {
-    if (typeof value !== "string" || !this.recordIndex().includes(value)) throw new Error("Unknown benchmark record. Use a path from the records index.");
-    return { record: value, content: safeReadFile(path.join(this.runDirectory, "records"), value) };
+    if (this.persistenceError) throw this.persistenceError;
+    return readMoveRecord(this.runDirectory, this.internal.actions, this.internal.actionCount, value);
   }
   async renderObservation({ includeColor = false } = {}) {
+    if (this.persistenceError) throw this.persistenceError;
     const s = this.internal, level = iceAscii(this.level, s.players);
     const colors = { "#": "#647c90", ".": "#addced", o: "#ffbd70", P: "#46d89b", "@": "#46d89b" };
     return { schema_version: 1, world: "ice-maze", topology: "sequential", observation_revision: s.actionCount, game_status: this.status(), room: this.room,
@@ -71,15 +68,28 @@ export class IceBenchmarkRuntime {
       allowed_actions: terminal(this.status()) ? [] : this.status() === "level-complete" ? ["next"] : ["up", "right", "down", "left", "undo", "reset"] };
   }
   async apply(input) {
+    if (this.persistenceError) throw this.persistenceError;
     const action = normalizeIceAction(input), s = this.internal, beforeStatus = this.status();
     if (terminal(beforeStatus)) throw new Error("This benchmark has reached its terminal state.");
     if (beforeStatus === "level-complete" && action !== "next") throw new Error("Level complete. Use next to begin the next numbered level.");
     if (action === "next" && beforeStatus !== "level-complete") throw new Error("Cover every goal before advancing. Levels cannot be skipped.");
     const before = this.stateHash(), roomBefore = this.room, playersBefore = clone(s.players);
+    const animationFrames = [{ room: roomBefore, level: iceAscii(this.level, playersBefore) }];
     if (action === "next") { s.levelIndex++; s.players = clone(this.level.players); s.history = []; }
     else if (action === "undo") { if (s.history.length) s.players = s.history.pop(); s.undos++; }
     else if (action === "reset") { s.players = clone(this.level.players); s.history = []; s.resets++; }
-    else { const slide = slideIce(this.level, s.players, action); if (slide.changed) { s.history.push(clone(s.players)); s.players = slide.players; } }
+    else {
+      const slide = slideIce(this.level, s.players, action);
+      // Each player advances one cell per snapshot, stopping at its own path
+      // endpoint. This presents simultaneous motion, not leading-player order.
+      const length = Math.max(...slide.paths.map(p => p.length));
+      for (let tick = 1; tick < length; tick++) {
+        const players = slide.paths.map(p => p[Math.min(tick, p.length - 1)]);
+        animationFrames.push({ room: this.room, level: iceAscii(this.level, players) });
+      }
+      if (slide.changed) { s.history.push(clone(s.players)); s.players = slide.players; }
+    }
+    if (animationFrames.length === 1) animationFrames.push({ room: this.room, level: iceAscii(this.level, s.players) });
     if (iceSolved(this.level, s.players) && !s.completedLevels.includes(s.levelIndex + 1)) s.completedLevels.push(s.levelIndex + 1);
     const after = this.stateHash(), novel = !s.stateHashes.includes(after), changed = before !== after;
     const blocked = ["up", "right", "down", "left"].includes(action) && !changed;
@@ -88,7 +98,7 @@ export class IceBenchmarkRuntime {
     const record = { index: s.actionCount, action, at: s.updatedAt, roomBefore, roomAfter: this.room, level: s.levelIndex + 1,
       stateChanged: changed, moved: JSON.stringify(playersBefore) !== JSON.stringify(s.players), blocked, died: false, novel, stateHash: after,
       players: clone(s.players), player: this.positions()[0], levelsSolved: s.completedLevels.length, goalsCovered: goalsCovered(this.level, s.players) };
-    s.actions.push(record); await this.persist();
+    s.actions.push(record); await this.persist({ animationFrames });
     return { action: record, observation: await this.renderObservation() };
   }
   async applySequence(input) {
@@ -109,15 +119,40 @@ export class IceBenchmarkRuntime {
       unique_cells: new Set(s.positions.map(p => `${p.worldX},${p.worldY}`)).size, novelty_rate: s.actionCount ? s.actions.filter(a => a.novel).length / s.actionCount : 1,
       blocked_actions: s.blockedActions, resets: s.resets, undos: s.undos, deaths: 0, camera_actions: 0, positions: s.positions, novelty: [true, ...s.actions.map(a => a.novel)], actions: s.actions };
   }
-  async persist() {
-    const o = await this.renderObservation({ includeColor: true }), s = this.internal;
-    const display = { observation_revision: o.observation_revision, room: o.room, world: "ice-maze", level: o.level, colored_level: o.colored_level, ascii_legend: o.ascii_legend };
-    const files = { "game-state.json": JSON.stringify(s), "summary.json": JSON.stringify(this.summary()), "display.json": JSON.stringify(display),
-      "records/current_board.txt": o.level + "\n", "records/current_state.json": JSON.stringify({ ...o, level: undefined, colored_level: undefined, records: undefined }),
-      "records/moves.txt": s.actions.map(a => a.action).join("\n") + "\n", "records/history.jsonl": s.actions.map(a => JSON.stringify(a)).join("\n") + "\n",
-      [`records/move_history/move_${s.actionCount}.txt`]: `# move ${s.actionCount} · ${s.actions.at(-1)?.action || "initial"} · ${o.room}\n${o.level}\n`,
-      [`display-history/move_${s.actionCount}.json`]: JSON.stringify(display) };
-    await Promise.all(Object.entries(files).map(([name, value]) => atomic(path.join(this.runDirectory, name), value)));
-    await signCheckpoint(this.runDirectory);
+  async persist({ animationFrames = null } = {}) {
+    if (this.persistenceError) throw this.persistenceError;
+    let staging;
+    try {
+      staging = await mkdtemp(path.join(this.runDirectory, ".checkpoint-"));
+      const artifacts = [];
+      const writeText = async (relative, value) => {
+        const file = path.join(staging, relative);
+        await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+        await writeFile(file, value, { flag: "wx", mode: 0o600 });
+        artifacts.push(relative);
+      };
+      if (animationFrames) this.internal.actions.at(-1).animation = await stageMoveAnimation({
+        action: this.internal.actions.at(-1), frames: animationFrames, render: frame => frame, writeText
+      });
+      const o = await this.renderObservation({ includeColor: true }), s = this.internal;
+      const display = { observation_revision: o.observation_revision, room: o.room, world: "ice-maze", level: o.level, colored_level: o.colored_level, ascii_legend: o.ascii_legend };
+      const files = { "game-state.json": JSON.stringify(s), "summary.json": JSON.stringify(this.summary()), "display.json": JSON.stringify(display),
+        "records/current_board.txt": o.level + "\n", "records/current_state.json": JSON.stringify({ ...o, level: undefined, colored_level: undefined, records: undefined }),
+        "records/moves.txt": s.actions.map(a => a.action).join("\n") + "\n", "records/history.jsonl": s.actions.map(a => JSON.stringify(a)).join("\n") + "\n",
+        [`records/move_history/move_${s.actionCount}.txt`]: `# move ${s.actionCount} · ${s.actions.at(-1)?.action || "initial"} · ${o.room}\n${o.level}\n`,
+        [`display-history/move_${s.actionCount}.json`]: JSON.stringify(display) };
+      for (const [name, value] of Object.entries(files)) await writeText(name, value);
+      const signed = await signCheckpoint(this.runDirectory, { artifactsDirectory: staging });
+      for (const relative of artifacts) {
+        if (path.dirname(relative) !== ".") safeDirectory(this.runDirectory, path.dirname(relative), { create: true });
+        await rename(path.join(staging, relative), path.join(this.runDirectory, relative));
+      }
+      if (signed) await rename(path.join(staging, "checkpoint.json"), path.join(this.runDirectory, "checkpoint.json"));
+    } catch (error) {
+      this.persistenceError = new Error(`Benchmark save failed; reopen the last verified checkpoint: ${error.message}`, { cause: error });
+      throw this.persistenceError;
+    } finally {
+      if (staging) await rm(staging, { recursive: true, force: true });
+    }
   }
 }

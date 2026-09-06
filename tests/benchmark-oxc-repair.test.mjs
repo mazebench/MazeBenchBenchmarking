@@ -50,6 +50,8 @@ test("the engine repairs only the last OxC entry, keeps its time and score, and 
     assert.deepEqual(runtime.internal.history, original.history);
     assert.deepEqual(runtime.internal.actions[0], original.actions[0]);
     await runtime.persist({ writeSnapshot: true }); verifyCheckpoint(directory);
+    assert.equal(runtime.internal.actions.at(-1).animation, undefined);
+    await assert.rejects(() => runtime.readRecord("move_history/move_2/index.json"), /Unknown/);
     assert.equal(await readFile(path.join(directory, "display-history/move_1.json"), "utf8"), frame);
     assert.equal(await readFile(path.join(directory, "records/move_history/move_1.txt"), "utf8"), board);
     const display = JSON.parse(await readFile(path.join(directory, "display-history/move_2.json"), "utf8"));
