@@ -3,8 +3,8 @@ import { createWriteStream, existsSync, readFileSync, writeFileSync } from "node
 import os from "node:os";
 import path from "node:path";
 import { atomicJson, readJson } from "../providers/claude-runner.mjs";
-import { slotskiCodexBoundaryViolation } from "./action-policy.mjs";
-import { buildSlotskiCodexArguments } from "./policy.mjs";
+import { eventBoundaryViolation as slotskiCodexBoundaryViolation } from "../v1/supervisor.mjs";
+import { buildVisionCodexArguments } from "./policy.mjs";
 const now = () => new Date().toISOString();
 function hardenedCodexEnvironment(runDirectory) {
   return {
@@ -20,10 +20,10 @@ function hardenedCodexEnvironment(runDirectory) {
   };
 }
 
-export async function runSlotskiCodexTurn({ metadata, directory, agentDirectory, prompt, resumeThreadId, control }) {
+export async function runVisionCodexTurn({ metadata, directory, agentDirectory, prompt, resumeThreadId, control }) {
     const { capabilityPolicy, modelCatalog } = await this.verifyRunCapabilityBoundary(metadata, directory);
     return new Promise((resolve, reject) => {
-      const args = buildSlotskiCodexArguments({
+      const args = buildVisionCodexArguments({
         projectRoot: this.projectRoot,
         runDirectory: directory,
         agentDirectory,

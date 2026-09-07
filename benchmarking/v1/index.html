@@ -6,6 +6,7 @@
     <meta name="description" content="Launch local Codex and Claude Code MazeBench evaluations and browse agent run records.">
     <title>MazeBench — Benchmark v1</title>
     <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="../ui/vision.css">
   </head>
   <body class="records-page">
     <header class="topbar">
@@ -41,6 +42,7 @@
         </div>
         <form id="launch-form" class="launch-controls">
           <label class="world-select"><span>World</span><select id="world"><option value="main-world">Main World · 100 gems</option><option value="ice-maze">Ice Maze · 30 levels</option><option value="slotski">Slotski · 1 level</option></select></label>
+          <label id="observation-option"><span>Agent observations</span><select id="observation-mode"><option value="ascii">ASCII text</option><option value="vision">Vision · 3D images</option></select></label>
           <label><span>Agent</span><select id="provider"><option value="codex">Codex</option><option value="claude-code">Claude Code</option></select></label>
           <label><span>Model</span><select id="model" required></select></label>
           <label><span>Reasoning</span><select id="effort" required></select></label>
@@ -51,12 +53,17 @@
             <i aria-hidden="true"></i>
             <strong id="tools-label">Off</strong>
           </label>
+          <label id="sequence-option" hidden><span>Action sequences</span><select id="sequence-enabled"><option value="true">Allowed · batch moves</option><option value="false">Disabled · one move per call</option></select></label>
           <div class="launch-actions">
             <button id="launch-single" type="submit">Launch run</button>
             <button id="launch-pair" class="primary" type="button">Launch matched pair</button>
           </div>
         </form>
-        <p id="launch-status" class="launch-status" role="status" aria-live="polite">Every run gets maze_observe, maze_action, and maze_sequence. Python is the only condition toggle.</p>
+        <p id="launch-status" class="launch-status" role="status" aria-live="polite">Every run gets maze_observe and maze_action. Klotski runs can disable action sequences. Matched pairs compare Python off versus on using the same action setting.</p>
+        <section id="vision-preview" class="vision-preview" hidden aria-labelledby="vision-preview-title">
+          <div class="vision-preview-copy"><span class="eyebrow">Agent observation</span><h2 id="vision-preview-title">MazeBench, through vision</h2><p>The agent sees the current room in 3D. It can rotate the camera, make moves, and inspect images from its own move history.</p><div class="vision-facts"><span>Same rules &amp; actions</span><span>Python off or on</span><span>Animation frame history</span></div><label>Preview room <select id="vision-room"><option value="HxI">H×I · starting room</option><option value="HxH">H×H · gem room</option><option value="LxN">L×N · ice &amp; buttons</option></select></label><div class="vision-camera"><button id="vision-left" type="button">↶ Rotate</button><button id="vision-tilt" type="button">Change view</button><button id="vision-right" type="button">Rotate ↷</button></div><p id="vision-preview-status" role="status">Preparing preview…</p></div>
+          <figure><img id="vision-preview-image" width="1024" height="1024" alt="3D image of the current MazeBench room, as seen by the agent"><figcaption>Green player · light-blue gems · current room only</figcaption></figure>
+        </section>
       </section>
 
       <section class="records-section" aria-labelledby="runs-title">

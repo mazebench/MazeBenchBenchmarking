@@ -3,9 +3,8 @@ import { randomUUID } from "node:crypto";
 import { createWriteStream, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
-import { claudeEnvironment } from "../providers/claude-policy.mjs";
-import { slotskiClaudeBoundaryViolation } from "./action-policy.mjs";
-import { buildSlotskiClaudeArguments as buildClaudeArguments } from "./policy.mjs";
+import { createClaudeBoundaryValidator, claudeEnvironment } from "../providers/claude-policy.mjs";
+import { buildVisionClaudeArguments as buildClaudeArguments } from "./policy.mjs";
 
 export async function atomicJson(file, value) {
   const temporary = `${file}.${randomUUID()}.tmp`;
@@ -18,7 +17,7 @@ export function runClaudeTurn({ projectRoot, directory, metadata, frozen, prompt
   return new Promise((resolve, reject) => {
     const turnId = randomUUID();
     const args = buildClaudeArguments({ projectRoot, runDirectory: directory, model: metadata.model,
-      effort: metadata.effort, toolsEnabled: metadata.tools_enabled, sequenceEnabled: metadata.sequence_enabled, prompt,
+      effort: metadata.effort, toolsEnabled: metadata.tools_enabled, prompt,
       resumeSessionId: metadata.claude_session_id, sessionId: metadata.claude_session_id ? null : randomUUID() });
     const child = spawn(frozen.claude_executable, args, {
       cwd: path.join(directory, "agent-cwd"), env: environment || claudeEnvironment(), stdio: ["ignore", "pipe", "pipe"]
@@ -41,6 +40,7 @@ export function runClaudeTurn({ projectRoot, directory, metadata, frozen, prompt
         child.kill("SIGKILL");
       }
     }, 500);
+    const validateBoundary = createClaudeBoundaryValidator({ model: metadata.model, toolsEnabled: metadata.tools_enabled });
     function receive(line) {
       if (!line.trim()) return;
       let event;
@@ -48,7 +48,7 @@ export function runClaudeTurn({ projectRoot, directory, metadata, frozen, prompt
       event._received_at = new Date().toISOString();
       event._turn_id = turnId;
       raw.write(`${JSON.stringify(event)}\n`);
-      const violation = slotskiClaudeBoundaryViolation(event, { model: metadata.model, toolsEnabled: metadata.tools_enabled, sequenceEnabled: metadata.sequence_enabled });
+      const violation = validateBoundary(event);
       if (violation) { invalidate(violation); return; }
       if (event.type === "system" && event.subtype === "init") {
         initialized = true;

@@ -4,13 +4,15 @@ import { createHash, randomUUID } from "node:crypto";
 import { appendFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
-import { CAPABILITY_POLICY_NAME, verifyCheckpoint } from "../v1/integrity.mjs";
+import { CAPABILITY_POLICY_NAME, verifyRunIntegrity, verifyCheckpoint, assertRunConfiguration } from "../v1/integrity.mjs";
 import { safeReadFile } from "../v1/safe-files.mjs";
 
-import { SlotskiBenchmarkRuntime as BenchmarkGameRuntime, expandSlotskiSequence as expandBenchmarkSequence } from "../../slotski/v1/benchmark-runtime.mjs";
-import { verifySlotskiIntegrity } from "./policy.mjs";
-import { sequenceEnabled } from "./action-policy.mjs";
-import { normalizeSlotskiAction } from "../../slotski/v1/engine.mjs";
+import {
+  expandBenchmarkSequence
+} from "../v1/runtime.mjs";
+import { VisionRuntime as BenchmarkGameRuntime } from "./runtime.mjs";
+import { verifyVisionIntegrity } from "./policy.mjs";
+import { VisionRenderer } from "./renderer.mjs";
 import {
   normalizePythonScriptPath,
   runSandboxedPython,
@@ -33,19 +35,20 @@ if (capabilityPolicy !== CAPABILITY_POLICY_NAME) {
 }
 
 const metadata = JSON.parse(safeReadFile(runDirectory, "run.json"));
-const frozen = await verifySlotskiIntegrity(projectRoot, runDirectory, metadata);
-const sequences = sequenceEnabled(frozen.sequence_enabled);
-if (toolsEnabled !== frozen.tools_enabled) throw new Error("MCP tool condition differs from the frozen run configuration.");
+const manifest = await verifyVisionIntegrity(projectRoot, runDirectory, metadata);
+assertRunConfiguration(metadata, manifest);
+if (toolsEnabled !== manifest.configuration.tools_enabled) throw new Error("MCP tool condition differs from the frozen run configuration.");
 verifyCheckpoint(runDirectory);
 const runtime = await BenchmarkGameRuntime.open(projectRoot, runDirectory);
 const activityFile = path.join(runDirectory, "tool-activity.jsonl");
+const renderer = new VisionRenderer(projectRoot);
 const workspace = path.join(runDirectory, "workspace");
 const stateDirectory = path.join(runDirectory, "sandbox-state");
 
 const tools = [
   {
     name: "maze_observe",
-    description: "Direct-only tool. Read the current Slotski board and game state, or read one safe relative file from the run's read-only records. With no record argument, returns the live observation and records index. Allowed records include current_board.txt, current_state.json, moves.txt, history.jsonl, numbered move_history snapshots, and per-move animation indexes and ASCII frame files. Read an action's animation.index_record first to discover its frame paths. This tool never changes game state and does not consume an action. Never call or orchestrate it from a code executor.",
+    description: "See a PNG image of the current room and brief game status, or inspect one path from your image records index. Historical move indexes list image frames of the actual animation. No ASCII board, raw object data, hidden rooms, or arbitrary files are available. Reads cost no actions. Call this tool directly.",
     inputSchema: {
       type: "object",
       properties: {
@@ -59,7 +62,7 @@ const tools = [
   },
   {
     name: "maze_action",
-    description: "Direct-only tool. Move one labelled Slotski block ONE cell. Examples: AU, a up, block A move up. Choose a block A–Z and U/D/L/R; no pushing, rotation or overlap. A is the 2×2 target; reach the bottom-center exit to win. Undo and reset are also allowed. Every accepted action counts, including blocked moves. " + (sequences ? "Use maze_sequence for repeats. " : "Exactly one action per call; repeats and multiple moves are rejected. Inspect the result before choosing the next action. ") + "Never orchestrate game tools from a code executor.",
+    description: "Direct-only tool. Apply exactly one accepted MazeBench action. Valid actions are up, down, left, right, undo, reset, camera up/down/left/right, or room HxI for a previously visited room. Every accepted action counts toward the run limit, including blocked movement and camera actions. Never call or orchestrate it from a code executor.",
     inputSchema: {
       type: "object",
       properties: {
@@ -69,16 +72,16 @@ const tools = [
       additionalProperties: false
     }
   },
-  ...(sequences ? [{
+  {
     name: "maze_sequence",
-    description: "Direct-only tool. Execute 1–1000 chosen one-cell Slotski moves. Accepts AU BD CL, a up, b down c left, AU3, a up 3 times, or an actions array. Every repeat is separately counted and recorded, including blocked steps. The whole sequence is validated before any move. Stops at victory or action limit. Never orchestrate game tools from a code executor.",
+    description: "Direct-only tool. Apply one model-chosen ordered sequence of MazeBench actions. Supply a compact UDRL string or an actions array. Each accepted step is independently validated, recorded, and counted. Execution stops on death, victory, or the action limit. Never call or orchestrate it from a code executor.",
     inputSchema: {
       type: "object",
       properties: {
         sequence: {
           type: "string",
           minLength: 1,
-          description: "Labelled moves, such as AU BD CL, AU3, or a up 3 times."
+          description: "Compact movement sequence such as UURDDL."
         },
         actions: {
           type: "array",
@@ -87,9 +90,10 @@ const tools = [
           items: { type: "string", minLength: 1, maxLength: 128 }
         }
       },
+      oneOf: [{ required: ["sequence"] }, { required: ["actions"] }],
       additionalProperties: false
     }
-  }] : []),
+  },
   ...(toolsEnabled ? [{
     name: "python_exec",
     description: "Direct-only tool and the only available code executor. Save the supplied program as a relative .py file, then execute that saved file in this run's persistent isolated /workspace. Python can read and write only /workspace; it cannot read MazeBench records, benchmark results, repositories, host files, credentials, or prior runs, cannot access the network, and cannot launch subprocesses.",
@@ -121,10 +125,19 @@ function safeError(error) {
     .replaceAll(runDirectory, "[run]");
 }
 
-function toolResult(value, isError = false) {
+async function toolResult(value, isError = false) {
+  const record = value.image_record || value.observation?.image_record || value.final_observation?.image_record;
+  const content = [{ type: "text", text: JSON.stringify(value, null, 2) }];
+  if (record && !isError) {
+    const { frame } = await runtime.readRecord(record);
+    const png = await renderer.render(frame);
+    content.push({ type: "image", mimeType: "image/png", data: png.toString("base64") });
+  }
   return {
-    content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
-    structuredContent: value,
+    content,
+    // Codex prefers structuredContent over content when both are supplied.
+    // Image observations must keep their text and PNG in the same content list.
+    ...(record && !isError ? {} : { structuredContent: value }),
     isError
   };
 }
@@ -134,8 +147,7 @@ function appendActivity(entry) {
 }
 
 function validateArguments(name, input) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Tool arguments must be an object.");
-  const keys = Object.keys(input);
+  const keys = Object.keys(input || {});
   const allowed = {
     maze_observe: ["record"],
     maze_action: ["action"],
@@ -148,7 +160,7 @@ function validateArguments(name, input) {
 
 async function callTool(name, input = {}) {
   try {
-    await verifySlotskiIntegrity(projectRoot, runDirectory, JSON.parse(safeReadFile(runDirectory, "run.json")));
+    await verifyRunIntegrity(projectRoot, runDirectory, metadata.integrity);
     verifyCheckpoint(runDirectory);
   } catch (error) {
     writeFileSync(path.join(runDirectory, "integrity-violation.json"), JSON.stringify({ error: safeError(error) }), { mode: 0o600 });
@@ -163,7 +175,7 @@ async function callTool(name, input = {}) {
     return {
       observation_revision: runtime.internal.actionCount,
       read_only: true,
-      ...value,
+      ...(value.frame ? { record: value.record, image_record: value.record } : value),
       records: runtime.recordIndex()
     };
   }
@@ -171,14 +183,9 @@ async function callTool(name, input = {}) {
     if (typeof input.action !== "string" || !input.action.trim() || input.action.length > 128) {
       throw new Error("action must contain between 1 and 128 characters.");
     }
-    if (!sequences) {
-      try { normalizeSlotskiAction(input.action); }
-      catch { throw new Error("Supply exactly one block move (for example IR), undo, or reset. Repeats and multiple moves are disabled."); }
-    }
     return runtime.apply(input.action);
   }
   if (name === "maze_sequence") {
-    if (!sequences) throw new Error("Action sequences are disabled for this run. Use maze_action for one move.");
     const hasSequence = typeof input.sequence === "string" && input.sequence.trim() !== "";
     const hasActions = Array.isArray(input.actions);
     if (hasSequence === hasActions) throw new Error("Supply exactly one of sequence or actions.");
@@ -208,14 +215,12 @@ async function callTool(name, input = {}) {
 
 async function handle(request) {
   if (!request || request.jsonrpc !== "2.0") return;
-  try { await verifySlotskiIntegrity(projectRoot, runDirectory, JSON.parse(safeReadFile(runDirectory, "run.json"))); }
-  catch (error) { writeFileSync(path.join(runDirectory, "integrity-violation.json"), JSON.stringify({ error: safeError(error) }), { mode: 0o600 }); throw error; }
   if (["notifications/initialized", "notifications/cancelled"].includes(request.method)) return;
   if (request.method === "initialize") {
     success(request.id, {
       protocolVersion: request.params?.protocolVersion || "2024-11-05",
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: "mazebench-slotski", version: "1.0.0" }
+      serverInfo: { name: "mazebench-benchmark", version: "1.0.0" }
     });
     return;
   }
@@ -232,7 +237,7 @@ async function handle(request) {
     return;
   }
   if (request.method === "tools/list") {
-    success(request.id, { tools });
+    success(request.id, { tools: metadata.provider === "claude-code" ? tools.map(tool => { const copy = structuredClone(tool); delete copy.inputSchema.oneOf; return copy; }) : tools });
     return;
   }
   if (request.method === "tools/call") {
@@ -255,6 +260,7 @@ async function handle(request) {
     appendActivity(activity);
     try {
       const value = await callTool(name, input);
+      const result = await toolResult(value);
       appendActivity({
         ...activity,
         completed_at: new Date().toISOString(),
@@ -270,7 +276,7 @@ async function handle(request) {
           workspace_files: value.workspace_files
         } : {})
       });
-      success(request.id, toolResult(value));
+      success(request.id, result);
     } catch (error) {
       const message = safeError(error);
       appendActivity({
@@ -280,7 +286,7 @@ async function handle(request) {
         action_count_after: runtime.internal.actionCount,
         error: message
       });
-      success(request.id, toolResult({ error: message }, true));
+      success(request.id, await toolResult({ error: message }, true));
     }
     return;
   }
@@ -308,3 +314,6 @@ lines.on("line", (line) => {
     }
   });
 });
+
+lines.on("close", () => { void requestQueue.finally(() => renderer.close()); });
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { void renderer.close().finally(() => process.exit()); });

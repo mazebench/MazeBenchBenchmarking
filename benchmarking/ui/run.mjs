@@ -1,3 +1,4 @@
+import { benchmarkFetch, visionUrl } from "./benchmark-api.mjs";
 const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
 import { drawNovelty } from "../ui/novelty-chart.mjs";
@@ -35,7 +36,7 @@ let creatingInterview = false;
 let refreshPromise = null;
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await benchmarkFetch(path, {
     ...options,
     headers: { "Content-Type": "application/json", ...(options.headers || {}) }
   });
@@ -97,6 +98,18 @@ function setCanvasSize(canvas) {
 }
 
 function renderBoard(display) {
+  const vision = display?.observation_mode === "vision";
+  elements.board.classList.toggle("vision-board", vision);
+  if (vision && display.image_record) {
+    const source = visionUrl(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/record/${encodeURIComponent(display.image_record)}`);
+    if (elements.board.querySelector("img")?.src === source) return;
+    const img = document.createElement("img");
+    img.src = source; img.className = "vision-board-image";
+    img.alt = `3D agent observation · room ${display.room} · move ${display.observation_revision}`;
+    elements.board.replaceChildren(img);
+    elements.board.setAttribute("aria-label", img.alt);
+    return;
+  }
   elements.board.replaceChildren();
   const coloredRows = Array.isArray(display?.colored_level) ? display.colored_level : [];
   if (coloredRows.length) {
@@ -153,9 +166,9 @@ async function showFrame(index, { keepPlaying = false } = {}) {
     renderBoard(currentRun.display);
     elements["board-room"].textContent = `${numberedWorld(currentRun) ? "" : "Room "}${currentRun.display.room || currentRun.room || "—"}`;
     elements["board-move"].textContent = `move ${selected}`;
-    elements["frame-source"].textContent = "Live engine frame · exact colors";
+    elements["frame-source"].textContent = currentRun.observation_mode === "vision" ? "Live 3D agent observation" : "Live engine frame · exact colors";
   } else {
-    elements["frame-source"].textContent = `Rendering move_${selected}.txt with engine colors…`;
+    elements["frame-source"].textContent = currentRun.observation_mode === "vision" ? `Loading image for move ${selected}…` : `Rendering move_${selected}.txt with engine colors…`;
     let snapshot = frameCache.get(selected);
     if (!snapshot) snapshot = await api(
       `/api/benchmark/v1/runs/${encodeURIComponent(runId)}/display/${selected}`
@@ -165,7 +178,7 @@ async function showFrame(index, { keepPlaying = false } = {}) {
     renderBoard(snapshot);
     elements["board-room"].textContent = `${numberedWorld(currentRun) ? "" : "Room "}${snapshot.room}`;
     elements["board-move"].textContent = `move ${selected}`;
-    elements["frame-source"].textContent = `${snapshot.source_record || `records/move_history/move_${selected}.txt`} · exact engine colors`;
+    elements["frame-source"].textContent = snapshot.observation_mode === "vision" ? `${snapshot.image_record} · recorded 3D observation` : `${snapshot.source_record || `records/move_history/move_${selected}.txt`} · exact engine colors`;
   }
 
   if (!keepPlaying) stopPlayback();
@@ -586,15 +599,15 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   document.body.classList.toggle("ice-world", numberedWorld(run));
   document.title = `${run.model} · MazeBench record`;
   elements["model-monogram"].textContent = modelMonogram(run.model);
-  elements["run-kicker"].textContent = `${run.provider === "claude-code" ? "Claude Code" : "Codex"} model evaluation · ${worldName(run)} · ${conditionLabel(run)}`;
+  elements["run-kicker"].textContent = `${run.provider === "claude-code" ? "Claude Code" : "Codex"} model evaluation · ${worldName(run)}${run.observation_mode === "vision" ? " · 3D vision" : ""} · ${conditionLabel(run)}`;
   elements["run-title"].textContent = run.model;
-  elements["run-subtitle"].textContent = `${run.effort} reasoning · started ${compactDate(run.created_at)} · ${run.action_limit ?? "unlimited"} action limit`;
+  elements["run-subtitle"].textContent = `${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves · sequences disabled" : "Batched moves allowed"} · ${run.service_tier === "fast" ? "Fast" : "Standard speed"}` : ""} · started ${compactDate(run.created_at)} · ${run.action_limit ?? "unlimited"} action limit`;
   elements["run-id"].textContent = run.id;
   elements["run-status"].textContent = statusLabel(run.status);
   elements["run-status"].className = `status-pill ${run.status}`;
   elements["run-failure"].hidden = run.status !== "failed";
   elements["run-failure-reason"].textContent = run.error || "The runner stopped before finishing. Inspect the activity record for details.";
-  document.querySelector("[aria-labelledby=interview-title]").hidden = run.provider === "claude-code" || numberedWorld(run);
+  document.querySelector("[aria-labelledby=interview-title]").hidden = run.provider === "claude-code" || numberedWorld(run) || run.observation_mode === "vision";
   const terminalGame = ["won", "action-limit"].includes(run.game_status);
   const activeRun = Boolean(run.runner_active);
   const resumableBoundary = Boolean(run.capability_boundary_verified);
@@ -630,7 +643,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
     renderBoard(run.display);
     elements["board-room"].textContent = `${numberedWorld(run) ? "" : "Room "}${run.display?.room || run.room || "—"}`;
     elements["board-move"].textContent = `move ${run.display?.observation_revision ?? run.action_count ?? 0}`;
-    elements["frame-source"].textContent = "Live engine frame · exact colors";
+    elements["frame-source"].textContent = run.observation_mode === "vision" ? "Live 3D agent observation" : "Live engine frame · exact colors";
   }
   syncTransport();
   elements.heatmap.setAttribute("aria-label", run.world === "slotski" ? "Top-left positions of selected blocks after actions" : "Heatmap of positions visited");
@@ -879,6 +892,8 @@ elements["retry-new-run"].addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({
         provider: currentRun.provider || "codex", model: currentRun.model, effort: currentRun.effort, tools_enabled: currentRun.tools_enabled,
+        observation_mode: currentRun.observation_mode || "ascii", service_tier: currentRun.service_tier,
+        ...(currentRun.world === "slotski" ? { sequence_enabled: currentRun.sequence_enabled !== false } : {}),
         world: currentRun.world || "main-world", action_limit: currentRun.action_limit, start_room: currentRun.start_room
       })
     });

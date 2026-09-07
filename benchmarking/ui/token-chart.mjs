@@ -1,3 +1,4 @@
+import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs";
 import "./run-charts.mjs";
 
 const chart = document.getElementById("token-chart");
@@ -99,7 +100,7 @@ async function refresh() {
   if (busy || !id || document.hidden) return;
   busy = true;
   try {
-    const response = await fetch(`/api/benchmark/v1/runs/${encodeURIComponent(id)}/tokens`);
+    const response = await benchmarkFetch(`/api/benchmark/v1/runs/${encodeURIComponent(id)}/tokens`);
     if (!response.ok) throw new Error("Token telemetry unavailable");
     render(await response.json());
   } catch {

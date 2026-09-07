@@ -1,3 +1,4 @@
+import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs";
 // Shared dashboard entry; keep reporting outside the frozen agent runtime.
 const anchor = document.querySelector(".token-panel");
 const runId = new URLSearchParams(location.search).get("id");
@@ -150,7 +151,7 @@ async function refresh() {
   if (busy || document.hidden) return;
   busy = true;
   try {
-    const response = await fetch(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/charts`);
+    const response = await benchmarkFetch(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/charts`);
     if (!response.ok) throw new Error("Chart telemetry unavailable");
     data = await response.json(); receivedAt = Date.now();
     renderThinking(); renderGems();

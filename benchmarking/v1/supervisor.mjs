@@ -831,9 +831,13 @@ export class BenchmarkSupervisor {
     const actionLimit = spec.action_limit === null || String(spec.action_limit).toLowerCase() === "unlimited"
       ? null
       : Math.max(1, Math.min(1_000_000, Math.floor(Number(spec.action_limit) || 100)));
+    if (spec.service_tier != null && !["standard", "fast"].includes(spec.service_tier)) {
+      throw new Error("Unsupported benchmark service tier.");
+    }
     return {
       model,
       effort,
+      serviceTier: spec.service_tier === "fast" ? "fast" : null,
       toolsEnabled: Boolean(spec.tools_enabled),
       actionLimit,
       startRoom: String(spec.start_room || DEFAULT_START_ROOM),
@@ -868,6 +872,8 @@ export class BenchmarkSupervisor {
       status: "preparing",
       model: options.model,
       effort: options.effort,
+      service_tier: options.serviceTier,
+      service_tier_history: [{ at: createdAt, service_tier: options.serviceTier || "standard", source: "Initial run configuration" }],
       tools_enabled: options.toolsEnabled,
       action_limit: options.actionLimit,
       start_room: options.startRoom,
@@ -883,6 +889,7 @@ export class BenchmarkSupervisor {
     };
     metadata.integrity = await createRunIntegrity(this.projectRoot, directory, {
       model: metadata.model, effort: metadata.effort, tools_enabled: metadata.tools_enabled,
+      service_tier: metadata.service_tier,
       action_limit: metadata.action_limit, start_room: metadata.start_room,
       effective_prompt_sha256: metadata.effective_prompt_sha256
     });

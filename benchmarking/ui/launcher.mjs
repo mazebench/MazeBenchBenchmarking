@@ -1,8 +1,9 @@
+import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs";
 const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
 const elements = Object.fromEntries([
   "world", "world-description", "world-objective", "connection-status", "launch-form", "provider", "model", "effort", "action-limit",
-  "tools-enabled", "tools-label", "launch-single", "launch-pair",
+  "tools-enabled", "tools-label", "sequence-option", "sequence-enabled", "observation-option", "observation-mode", "vision-preview", "vision-preview-image", "vision-preview-status", "vision-room", "vision-left", "vision-right", "vision-tilt", "launch-single", "launch-pair",
   "launch-status", "refresh", "run-list", "record-count", "codex-version", "codex-update-status", "check-codex"
 ].map((id) => [id, document.getElementById(id)]));
 
@@ -35,7 +36,7 @@ async function checkCodex(force = false) {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await benchmarkFetch(path, {
     ...options,
     headers: { "Content-Type": "application/json", ...(options.headers || {}) }
   });
@@ -94,7 +95,7 @@ function renderRuns(runs) {
     top.className = "record-top";
     const condition = document.createElement("span");
     condition.className = "condition";
-    condition.textContent = run.tools_enabled ? "Python on" : "Python off";
+    condition.textContent = `${run.observation_mode === "vision" ? "Vision · " : ""}${run.tools_enabled ? "Python on" : "Python off"}`;
     const recordStatus = document.createElement("span");
     recordStatus.className = `record-status ${run.status}`;
     recordStatus.textContent = statusLabel(run.status);
@@ -105,7 +106,7 @@ function renderRuns(runs) {
     model.textContent = run.model;
     const meta = document.createElement("span");
     meta.className = "record-meta";
-    meta.textContent = `${worldName(run)} · ${run.provider === "claude-code" ? "Claude Code" : "Codex"} · ${run.effort} reasoning · ${compactDate(run.created_at)} · ${duration(run)}`;
+    meta.textContent = `${worldName(run)} · ${run.provider === "claude-code" ? "Claude Code" : "Codex"} · ${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"} · ${run.service_tier === "fast" ? "Fast" : "Standard speed"}` : ""} · ${compactDate(run.created_at)} · ${duration(run)}`;
 
     const progressBar = document.createElement("span");
     progressBar.className = "run-progress";
@@ -191,10 +192,12 @@ async function loadModels() {
 function launchPayload(toolsEnabled = elements["tools-enabled"].checked) {
   return {
     world: elements.world.value,
+    ...(elements.world.value === "main-world" ? { observation_mode: elements["observation-mode"].value } : {}),
     provider: elements.provider.value,
     model: elements.model.value,
     effort: elements.effort.value,
     tools_enabled: toolsEnabled,
+    ...(elements.world.value === "slotski" ? { sequence_enabled: elements["sequence-enabled"].value === "true" } : {}),
     action_limit: elements["action-limit"].value === "unlimited"
       ? null
       : Number(elements["action-limit"].value),
@@ -288,9 +291,33 @@ elements["run-list"].addEventListener("click", async (event) => {
 });
 function updateWorld() {
   const ice = elements.world.value === "ice-maze", slotski = elements.world.value === "slotski";
+  elements["sequence-option"].hidden = !slotski;
+  elements["observation-option"].hidden = ice || slotski;
+  if (ice || slotski) elements["observation-mode"].value = "ascii";
+  updateObservation();
   elements["world-objective"].textContent = slotski ? "Move A to the exit" : ice ? "Solve 30 levels" : "Collect 100 gems";
   elements["world-description"].textContent = slotski ? "One classic Slotski puzzle. Choose a labelled block and direction; move the 2×2 target A to the bottom-center exit. Python is optional." : ice ? "Solve the original 30 Ice Maze puzzles in order. All players slide together; every goal must be covered at rest. Choose whether the agent gets isolated Python." : "Start at H×I with the canonical prompt and choose whether the model gets an isolated Python workspace.";
 }
+let previewYaw = 0, previewPitch = 2, previewGeneration = 0;
+async function updateObservation() {
+  const enabled = elements.world.value === "main-world" && elements["observation-mode"].value === "vision";
+  elements["vision-preview"].hidden = !enabled;
+  if (!enabled) return;
+  const generation = ++previewGeneration;
+  elements["vision-preview-status"].textContent = "Rendering the agent's view…";
+  if (!await visionAvailable()) { elements["vision-preview-status"].textContent = "Vision runner is offline."; return; }
+  if (generation !== previewGeneration) return;
+  const img = elements["vision-preview-image"];
+  img.onload = () => { elements["vision-preview-status"].textContent = "Preview only · no benchmark actions are taken"; };
+  img.onerror = () => { elements["vision-preview-status"].textContent = "The image could not be rendered. Try again."; };
+  img.src = visionUrl(`/api/benchmark/vision/preview?room=${elements["vision-room"].value}&yaw=${previewYaw}&pitch=${previewPitch}`);
+}
+elements["observation-mode"].addEventListener("change", updateObservation);
+elements["vision-room"].addEventListener("change", updateObservation);
+elements["vision-left"].addEventListener("click", () => { previewYaw = (previewYaw + 3) % 4; updateObservation(); });
+elements["vision-right"].addEventListener("click", () => { previewYaw = (previewYaw + 1) % 4; updateObservation(); });
+elements["vision-tilt"].addEventListener("click", () => { previewPitch = (previewPitch + 1) % 5; updateObservation(); });
+if (new URLSearchParams(location.search).get("mode") === "vision") elements["observation-mode"].value = "vision";
 const requestedWorld = new URLSearchParams(location.search).get("world");
 if (["ice-maze", "slotski"].includes(requestedWorld)) elements.world.value = requestedWorld;
 if (elements.world.value === "slotski") elements["action-limit"].value = "1000";
