@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BenchmarkSupervisor } from "./benchmarking/slotski/supervisor.mjs";
 import { TokenTelemetry } from "./benchmarking/token-telemetry.mjs";
+import { RunTelemetry } from "./benchmarking/run-telemetry.mjs";
 import { isTrustedLocalRequest } from "./benchmarking/v1/http-security.mjs";
 import { decodeVoxelRoom, encodeVoxelRoom } from "./render/v1/voxel-world-v2.mjs";
 
@@ -19,6 +20,7 @@ const host = process.env.MAZEBENCH_BENCHMARK_HOST || "127.0.0.1";
 const port = Number(process.env.MAZEBENCH_BENCHMARK_PORT || 8080);
 const benchmarkSupervisor = new BenchmarkSupervisor(root);
 const tokenTelemetry = new TokenTelemetry();
+const runTelemetry = new RunTelemetry();
 
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -189,6 +191,16 @@ async function benchmarkApi(request, response, url) {
     }
     const runMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)$/);
     const tokensMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/tokens$/);
+    const chartsMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/charts$/);
+    if (request.method === "GET" && chartsMatch) {
+      const id = decodeURIComponent(chartsMatch[1]);
+      const directory = benchmarkSupervisor.runDirectory(id);
+      const tokens = await tokenTelemetry.read(directory).catch(() => null);
+      sendJson(response, 200, await runTelemetry.read(directory, {
+        runnerActive: benchmarkSupervisor.active.has(id), compactions: tokens?.compactions || []
+      }));
+      return true;
+    }
     if (request.method === "GET" && tokensMatch) {
       sendJson(response, 200, await tokenTelemetry.read(benchmarkSupervisor.runDirectory(decodeURIComponent(tokensMatch[1]))));
       return true;

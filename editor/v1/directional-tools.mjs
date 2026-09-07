@@ -33,8 +33,9 @@ function directionalFamily(parser, token) {
 export function parserToolTokens(parser) {
   const result = ["__erase_top__"];
   Object.values(parser.objects || {}).forEach((definition) => {
+    if (definition.selectable === false) return;
     if (typeof definition.token === "string") result.push(definition.token);
-    const entries = entriesForDefinition(definition);
+    const entries = entriesForDefinition(definition).filter((entry) => entry.selectable !== false);
     const addedFamilies = new Set();
     entries.forEach((entry) => {
       if (!entry.direction) {

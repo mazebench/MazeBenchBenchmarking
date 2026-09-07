@@ -1,3 +1,5 @@
+import "./run-charts.mjs";
+
 const chart = document.getElementById("token-chart");
 const current = document.getElementById("token-current");
 const detail = document.getElementById("token-detail");

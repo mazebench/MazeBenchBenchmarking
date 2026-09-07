@@ -1,0 +1,148 @@
+// Shared dashboard entry; keep reporting outside the frozen agent runtime.
+const anchor = document.querySelector(".token-panel");
+const runId = new URLSearchParams(location.search).get("id");
+const number = value => new Intl.NumberFormat().format(value);
+const duration = ms => ms == null ? "—" : ms < 60000 ? `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`
+  : ms < 3600000 ? `${Math.floor(ms / 60000)}m ${Math.floor(ms % 60000 / 1000)}s`
+    : `${Math.floor(ms / 3600000)}h ${Math.floor(ms % 3600000 / 60000)}m`;
+let data = null, busy = false, receivedAt = 0;
+const plots = new Map();
+
+if (anchor && runId) {
+  const css = document.createElement("link");
+  css.rel = "stylesheet";
+  css.href = new URL("./run-charts.css", import.meta.url).href;
+  document.head.append(css);
+  anchor.insertAdjacentHTML("afterend", `
+    <article class="panel run-chart-panel" id="thinking-panel" aria-labelledby="thinking-title">
+      <header class="panel-heading">
+        <div><span>Time between tool calls</span><strong id="thinking-title">Estimated thinking time</strong></div>
+        <label class="run-chart-controls">Show <select id="thinking-window"><option value="100">Last 100 episodes</option><option value="500">Last 500 episodes</option><option value="all">All episodes</option></select></label>
+      </header>
+      <div class="run-chart-stats"><span>Episodes<strong id="thinking-count">—</strong></span><span>Median<strong id="thinking-median">—</strong></span><span>Longest<strong id="thinking-longest">—</strong></span><output class="run-chart-live" id="thinking-live">Loading timing data…</output></div>
+      <div class="run-chart-wrap"><svg id="thinking-chart" role="img" aria-label="Thinking duration by episode"></svg><output class="token-tooltip" id="thinking-tooltip" hidden></output></div>
+      <p class="run-chart-note">Each episode runs from a tool result (or turn start) to the next tool call or final response. Includes generation and network/server waiting. Tool execution and interrupted intervals are excluded. Amber points include a known compaction and are excluded from median/longest. Dashed cyan shows the current episode. Thinking history includes past attempts before rollbacks.</p>
+    </article>
+    <article class="panel run-chart-panel" id="gems-panel" aria-labelledby="gems-title">
+      <header class="panel-heading"><div><span>Collection progress</span><strong id="gems-title">Gems by move</strong></div><code id="gems-current">—</code></header>
+      <div class="run-chart-wrap"><svg id="gems-chart" role="img" aria-label="Gem count by move count"></svg><output class="token-tooltip" id="gems-tooltip" hidden></output></div>
+      <p class="run-chart-note">Exact gem count after each recorded move/action, including blocked moves, undo, reset and camera actions. Steps change at the collecting action. Uses the retained history after a rollback.</p>
+    </article>`);
+  document.getElementById("thinking-window").addEventListener("change", renderThinking);
+  for (const id of ["thinking", "gems"]) attachHover(id);
+  const observer = new ResizeObserver(() => { if (data) { renderThinking(); renderGems(); } });
+  observer.observe(document.getElementById("thinking-panel"));
+  document.addEventListener("visibilitychange", refresh);
+  refresh();
+  setInterval(refresh, 3000);
+  setInterval(() => { if (data && !document.hidden) renderThinking(); }, 1000);
+}
+
+function axes(id, { minX = 0, maxX, maxY, xLabel, yLabel, yFormat = number, integerY = false }) {
+  const svg = document.getElementById(`${id}-chart`);
+  const width = Math.max(300, svg.clientWidth || 800), height = 260;
+  const left = 70, right = width - 26, top = 26, bottom = 207;
+  maxX = Math.max(minX + 1, maxX);
+  maxY = Math.max(1, maxY);
+  const x = value => left + (value - minX) / (maxX - minX) * (right - left);
+  const y = value => bottom - value / maxY * (bottom - top);
+  const tickCount = width < 550 ? 3 : 5;
+  const yStep = integerY ? Math.max(1, Math.ceil(maxY / 4)) : maxY / 4;
+  const horizontal = Array.from({ length: Math.floor(maxY / yStep) + 1 }, (_, i) => {
+    const value = i * yStep;
+    return `<line class="token-grid" x1="${left}" x2="${right}" y1="${y(value)}" y2="${y(value)}"/><text class="token-axis" x="${left - 10}" y="${y(value) + 4}" text-anchor="end">${yFormat(value)}</text>`;
+  }).join("");
+  const vertical = [...new Set(Array.from({ length: tickCount }, (_, i) => Math.round(minX + i / (tickCount - 1) * (maxX - minX))))].map(value =>
+    `<text class="token-axis" x="${x(value)}" y="228" text-anchor="middle">${number(value)}</text>`).join("");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  return { svg, x, y, left, right, top, bottom, width, minX, maxX,
+    markup: `${horizontal}${vertical}<text class="token-axis" x="${left}" y="15">${yLabel}</text><text class="token-axis" x="${(left + right) / 2}" y="251" text-anchor="middle">${xLabel}</text>` };
+}
+
+function renderThinking() {
+  if (!data) return;
+  const value = data.thinking;
+  document.getElementById("thinking-count").textContent = number(value.count);
+  document.getElementById("thinking-median").textContent = duration(value.median_ms);
+  document.getElementById("thinking-longest").textContent = duration(value.longest_ms);
+  const fresh = Date.now() - receivedAt < 15000;
+  const current = value.current ? { ...value.current, duration_ms: value.current.duration_ms + (fresh ? Date.now() - receivedAt : 0) } : null;
+  document.getElementById("thinking-live").textContent = !fresh ? "Timing updates delayed"
+    : current ? `Current thinking: ${duration(current.duration_ms)}${current.compaction ? " · compaction observed" : ""}`
+      : value.phase === "tool execution" ? "Executing tool…" : value.phase.replaceAll("-", " ");
+  const limit = document.getElementById("thinking-window").value;
+  const all = [...value.episodes, ...(current ? [current] : [])];
+  const points = limit === "all" ? all : all.slice(-Number(limit));
+  const maxDuration = Math.max(1000, ...points.map(point => point.duration_ms));
+  const unit = maxDuration >= 3600000 ? 3600000 : maxDuration >= 60000 ? 60000 : 1000;
+  const plot = axes("thinking", { minX: points[0]?.number ?? 1, maxX: points.at(-1)?.number ?? 1,
+    maxY: Math.ceil(maxDuration / unit * 1.1), xLabel: "Thinking episode", yLabel: `Duration (${unit === 1000 ? "seconds" : unit === 60000 ? "minutes" : "hours"})`,
+    yFormat: v => Number(v.toFixed(1)).toString() });
+  const completed = points.filter(point => point !== current);
+  let marks = completed.length ? `<polyline class="thinking-series" points="${completed.map(point => `${plot.x(point.number)},${plot.y(point.duration_ms / unit)}`).join(" ")}"/>` : "";
+  for (const point of completed) marks += `<circle class="${point.compaction ? "thinking-compact" : "thinking-dot"}" cx="${plot.x(point.number)}" cy="${plot.y(point.duration_ms / unit)}" r="${point.compaction ? 4 : 2.5}"/>`;
+  if (current) {
+    const last = completed.at(-1);
+    if (last) marks += `<line class="thinking-live-line" x1="${plot.x(last.number)}" y1="${plot.y(last.duration_ms / unit)}" x2="${plot.x(current.number)}" y2="${plot.y(current.duration_ms / unit)}"/>`;
+    marks += `<circle class="token-current-dot" cx="${plot.x(current.number)}" cy="${plot.y(current.duration_ms / unit)}" r="4"/>`;
+  }
+  if (!points.length) marks = `<text class="token-empty" x="${plot.width / 2}" y="118" text-anchor="middle">No completed thinking episodes yet.</text>`;
+  plot.svg.innerHTML = plot.markup + marks;
+  plot.svg.setAttribute("aria-label", `${value.count} completed thinking episodes. Median ${duration(value.median_ms)}. Longest ${duration(value.longest_ms)}.`);
+  plots.set("thinking", { ...plot, points, unit });
+}
+
+function renderGems() {
+  const value = data.gems;
+  document.getElementById("gems-panel").hidden = !value.applicable;
+  if (!value.applicable) return;
+  document.getElementById("gems-current").textContent = `${number(value.collected)} / ${number(value.total)} gems · ${number(value.moves)} moves`;
+  const max = Math.max(1, ...value.points.map(point => point.gems));
+  const maxY = Math.ceil(max / Math.max(1, Math.ceil(max / 4))) * Math.max(1, Math.ceil(max / 4));
+  const plot = axes("gems", { maxX: value.moves, maxY, xLabel: "Move count", yLabel: "Gem count", integerY: true });
+  const points = value.points.flatMap((point, index) => [
+    ...(index ? [`${plot.x(point.move)},${plot.y(value.points[index - 1].gems)}`] : []),
+    `${plot.x(point.move)},${plot.y(point.gems)}`
+  ]);
+  const dots = value.points.filter((point, i) => i === 0 || point.gems !== value.points[i - 1].gems).map(point =>
+    `<circle class="gem-dot" cx="${plot.x(point.move)}" cy="${plot.y(point.gems)}" r="3"/>`).join("");
+  plot.svg.innerHTML = plot.markup + (value.available ? `<polyline class="gem-series" points="${points.join(" ")}"/>${dots}`
+    : `<text class="token-empty" x="${plot.width / 2}" y="118" text-anchor="middle">Gem history unavailable.</text>`);
+  plot.svg.setAttribute("aria-label", `${value.collected} gems after ${value.moves} moves. Gem count over retained move history.`);
+  plots.set("gems", { ...plot, points: value.points });
+}
+
+function attachHover(id) {
+  const svg = document.getElementById(`${id}-chart`), tooltip = document.getElementById(`${id}-tooltip`);
+  svg.addEventListener("pointermove", event => {
+    const plot = plots.get(id);
+    if (!plot?.points.length) return;
+    const bounds = svg.getBoundingClientRect();
+    const px = (event.clientX - bounds.left) / bounds.width * plot.width;
+    const value = plot.minX + Math.max(0, Math.min(1, (px - plot.left) / (plot.right - plot.left))) * (plot.maxX - plot.minX);
+    if (id === "thinking") {
+      const point = plot.points.reduce((best, p) => Math.abs(p.number - value) < Math.abs(best.number - value) ? p : best);
+      tooltip.textContent = `Episode ${number(point.number)} · ${duration(point.duration_ms)} · after action ${number(point.action_count)}${point.room ? ` · ${point.room}` : ""} · ${point.next_tool || "in progress"}${point.compaction ? " · includes compaction" : ""}`;
+    } else {
+      const move = Math.min(data.gems.moves, Math.round(value));
+      const point = plot.points.findLast(p => p.move <= move);
+      tooltip.textContent = point ? `Move ${number(move)} · ${number(point.gems)} gems` : "No recorded gem count at this move";
+    }
+    tooltip.hidden = false;
+    tooltip.style.left = `${Math.max(8, Math.min(bounds.width - tooltip.offsetWidth - 8, event.clientX - bounds.left + 12))}px`;
+  });
+  svg.addEventListener("pointerleave", () => { tooltip.hidden = true; });
+}
+
+async function refresh() {
+  if (busy || document.hidden) return;
+  busy = true;
+  try {
+    const response = await fetch(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/charts`);
+    if (!response.ok) throw new Error("Chart telemetry unavailable");
+    data = await response.json(); receivedAt = Date.now();
+    renderThinking(); renderGems();
+  } catch {
+    document.getElementById("thinking-live").textContent = "Chart telemetry unavailable · retrying…";
+  } finally { busy = false; }
+}
