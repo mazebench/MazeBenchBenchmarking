@@ -283,7 +283,7 @@ export class BenchmarkGameRuntime {
       throw new Error(`Unsupported benchmark runtime version ${internal.version}.`);
     }
     if (internal.noveltyVersion !== NOVELTY_VERSION || internal.noveltyHashes?.length !== internal.actionCount + 1) {
-      throw new Error("This checkpoint needs the audited gem-free novelty recalculation before resuming.");
+      throw new Error("This checkpoint needs the audited terrain-free novelty recalculation before resuming.");
     }
     return new BenchmarkGameRuntime(projectRoot, runDirectory, assets, internal);
   }

@@ -3,13 +3,33 @@ import { appendFile, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { consumeThinkingEvent, createThinkingTimeline, gemTimeline, thinkingReport, RunTelemetry } from "../benchmarking/run-telemetry.mjs";
+import { consumeThinkingEvent, createThinkingTimeline, gemTimeline, thinkingReport, RunTelemetry, weightedThinkingDuration } from "../benchmarking/run-telemetry.mjs";
 
 const at = seconds => new Date(Date.UTC(2026, 8, 6) + seconds * 1000).toISOString();
 const event = (seconds, type, item) => ({ _received_at: at(seconds), type, ...(item ? { item } : {}) });
 const call = (id, tool = "maze_sequence") => ({ id, tool, type: "mcp_tool_call" });
 const report = (timeline, extra = {}) => thinkingReport(timeline, {
   metadata: { status: "running" }, runnerActive: true, summary: { actions: [] }, now: Date.parse(at(100)), ...extra
+});
+
+test("Fast thinking receives 2× weighting only during its recorded service interval", () => {
+  const metadata = { service_tier: "fast", service_tier_history: [
+    { at: at(0), service_tier: "standard" }, { at: at(10), service_tier: "fast" }
+  ] };
+  const weigh = (start, end, meta = metadata) => weightedThinkingDuration(Date.parse(at(start)), Date.parse(at(end)), meta);
+  assert.equal(weigh(0, 5).weighted_duration_ms, 5000);
+  assert.equal(weigh(15, 20).weighted_duration_ms, 10000);
+  assert.equal(weigh(5, 15).weighted_duration_ms, 15000);
+  assert.equal(weigh(0, 5, { service_tier: "fast" }).weighted_duration_ms, 10000);
+  assert.equal(weigh(0, 5, {}).weighted_duration_ms, 5000);
+  const timeline = createThinkingTimeline();
+  for (const e of [event(0, "turn.started"), event(5, "item.started", call("a")),
+    event(15, "item.completed", call("a")), event(20, "item.started", call("b"))]) consumeThinkingEvent(timeline, e);
+  const result = report(timeline, { metadata: { ...metadata, status: "running" } });
+  assert.deepEqual(result.episodes.map(e => e.duration_ms), [5000, 5000]);
+  assert.deepEqual(result.episodes.map(e => e.weighted_duration_ms), [5000, 10000]);
+  assert.equal(result.weighted_median_ms, 7500);
+  assert.equal(result.weighted_longest_ms, 10000);
 });
 
 test("thinking groups reasoning updates and excludes parallel tool execution and repeated results", () => {

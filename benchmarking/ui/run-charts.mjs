@@ -2,6 +2,7 @@
 const anchor = document.querySelector(".token-panel");
 const runId = new URLSearchParams(location.search).get("id");
 const number = value => new Intl.NumberFormat().format(value);
+const weighted = episode => episode.weighted_duration_ms ?? episode.duration_ms;
 const duration = ms => ms == null ? "—" : ms < 60000 ? `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`
   : ms < 3600000 ? `${Math.floor(ms / 60000)}m ${Math.floor(ms % 60000 / 1000)}s`
     : `${Math.floor(ms / 3600000)}h ${Math.floor(ms % 3600000 / 60000)}m`;
@@ -16,12 +17,12 @@ if (anchor && runId) {
   anchor.insertAdjacentHTML("afterend", `
     <article class="panel run-chart-panel" id="thinking-panel" aria-labelledby="thinking-title">
       <header class="panel-heading">
-        <div><span>Time between tool calls</span><strong id="thinking-title">Estimated thinking time</strong></div>
+        <div><span>Fast ×2 · Standard ×1</span><strong id="thinking-title">Weighted thinking time</strong></div>
         <label class="run-chart-controls">Show <select id="thinking-window"><option value="100">Last 100 episodes</option><option value="500">Last 500 episodes</option><option value="all">All episodes</option></select></label>
       </header>
-      <div class="run-chart-stats"><span>Episodes<strong id="thinking-count">—</strong></span><span>Median<strong id="thinking-median">—</strong></span><span>Longest<strong id="thinking-longest">—</strong></span><output class="run-chart-live" id="thinking-live">Loading timing data…</output></div>
+      <div class="run-chart-stats"><span>Episodes<strong id="thinking-count">—</strong></span><span>Total<strong id="thinking-total">—</strong></span><span>Median<strong id="thinking-median">—</strong></span><span>Longest<strong id="thinking-longest">—</strong></span><output class="run-chart-live" id="thinking-live">Loading timing data…</output></div>
       <div class="run-chart-wrap"><svg id="thinking-chart" role="img" aria-label="Thinking duration by episode"></svg><output class="token-tooltip" id="thinking-tooltip" hidden></output></div>
-      <p class="run-chart-note">Each episode runs from a tool result (or turn start) to the next tool call or final response. Includes generation and network/server waiting. Tool execution and interrupted intervals are excluded. Amber points include a known compaction and are excluded from median/longest. Dashed cyan shows the current episode. Thinking history includes past attempts before rollbacks.</p>
+      <p class="run-chart-note">Fast-mode intervals count at 2× elapsed time; standard-mode intervals count at 1×. This is a benchmark weighting, not measured compute time. Hover for actual elapsed time. Each episode runs from a tool result (or turn start) to the next tool call or final response, including generation and network/server waiting. Tool execution and interrupted intervals are excluded. Total sums all recorded episodes plus the current episode, regardless of the selected range. Amber compaction intervals count toward Total but are excluded from median/longest. Dashed cyan shows the current episode. History includes attempts before rollbacks.</p>
     </article>
     <article class="panel run-chart-panel" id="gems-panel" aria-labelledby="gems-title">
       <header class="panel-heading"><div><span>Collection progress</span><strong id="gems-title">Gems by move</strong></div><code id="gems-current">—</code></header>
@@ -30,7 +31,10 @@ if (anchor && runId) {
     </article>`);
   document.getElementById("thinking-window").addEventListener("change", renderThinking);
   for (const id of ["thinking", "gems"]) attachHover(id);
-  const observer = new ResizeObserver(() => { if (data) { renderThinking(); renderGems(); } });
+  const observer = new ResizeObserver(() => {
+    for (const id of ["thinking-tooltip", "gems-tooltip"]) document.getElementById(id).hidden = true;
+    if (data) { renderThinking(); renderGems(); }
+  });
   observer.observe(document.getElementById("thinking-panel"));
   document.addEventListener("visibilitychange", refresh);
   refresh();
@@ -63,32 +67,40 @@ function renderThinking() {
   if (!data) return;
   const value = data.thinking;
   document.getElementById("thinking-count").textContent = number(value.count);
-  document.getElementById("thinking-median").textContent = duration(value.median_ms);
-  document.getElementById("thinking-longest").textContent = duration(value.longest_ms);
+  const median = value.weighted_median_ms ?? value.median_ms, longest = value.weighted_longest_ms ?? value.longest_ms;
+  document.getElementById("thinking-median").textContent = duration(median);
+  document.getElementById("thinking-longest").textContent = duration(longest);
   const fresh = Date.now() - receivedAt < 15000;
-  const current = value.current ? { ...value.current, duration_ms: value.current.duration_ms + (fresh ? Date.now() - receivedAt : 0) } : null;
+  const advance = fresh ? Date.now() - receivedAt : 0;
+  const current = value.current ? { ...value.current, duration_ms: value.current.duration_ms + advance,
+    weighted_duration_ms: weighted(value.current) + advance * (value.current.weight || 1) } : null;
   document.getElementById("thinking-live").textContent = !fresh ? "Timing updates delayed"
-    : current ? `Current thinking: ${duration(current.duration_ms)}${current.compaction ? " · compaction observed" : ""}`
+    : current ? `Current: ${duration(weighted(current))} weighted · ${duration(current.duration_ms)} elapsed${current.compaction ? " · compaction observed" : ""}`
       : value.phase === "tool execution" ? "Executing tool…" : value.phase.replaceAll("-", " ");
   const limit = document.getElementById("thinking-window").value;
   const all = [...value.episodes, ...(current ? [current] : [])];
+  const total = all.reduce((sum, episode) => sum + weighted(episode), 0);
+  const totalElement = document.getElementById("thinking-total");
+  totalElement.textContent = duration(total);
+  const elapsedTotal = all.reduce((sum, episode) => sum + episode.duration_ms, 0);
+  totalElement.title = `${number(Math.round(total / 1000))} weighted seconds; ${duration(elapsedTotal)} actual elapsed. Includes all recorded episodes, compaction intervals and the current episode.`;
   const points = limit === "all" ? all : all.slice(-Number(limit));
-  const maxDuration = Math.max(1000, ...points.map(point => point.duration_ms));
+  const maxDuration = Math.max(1000, ...points.map(weighted));
   const unit = maxDuration >= 3600000 ? 3600000 : maxDuration >= 60000 ? 60000 : 1000;
   const plot = axes("thinking", { minX: points[0]?.number ?? 1, maxX: points.at(-1)?.number ?? 1,
-    maxY: Math.ceil(maxDuration / unit * 1.1), xLabel: "Thinking episode", yLabel: `Duration (${unit === 1000 ? "seconds" : unit === 60000 ? "minutes" : "hours"})`,
+    maxY: Math.ceil(maxDuration / unit * 1.1), xLabel: "Thinking episode", yLabel: `Weighted ${unit === 1000 ? "seconds" : unit === 60000 ? "minutes" : "hours"}`,
     yFormat: v => Number(v.toFixed(1)).toString() });
   const completed = points.filter(point => point !== current);
-  let marks = completed.length ? `<polyline class="thinking-series" points="${completed.map(point => `${plot.x(point.number)},${plot.y(point.duration_ms / unit)}`).join(" ")}"/>` : "";
-  for (const point of completed) marks += `<circle class="${point.compaction ? "thinking-compact" : "thinking-dot"}" cx="${plot.x(point.number)}" cy="${plot.y(point.duration_ms / unit)}" r="${point.compaction ? 4 : 2.5}"/>`;
+  let marks = completed.length ? `<polyline class="thinking-series" points="${completed.map(point => `${plot.x(point.number)},${plot.y(weighted(point) / unit)}`).join(" ")}"/>` : "";
+  for (const point of completed) marks += `<circle class="${point.compaction ? "thinking-compact" : "thinking-dot"}" cx="${plot.x(point.number)}" cy="${plot.y(weighted(point) / unit)}" r="${point.compaction ? 4 : 2.5}"/>`;
   if (current) {
     const last = completed.at(-1);
-    if (last) marks += `<line class="thinking-live-line" x1="${plot.x(last.number)}" y1="${plot.y(last.duration_ms / unit)}" x2="${plot.x(current.number)}" y2="${plot.y(current.duration_ms / unit)}"/>`;
-    marks += `<circle class="token-current-dot" cx="${plot.x(current.number)}" cy="${plot.y(current.duration_ms / unit)}" r="4"/>`;
+    if (last) marks += `<line class="thinking-live-line" x1="${plot.x(last.number)}" y1="${plot.y(weighted(last) / unit)}" x2="${plot.x(current.number)}" y2="${plot.y(weighted(current) / unit)}"/>`;
+    marks += `<circle class="token-current-dot" cx="${plot.x(current.number)}" cy="${plot.y(weighted(current) / unit)}" r="4"/>`;
   }
   if (!points.length) marks = `<text class="token-empty" x="${plot.width / 2}" y="118" text-anchor="middle">No completed thinking episodes yet.</text>`;
   plot.svg.innerHTML = plot.markup + marks;
-  plot.svg.setAttribute("aria-label", `${value.count} completed thinking episodes. Median ${duration(value.median_ms)}. Longest ${duration(value.longest_ms)}.`);
+  plot.svg.setAttribute("aria-label", `${value.count} completed thinking episodes. Weighted total ${duration(total)}, including the current episode. Weighted median ${duration(median)}. Weighted longest ${duration(longest)}. Fast mode counts at 2× elapsed time.`);
   plots.set("thinking", { ...plot, points, unit });
 }
 
@@ -122,7 +134,7 @@ function attachHover(id) {
     const value = plot.minX + Math.max(0, Math.min(1, (px - plot.left) / (plot.right - plot.left))) * (plot.maxX - plot.minX);
     if (id === "thinking") {
       const point = plot.points.reduce((best, p) => Math.abs(p.number - value) < Math.abs(best.number - value) ? p : best);
-      tooltip.textContent = `Episode ${number(point.number)} · ${duration(point.duration_ms)} · after action ${number(point.action_count)}${point.room ? ` · ${point.room}` : ""} · ${point.next_tool || "in progress"}${point.compaction ? " · includes compaction" : ""}`;
+      tooltip.textContent = `Episode ${number(point.number)} · ${duration(weighted(point))} weighted · ${duration(point.duration_ms)} elapsed · after action ${number(point.action_count)}${point.room ? ` · ${point.room}` : ""} · ${point.next_tool || "in progress"}${point.compaction ? " · includes compaction" : ""}`;
     } else {
       const move = Math.min(data.gems.moves, Math.round(value));
       const point = plot.points.findLast(p => p.move <= move);

@@ -121,6 +121,22 @@ function lastBefore(items, at, key) {
   return items[low - 1];
 }
 
+export function weightedThinkingDuration(start, end, metadata) {
+  const changes = (metadata.service_tier_history || []).map(entry => ({
+    at: Date.parse(entry.at), tier: entry.service_tier === "fast" ? "fast" : "standard"
+  })).filter(entry => Number.isFinite(entry.at)).sort((a, b) => a.at - b.at);
+  let tier = changes.length ? changes[0].tier : metadata.service_tier === "fast" ? "fast" : "standard";
+  let cursor = start, duration = 0;
+  for (const change of changes) {
+    if (change.at <= start) { tier = change.tier; continue; }
+    if (change.at >= end) break;
+    duration += (change.at - cursor) * (tier === "fast" ? 2 : 1);
+    cursor = change.at; tier = change.tier;
+  }
+  duration += Math.max(0, end - cursor) * (tier === "fast" ? 2 : 1);
+  return { weighted_duration_ms: duration, weight: tier === "fast" ? 2 : 1, service_tier: tier };
+}
+
 export function thinkingReport(timeline, { metadata, runnerActive, summary, activity = [], compactions = [], now = Date.now() }) {
   const actions = (summary.actions || []).map(action => ({ at: Date.parse(action.at), index: action.index, room: action.roomAfter }));
   const contexts = [...activity, ...(metadata.runtime_repairs || []).map(repair => ({
@@ -131,11 +147,13 @@ export function thinkingReport(timeline, { metadata, runnerActive, summary, acti
     const action = lastBefore(actions, episode.started_at, "at");
     const tool = lastBefore(contexts, episode.started_at, "at");
     const count = tool?.action_count ?? action?.index ?? 0;
-    return { ...episode, action_count: count, room: action?.index === count ? action.room : null,
+    return { ...episode, ...weightedThinkingDuration(episode.started_at, episode.ended_at, metadata),
+      action_count: count, room: action?.index === count ? action.room : null,
       compaction: compactTimes.some(at => at >= episode.started_at && at <= episode.ended_at) };
   };
   const episodes = timeline.episodes.map(decorate);
   const durations = episodes.filter(episode => !episode.compaction).map(episode => episode.duration_ms).sort((a, b) => a - b);
+  const weighted = episodes.filter(episode => !episode.compaction).map(episode => episode.weighted_duration_ms).sort((a, b) => a - b);
   const middle = Math.floor(durations.length / 2);
   const running = runnerActive && activeStatuses.has(metadata.status);
   const current = running && timeline.open && timeline.start !== null ? decorate({
@@ -145,6 +163,8 @@ export function thinkingReport(timeline, { metadata, runnerActive, summary, acti
   return { episodes, current, count: episodes.length, interrupted: timeline.interruptions,
     median_ms: durations.length ? (durations[middle] + durations[Math.floor((durations.length - 1) / 2)]) / 2 : null,
     longest_ms: durations.at(-1) ?? null,
+    weighted_median_ms: weighted.length ? (weighted[middle] + weighted[Math.floor((weighted.length - 1) / 2)]) / 2 : null,
+    weighted_longest_ms: weighted.at(-1) ?? null,
     phase: !running ? metadata.status : timeline.tools.size ? "tool execution" : current ? "thinking" : "waiting after interruption",
     measured_at: now };
 }
