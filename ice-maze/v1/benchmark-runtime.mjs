@@ -1,3 +1,5 @@
+import { createJournal, attachJournal, summaryHistory } from "../../benchmarking/storage/journal.mjs";
+import { readCheckpointJson } from "../../benchmarking/v1/checkpoint-json.mjs";
 import { mkdir, mkdtemp, readFile, writeFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -23,18 +25,20 @@ export class IceBenchmarkRuntime {
     validatePlayers(this.level, internal.players);
   }
   static async assets(root) { return JSON.parse(await readFile(path.join(root, "level-data/ice-maze/v1/world.json"), "utf8")); }
-  static async create(root, directory, { actionLimit = 100 } = {}) {
+  static async create(root, directory, { actionLimit = 100, incremental = false } = {}) {
     const world = await this.assets(root), first = parseIceLevel(world.levels[0]);
     const internal = { version: "ice-maze-v1", levelIndex: 0, players: first.players, history: [], completedLevels: [],
       actionCount: 0, actionLimit, actions: [], stateHashes: [], positions: [], blockedActions: 0, resets: 0, undos: 0, updatedAt: now() };
     const runtime = new this(root, directory, world, internal);
     for (const name of ["workspace", "sandbox-state", "records/move_history", "display-history"]) await mkdir(path.join(directory, name), { recursive: true, mode: 0o700 });
     internal.stateHashes.push(runtime.stateHash()); internal.positions.push(...runtime.positions());
-    await runtime.persist(); return runtime;
+    await runtime.persist(); if(incremental)await runtime.enableIncremental(); return runtime;
   }
   static async open(root, directory) {
     verifyCheckpoint(directory);
-    return new this(root, directory, await this.assets(root), JSON.parse(safeReadFile(directory, "game-state.json")));
+    const runtime = new this(root, directory, await this.assets(root), await readCheckpointJson(directory));
+    runtime.journal = await attachJournal(directory, runtime.internal, runtime.summary({compact:true}));
+    return runtime;
   }
   get level() { return this.levels[this.internal.levelIndex]; }
   get room() { return `Level ${this.internal.levelIndex + 1}`; }
@@ -51,6 +55,12 @@ export class IceBenchmarkRuntime {
   recordIndex() { return moveRecordIndex(this.internal.actions); }
   async readRecord(value) {
     if (this.persistenceError) throw this.persistenceError;
+    if(this.journal){
+      const record=String(value||"").trim();
+      if(record==="moves.txt")return{record,content:this.internal.actions.map(a=>a.action).join("\n")+"\n"};
+      if(record==="history.jsonl")return{record,content:this.internal.actions.map(a=>JSON.stringify(a)).join("\n")+"\n"};
+      if(["current_state.json","current_board.txt"].includes(record)){const o=await this.renderObservation();return{record,content:record==="current_board.txt"?o.level+"\n":JSON.stringify({...o,level:undefined,records:undefined})};}
+    }
     return readMoveRecord(this.runDirectory, this.internal.actions, this.internal.actionCount, value);
   }
   async renderObservation({ includeColor = false } = {}) {
@@ -111,13 +121,18 @@ export class IceBenchmarkRuntime {
     }
     return { requested_count: actions.length, completed_count: steps.length, stopped_early: steps.length < actions.length, steps, final_observation: await this.renderObservation() };
   }
-  summary() {
+  summary({compact=false}={}) {
     const s = this.internal;
     return { schema_version: 1, world: "ice-maze", updated_at: s.updatedAt, game_status: this.status(), action_count: s.actionCount, action_limit: s.actionLimit,
       room: this.room, level_number: s.levelIndex + 1, levels_total: this.levels.length, levels_solved: s.completedLevels.length,
       goals_covered: goalsCovered(this.level, s.players), goals_total: this.level.goals.length,
-      unique_cells: new Set(s.positions.map(p => `${p.worldX},${p.worldY}`)).size, novelty_rate: s.actionCount ? s.actions.filter(a => a.novel).length / s.actionCount : 1,
-      blocked_actions: s.blockedActions, resets: s.resets, undos: s.undos, deaths: 0, camera_actions: 0, positions: s.positions, novelty: [true, ...s.actions.map(a => a.novel)], actions: s.actions };
+      ...summaryHistory(this,{compact}),
+      blocked_actions: s.blockedActions, resets: s.resets, undos: s.undos, deaths: 0, camera_actions: 0 };
+  }
+  async enableIncremental() {
+    const display = JSON.parse(await readFile(path.join(this.runDirectory,"display.json"),"utf8"));
+    this.journal = await createJournal(this.runDirectory,this.internal,this.summary(),display,await this.renderObservation());
+    this.journal.setSummary(this.summary({compact:true}));
   }
   async persist({ animationFrames = null } = {}) {
     if (this.persistenceError) throw this.persistenceError;
@@ -136,6 +151,11 @@ export class IceBenchmarkRuntime {
       });
       const o = await this.renderObservation({ includeColor: true }), s = this.internal;
       const display = { observation_revision: o.observation_revision, room: o.room, world: "ice-maze", level: o.level, colored_level: o.colored_level, ascii_legend: o.ascii_legend };
+      if(this.journal){
+        await writeText(`records/move_history/move_${s.actionCount}.txt`, `# move ${s.actionCount} · ${s.actions.at(-1)?.action || "initial"} · ${o.room}\n${o.level}\n`);
+        await writeText(`display-history/move_${s.actionCount}.json`,JSON.stringify(display));
+        await this.journal.commit(s,this.summary({compact:true}),display,{staging,artifacts,observation:{...o,level:undefined,colored_level:undefined,records:undefined}});return;
+      }
       const files = { "game-state.json": JSON.stringify(s), "summary.json": JSON.stringify(this.summary()), "display.json": JSON.stringify(display),
         "records/current_board.txt": o.level + "\n", "records/current_state.json": JSON.stringify({ ...o, level: undefined, colored_level: undefined, records: undefined }),
         "records/moves.txt": s.actions.map(a => a.action).join("\n") + "\n", "records/history.jsonl": s.actions.map(a => JSON.stringify(a)).join("\n") + "\n",

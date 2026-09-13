@@ -40,13 +40,13 @@ export class BenchmarkSupervisor extends ProviderSupervisor {
     const prompt = `${base}\nAction budget: ${options.actionLimit ?? "unlimited"} accepted actions.\n${options.toolsEnabled
       ? "Python is enabled through python_exec only. Save programs as relative .py files in isolated /workspace. No network, subprocesses, repository, host, credentials, results, prior-run or record access is available to Python. Transfer observed board data explicitly. No other code executor is permitted."
       : "Python is disabled. No code executors, writable files, shell, JavaScript, web, apps, connectors or subagents are available. Use only direct maze_observe, maze_action and maze_sequence calls."}\nCall maze_observe now.`;
-    const metadata = { schema_version: 1, id, world: "ice-maze", provider: options.provider, pair_id: options.pairId, created_at: now(), updated_at: now(), status: "preparing",
+    const metadata = { storage_format: "incremental-v1", schema_version: 1, id, world: "ice-maze", provider: options.provider, pair_id: options.pairId, created_at: now(), updated_at: now(), status: "preparing",
       model: options.model, effort: options.effort, tools_enabled: options.toolsEnabled, action_limit: options.actionLimit, start_room: "Level 1",
       prompt_sha256: digest(base), effective_prompt_sha256: digest(prompt), codex_thread_id: null, claude_session_id: null,
       continuation_count: 0, error: null, completed_at: null, stopped_at: null,
       capability_policy: capability || { version: CAPABILITY_POLICY_VERSION, name: CLAUDE_POLICY, claude_version: installation.version, tools: options.toolsEnabled ? "maze-and-isolated-python" : "maze-only" },
       isolation: { mode: "no-python" } };
-    const configuration = { world: metadata.world, provider: metadata.provider, model: metadata.model, effort: metadata.effort, tools_enabled: metadata.tools_enabled,
+    const configuration = { storage_format: "incremental-v1", world: metadata.world, provider: metadata.provider, model: metadata.model, effort: metadata.effort, tools_enabled: metadata.tools_enabled,
       action_limit: metadata.action_limit, start_room: metadata.start_room, effective_prompt_sha256: metadata.effective_prompt_sha256,
       world_runtime: await worldRuntimeHashes(this.projectRoot),
       ...(capability ? { codex_policy: capability } : { claude_policy: CLAUDE_POLICY, claude_executable: installation.executable, claude_version: installation.version,
@@ -55,7 +55,7 @@ export class BenchmarkSupervisor extends ProviderSupervisor {
     await writeFile(path.join(directory, "prompt.md"), prompt, { mode: 0o600 });
     await atomicJson(path.join(directory, "run.json"), metadata);
     try {
-      await IceBenchmarkRuntime.create(this.projectRoot, directory, { actionLimit: options.actionLimit });
+      await IceBenchmarkRuntime.create(this.projectRoot, directory, { incremental: true, actionLimit: options.actionLimit });
       if (options.toolsEnabled) { metadata.isolation = this.pythonPreflight(directory); await atomicJson(path.join(directory, "sandbox-preflight.json"), metadata.isolation); }
       metadata.status = "queued"; await atomicJson(path.join(directory, "run.json"), metadata); this.startIce(id, directory, prompt);
     } catch (error) { metadata.status = "failed"; metadata.error = error.message; metadata.completed_at = now(); await atomicJson(path.join(directory, "run.json"), metadata); throw error; }

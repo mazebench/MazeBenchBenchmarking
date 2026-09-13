@@ -1,3 +1,4 @@
+import { resumeExclusively } from "./benchmarking/storage/resume-lock.mjs";
 import { createReadStream } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -207,7 +208,7 @@ async function benchmarkApi(request, response, url) {
     }
     if (request.method === "GET" && runMatch) {
       const id = decodeURIComponent(runMatch[1]);
-      const run = await benchmarkSupervisor.get(id);
+      const run = await benchmarkSupervisor.get(id, {historyCursor:url.searchParams.get("history_cursor")});
       const telemetry = await tokenTelemetry.read(benchmarkSupervisor.runDirectory(id)).catch(() => null);
       if (telemetry?.totals) run.usage = telemetry.totals;
       sendJson(response, 200, run);
@@ -229,7 +230,7 @@ async function benchmarkApi(request, response, url) {
     }
     const resumeMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/resume$/);
     if (request.method === "POST" && resumeMatch) {
-      sendJson(response, 202, await benchmarkSupervisor.resume(decodeURIComponent(resumeMatch[1])));
+      sendJson(response, 202, await resumeExclusively(benchmarkSupervisor,decodeURIComponent(resumeMatch[1])));
       return true;
     }
   } catch (error) {

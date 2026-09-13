@@ -1,3 +1,4 @@
+import { createJournal, attachJournal, summaryHistory } from "../storage/journal.mjs";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -271,6 +272,7 @@ export class BenchmarkGameRuntime {
     await mkdir(path.join(runDirectory, "display-history"), { recursive: true, mode: 0o700 });
     const runtime = new BenchmarkGameRuntime(projectRoot, runDirectory, assets, internal);
     await runtime.persist({ writeSnapshot: true });
+    if (options.incremental) await runtime.enableIncremental();
     return runtime;
   }
 
@@ -285,7 +287,9 @@ export class BenchmarkGameRuntime {
     if (internal.noveltyVersion !== NOVELTY_VERSION || internal.noveltyHashes?.length !== internal.actionCount + 1) {
       throw new Error("This checkpoint needs the audited terrain-free novelty recalculation before resuming.");
     }
-    return new BenchmarkGameRuntime(projectRoot, runDirectory, assets, internal);
+    const runtime = new BenchmarkGameRuntime(projectRoot, runDirectory, assets, internal);
+    runtime.journal = await attachJournal(runDirectory, internal, runtime.summary({ compact: true }));
+    return runtime;
   }
 
   get room() {
@@ -367,6 +371,15 @@ export class BenchmarkGameRuntime {
 
   async readRecord(requested) {
     if (this.persistenceError) throw this.persistenceError;
+    if (this.journal) {
+      const record = String(requested || "").trim();
+      if (record === "moves.txt") return { record, content: this.internal.actions.map(a => a.action).join("\n") + "\n" };
+      if (record === "history.jsonl") return { record, content: this.internal.actions.map(a => JSON.stringify(publicAction(a))).join("\n") + "\n" };
+      if (["current_state.json", "current_board.txt"].includes(record)) {
+        const o = await this.renderObservation();
+        return { record, content: record === "current_board.txt" ? o.level + "\n" : JSON.stringify({ ...o, level: undefined, records: undefined }) };
+      }
+    }
     try {
       return readMoveRecord(this.runDirectory, this.internal.actions, this.internal.actionCount, requested);
     } catch (error) {
@@ -557,13 +570,7 @@ export class BenchmarkGameRuntime {
     };
   }
 
-  summary() {
-    const visits = new Map();
-    for (const position of this.internal.positions.filter(Boolean)) {
-      const key = `${position.worldX},${position.worldY}`;
-      visits.set(key, (visits.get(key) || 0) + 1);
-    }
-    const novelActions = this.internal.actions.filter((action) => action.novel).length;
+  summary({ compact = false } = {}) {
     return {
       schema_version: 1,
       novelty_version: NOVELTY_VERSION,
@@ -575,17 +582,19 @@ export class BenchmarkGameRuntime {
       gems_collected: this.internal.gemsCollected.length,
       gems_total: GAME_WON_GEM_COUNT,
       rooms_visited: this.internal.visitedRooms.length,
-      unique_cells: visits.size,
-      novelty_rate: this.internal.actionCount ? novelActions / this.internal.actionCount : 1,
+      ...summaryHistory(this, { compact, mapAction: publicAction }),
       blocked_actions: this.internal.blockedActions,
       deaths: this.internal.deaths,
       resets: this.internal.resets,
       undos: this.internal.undos,
       camera_actions: this.internal.cameraActions,
-      positions: this.internal.positions,
-      novelty: [true, ...this.internal.actions.map((action) => action.novel)],
-      actions: this.internal.actions.map(publicAction)
     };
+  }
+
+  async enableIncremental() {
+    const display = JSON.parse(await readFile(path.join(this.runDirectory, "display.json"), "utf8"));
+    this.journal = await createJournal(this.runDirectory, this.internal, this.summary(), display, await this.renderObservation());
+    this.journal.setSummary(this.summary({ compact: true }));
   }
 
   async persist({ writeSnapshot = false, animationFrames = null, animationCycle = null } = {}) {
@@ -618,6 +627,15 @@ export class BenchmarkGameRuntime {
         });
       }
       const observation = await this.renderObservation({ includeColor: true });
+      if (this.journal) {
+        const display = { observation_revision: observation.observation_revision, room: observation.room,
+          level: observation.level, colored_level: observation.colored_level, ascii_legend: observation.ascii_legend };
+        const index = this.internal.actionCount;
+        await text(`records/move_history/move_${index}.txt`, `# move ${index} · ${this.internal.actions.at(-1)?.action || "initial"} · ${observation.room}\n${observation.level}\n`);
+        await json(`display-history/move_${index}.json`, display);
+        await this.journal.commit(this.internal, this.summary({ compact: true }), display, { staging, artifacts, observation: { ...observation, level: undefined, colored_level: undefined, records: undefined } });
+        return;
+      }
       const summary = this.summary();
       await json("game-state.json", this.internal);
       await json("summary.json", summary);

@@ -62,7 +62,7 @@ export class BenchmarkSupervisor extends CodexSupervisor {
     await Promise.all(["agent-cwd", "sandbox-state"].map(name => mkdir(path.join(directory, name), { recursive: true, mode: 0o700 })));
     const base = await readFile(path.join(this.projectRoot, "benchmarking/v1/EVAL-PROMPT.md"), "utf8");
     const prompt = buildBenchmarkPrompt(base, options);
-    const configuration = {
+    const configuration = { storage_format: "incremental-v1",
       provider: CLAUDE_PROVIDER, claude_policy: CLAUDE_POLICY,
       claude_executable: installation.executable, claude_version: installation.version,
       claude_sha256: digest(await readFile(installation.executable)), provider_runtime: await providerRuntimeHashes(this.projectRoot),
@@ -70,6 +70,7 @@ export class BenchmarkSupervisor extends CodexSupervisor {
       action_limit: options.actionLimit, start_room: options.startRoom, effective_prompt_sha256: digest(prompt)
     };
     const metadata = {
+      storage_format: "incremental-v1",
       schema_version: 1, id, provider: CLAUDE_PROVIDER, pair_id: options.pairId, created_at: now(), updated_at: now(), status: "preparing",
       model: options.model, effort: options.effort, tools_enabled: options.toolsEnabled, action_limit: options.actionLimit, start_room: options.startRoom,
       effective_prompt_sha256: configuration.effective_prompt_sha256, prompt_sha256: digest(base),
@@ -81,7 +82,7 @@ export class BenchmarkSupervisor extends CodexSupervisor {
     await writeFile(path.join(directory, "prompt.md"), prompt, { mode: 0o600 });
     await atomicJson(path.join(directory, "run.json"), metadata);
     try {
-      await BenchmarkGameRuntime.create(this.projectRoot, directory, { startRoom: options.startRoom, actionLimit: options.actionLimit });
+      await BenchmarkGameRuntime.create(this.projectRoot, directory, { startRoom: options.startRoom, incremental: true, actionLimit: options.actionLimit });
       if (options.toolsEnabled) {
         metadata.isolation = this.pythonPreflight(directory);
         await atomicJson(path.join(directory, "sandbox-preflight.json"), metadata.isolation);

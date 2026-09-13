@@ -40,14 +40,14 @@ export class BenchmarkSupervisor extends WorldSupervisor {
     if (capability) capability.model_catalog = await writeDirectToolModelCatalog(directory, options.model);
     const base = await readFile(path.join(this.projectRoot, "benchmarking/slotski/EVAL-PROMPT.md"), "utf8");
     const prompt = slotskiPrompt(base, options);
-    const metadata = { schema_version: 1, id, world: "slotski", provider: options.provider, pair_id: options.pairId, created_at: now(), updated_at: now(), status: "preparing",
+    const metadata = { storage_format: "incremental-v1", schema_version: 1, id, world: "slotski", provider: options.provider, pair_id: options.pairId, created_at: now(), updated_at: now(), status: "preparing",
       model: options.model, effort: options.effort, tools_enabled: options.toolsEnabled, action_limit: options.actionLimit, start_room: "Level 1",
       sequence_enabled: options.sequenceEnabled, service_tier: null,
       prompt_sha256: digest(base), effective_prompt_sha256: digest(prompt), codex_thread_id: null, claude_session_id: null,
       continuation_count: 0, error: null, completed_at: null, stopped_at: null,
       capability_policy: capability || { version: CAPABILITY_POLICY_VERSION, name: CLAUDE_POLICY, claude_version: installation.version, tools: options.toolsEnabled ? "maze-and-isolated-python" : "maze-only" },
       isolation: { mode: "no-python" } };
-    const configuration = { world: metadata.world, provider: metadata.provider, model: metadata.model, effort: metadata.effort, tools_enabled: metadata.tools_enabled,
+    const configuration = { storage_format: "incremental-v1", world: metadata.world, provider: metadata.provider, model: metadata.model, effort: metadata.effort, tools_enabled: metadata.tools_enabled,
       sequence_enabled: metadata.sequence_enabled, service_tier: metadata.service_tier,
       action_limit: metadata.action_limit, start_room: metadata.start_room, effective_prompt_sha256: metadata.effective_prompt_sha256,
       world_runtime: await worldRuntimeHashes(this.projectRoot),
@@ -57,7 +57,7 @@ export class BenchmarkSupervisor extends WorldSupervisor {
     await writeFile(path.join(directory, "prompt.md"), prompt, { mode: 0o600 });
     await atomicJson(path.join(directory, "run.json"), metadata);
     try {
-      await SlotskiBenchmarkRuntime.create(this.projectRoot, directory, { actionLimit: options.actionLimit });
+      await SlotskiBenchmarkRuntime.create(this.projectRoot, directory, { incremental: true, actionLimit: options.actionLimit });
       if (options.toolsEnabled) { metadata.isolation = this.pythonPreflight(directory); await atomicJson(path.join(directory, "sandbox-preflight.json"), metadata.isolation); }
       metadata.status = "queued"; await atomicJson(path.join(directory, "run.json"), metadata); this.startSlotski(id, directory, prompt);
     } catch (error) { metadata.status = "failed"; metadata.error = error.message; metadata.completed_at = now(); await atomicJson(path.join(directory, "run.json"), metadata); throw error; }

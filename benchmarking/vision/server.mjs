@@ -1,3 +1,4 @@
+import { resumeExclusively } from "../storage/resume-lock.mjs";
 // A companion supervisor keeps existing ASCII runners alive in their original
 // process. Its API forwards ASCII operations to that owner; vision has a
 // separate record root and cannot be accidentally resumed through ASCII MCP.
@@ -49,9 +50,9 @@ export function createVisionServer(root,options={}){
       if(match){
         const id=decodeURIComponent(match[1]),suffix=match[2]||'',directory=supervisor.runDirectory(id);
         if(existsSync(path.join(directory,'run.json'))){
-          if(!suffix&&request.method==='GET'){const run=await supervisor.get(id);const t=await tokens.read(directory).catch(()=>null);if(t?.totals)run.usage=t.totals;return reply(response,200,run);}
+          if(!suffix&&request.method==='GET'){const run=await supervisor.get(id,{historyCursor:url.searchParams.get("history_cursor")});const t=await tokens.read(directory).catch(()=>null);if(t?.totals)run.usage=t.totals;return reply(response,200,run);}
           if(!suffix&&request.method==='DELETE')return reply(response,200,await supervisor.delete(id));
-          if(['pause','stop','resume'].includes(suffix)&&request.method==='POST')return reply(response,200,await supervisor[suffix](id));
+          if(['pause','stop','resume'].includes(suffix)&&request.method==='POST')return reply(response,200,await (suffix==='resume'?resumeExclusively(supervisor,id):supervisor[suffix](id)));
           if(suffix==='tokens'&&request.method==='GET')return reply(response,200,await tokens.read(directory));
           if(suffix==='charts'&&request.method==='GET')return reply(response,200,await charts.read(directory,{runnerActive:supervisor.active.has(id)}));
           if(suffix==='interviews'&&request.method==='GET')return reply(response,200,await supervisor.listInterviews(id));

@@ -45,7 +45,14 @@ export async function readCheckpointJson(root, relative = "game-state.json") {
   try {
     const header = Buffer.alloc(Buffer.byteLength(PREFIX));
     readSync(fd, header, 0, header.length, 0);
-    if (header.toString() !== PREFIX) return JSON.parse(readFileSync(fd, "utf8"));
+    if (header.toString() !== PREFIX) {
+      const value = JSON.parse(readFileSync(fd, "utf8"));
+      if (value?.storage === "incremental-v1") {
+        const { readJournal, readJournalSummary } = await import("../storage/journal.mjs");
+        return value.kind === "summary" ? readJournalSummary(root) : readJournal(root, value.kind);
+      }
+      return value;
+    }
     input = createReadStream(null, { fd, start: header.length, encoding: "utf8" });
     const lines = createInterface({ input, crlfDelay: Infinity });
     const result = {};

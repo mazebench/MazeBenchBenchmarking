@@ -3,10 +3,11 @@ import { closeSync, readSync } from "node:fs";
 import { readdir, readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { safeDirectory, safeOpenFile, safeReadFile } from "./safe-files.mjs";
+import { isJournalHead, verifyJournal } from "../storage/journal.mjs";
 
 export const CAPABILITY_POLICY_VERSION = 4;
 export const CAPABILITY_POLICY_NAME = "os-isolated-v4";
-const RUNTIME_ROOTS = ["benchmarking/v1", "engine/v1", "play/v1", "render/v1", "render-ascii/v1", "level-data/v2/main-world"];
+const RUNTIME_ROOTS = ["benchmarking/v1", "benchmarking/storage", "engine/v1", "play/v1", "render/v1", "render-ascii/v1", "level-data/v2/main-world"];
 const digest = value => createHash("sha256").update(value).digest("hex");
 
 async function runtimeFiles(projectRoot) {
@@ -25,14 +26,18 @@ async function runtimeFiles(projectRoot) {
 }
 
 export async function createRunIntegrity(projectRoot, runDirectory, configuration) {
-  const files = await runtimeFiles(projectRoot);
-  const hashes = Object.fromEntries(await Promise.all(files.map(async file => [file, digest(await readFile(path.join(projectRoot, file)))])));
+  const hashes = await currentRuntimeHashes(projectRoot);
   const manifest = { version: CAPABILITY_POLICY_VERSION, configuration, files: hashes };
   const encoded = `${JSON.stringify(manifest)}\n`;
   safeDirectory(runDirectory, "sandbox-state", { create: true });
   await writeFile(path.join(runDirectory, "sandbox-state", "integrity-key"), randomBytes(32), { flag: "wx", mode: 0o600 });
   await writeFile(path.join(runDirectory, "integrity.json"), encoded, { flag: "wx", mode: 0o600 });
-  return { version: CAPABILITY_POLICY_VERSION, manifest_sha256: digest(encoded), asset_count: files.length };
+  return { version: CAPABILITY_POLICY_VERSION, manifest_sha256: digest(encoded), asset_count: Object.keys(hashes).length };
+}
+
+export async function currentRuntimeHashes(projectRoot) {
+  const files = await runtimeFiles(projectRoot);
+  return Object.fromEntries(await Promise.all(files.map(async file => [file, digest(await readFile(path.join(projectRoot, file)))])));
 }
 
 export async function verifyRunIntegrity(projectRoot, runDirectory, expected = null) {
@@ -46,6 +51,9 @@ export async function verifyRunIntegrity(projectRoot, runDirectory, expected = n
     if (digest(safeReadFile(projectRoot, file, null)) !== manifest.files[file]) {
       throw new Error(`Benchmark runtime changed (${file}); start a new run.`);
     }
+  }
+  if (manifest.configuration.storage_format === "incremental-v1" && !isJournalHead(JSON.parse(safeReadFile(runDirectory, "checkpoint.json")))) {
+    throw new Error("Run storage format changed; refusing a checkpoint downgrade.");
   }
   return manifest;
 }
@@ -79,6 +87,7 @@ export async function signCheckpoint(runDirectory, { artifactsDirectory = runDir
 
 export function verifyCheckpoint(runDirectory) {
   const checkpoint = JSON.parse(safeReadFile(runDirectory, "checkpoint.json"));
+  if (isJournalHead(checkpoint)) return verifyJournal(runDirectory);
   const expected = Buffer.from(checkpointDigest(runDirectory), "hex");
   const actual = Buffer.from(String(checkpoint.hmac || ""), "hex");
   if (checkpoint.version !== CAPABILITY_POLICY_VERSION || actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
@@ -87,6 +96,7 @@ export function verifyCheckpoint(runDirectory) {
 }
 
 export function assertRunConfiguration(metadata, manifest) {
+  if ((metadata.storage_format ?? null) !== (manifest.configuration.storage_format ?? null)) throw new Error("Run configuration changed (storage_format); start a new run.");
   if (metadata.service_tier != null && metadata.service_tier !== "fast") {
     throw new Error("Unsupported benchmark service tier.");
   }

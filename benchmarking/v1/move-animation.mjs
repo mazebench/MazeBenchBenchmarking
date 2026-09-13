@@ -6,7 +6,7 @@ const digest = text => createHash("sha256").update(text).digest("hex");
 const moveDirectory = index => `move_history/move_${index}`;
 
 export function moveRecordIndex(actions) {
-  return [...RECORDS, "move_history/move_0.txt", ...actions.flatMap(action => [
+  return [...RECORDS, "move_history/index.json", "move_history/move_0.txt", ...actions.slice(-100).flatMap(action => [
     `${moveDirectory(action.index)}.txt`,
     ...(action.animation ? [action.animation.index_record] : [])
   ])];
@@ -34,6 +34,15 @@ export async function stageMoveAnimation({ action, frames, render, writeText, cy
 
 export function readMoveRecord(runDirectory, actions, actionCount, requested) {
   const record = String(requested || "").trim().replaceAll("\\", "/");
+  const page = /^move_history\/page_(0|[1-9]\d*)\.json$/.exec(record);
+  if (record === "move_history/index.json") return { record, content: JSON.stringify({ action_count: actionCount, page_size: 100,
+    page_count: Math.ceil(actions.length / 100), first_page: actions.length ? "move_history/page_0.json" : null,
+    latest_page: actions.length ? `move_history/page_${Math.floor((actions.length - 1) / 100)}.json` : null }) };
+  if (page) {
+    const n = Number(page[1]); if (!Number.isSafeInteger(n) || n * 100 >= actions.length) throw new Error("Unknown history page.");
+    return { record, content: JSON.stringify({ page: n, next_page: (n + 1) * 100 < actions.length ? `move_history/page_${n + 1}.json` : null,
+      files: actions.slice(n * 100, (n + 1) * 100).flatMap(a => [`${moveDirectory(a.index)}.txt`, ...(a.animation ? [a.animation.index_record] : [])]) }) };
+  }
   const unknown = () => { throw new Error("Unknown benchmark record. Use a path from the records index or a move's animation index."); };
   const snapshot = /^move_history\/move_(0|[1-9]\d*)\.txt$/.exec(record);
   const animation = /^move_history\/move_([1-9]\d*)\/(index\.json|frame_\d{4,}\.txt)$/.exec(record);

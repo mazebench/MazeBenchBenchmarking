@@ -12,15 +12,16 @@ export function visionAction(a){
 }
 export class VisionRuntime extends BenchmarkGameRuntime {
   static async create(root,directory,options={}){
-    const base=await BenchmarkGameRuntime.create(root,directory,options);
+    const base=await BenchmarkGameRuntime.create(root,directory,{...options,incremental:false});
     Object.setPrototypeOf(base,this.prototype);base.internal.pitch=2;
     await base.persist({writeSnapshot:true});
     for(const file of ['records/current_board.txt','records/move_history/move_0.txt'])await rm(path.join(directory,file),{force:true});
+    if(options.incremental)await base.enableIncremental();
     return base;
   }
   static async open(root,directory){const base=await BenchmarkGameRuntime.open(root,directory);Object.setPrototypeOf(base,this.prototype);return base;}
   frameSet(move){return move===0?this.internal.visionInitial:this.internal.actions[move-1];}
-  recordIndex(){return ['current_board.png','current_state.json','moves.txt','history.jsonl',...Array.from({length:this.internal.actionCount+1},(_,i)=>`move_history/move_${i}/index.json`)];}
+  recordIndex(){return ['current_board.png','current_state.json','moves.txt','history.jsonl','move_history/index.json',...Array.from({length:Math.min(100,this.internal.actionCount+1)},(_,i)=>`move_history/move_${Math.max(0,this.internal.actionCount-99)+i}/index.json`)];}
   async renderObservation(){
     if(this.persistenceError)throw this.persistenceError;
     const count=this.internal.actionCount,frames=this.frameSet(count)?.visionFrames;
@@ -61,6 +62,12 @@ export class VisionRuntime extends BenchmarkGameRuntime {
       target.animation={frame_count:frames.length,index_record:indexRecord,index_sha256:digest(indexText)};
       await write('records/'+indexRecord,indexText);
       const observation=await this.renderObservation();
+      if(this.journal){
+        const display={observation_revision:count,room:observation.room,observation_mode:'vision',image_record:observation.image_record};
+        await json(`display-history/move_${count}.json`,display);
+        await this.journal.commit(this.internal,this.summary({compact:true}),display,{staging:stage,artifacts,observation:{...observation,records:undefined}});
+        return;
+      }
       await json('game-state.json',this.internal);await json('summary.json',this.summary());
       await json('display.json',{observation_revision:count,room:observation.room,observation_mode:'vision',image_record:observation.image_record});
       await json(`display-history/move_${count}.json`,{observation_revision:count,room:observation.room,observation_mode:'vision',image_record:observation.image_record});
@@ -75,6 +82,9 @@ export class VisionRuntime extends BenchmarkGameRuntime {
   }
   async readRecord(requested){
     const record=String(requested||'').trim();
+    if(record==='move_history/index.json')return{record,content:JSON.stringify({action_count:this.internal.actionCount,page_size:100,page_count:Math.ceil((this.internal.actionCount+1)/100),first_page:'move_history/page_0.json'})};
+    const page=/^move_history\/page_(0|[1-9]\d*)\.json$/.exec(record);
+    if(page){const n=Number(page[1]);if(!Number.isSafeInteger(n)||n*100>this.internal.actionCount)throw new Error('Unknown history page.');return{record,content:JSON.stringify({page:n,next_page:(n+1)*100<=this.internal.actionCount?`move_history/page_${n+1}.json`:null,files:Array.from({length:Math.min(100,this.internal.actionCount-n*100+1)},(_,i)=>`move_history/move_${n*100+i}/index.json`)})};}
     if(record==='current_state.json')return{record,content:JSON.stringify(await this.renderObservation())};
     if(record==='moves.txt')return{record,content:this.internal.actions.map(a=>a.action).join('\n')};
     if(record==='history.jsonl')return{record,content:this.internal.actions.map(a=>JSON.stringify(visionAction(a))).join('\n')};

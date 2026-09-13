@@ -230,7 +230,7 @@ test("Ice level transitions record before/after and legacy checkpoints acquire o
   delete runtime.internal.actions[0].animation; // Simulate an old final-only checkpoint.
   await runtime.persist(); await rm(path.join(directory, "records/move_history/move_1"), { recursive: true });
   const reopened = await FixtureRuntime.open(root, directory);
-  assert(!reopened.recordIndex().some(f => f.endsWith("index.json")));
+  assert(!reopened.recordIndex().some(f => /^move_history\/move_\d+\/index\.json$/.test(f)));
   assert((await reopened.readRecord("move_history/move_1.txt")).content);
   const next = await reopened.apply("next");
   const index = await indexFor(reopened, next.action);

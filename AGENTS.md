@@ -298,3 +298,17 @@ When asked to "sync the engine," the expected scope is the local rebuild,
 verification, vendored update, provenance update, and tests described above.
 Do not commit, push, or modify UnitTesting application/UI files unless the user
 explicitly requests those actions.
+
+## Benchmark checkpoint storage
+
+New and migrated benchmark runs use authenticated incremental checkpoints.
+`game-state.json`, `summary.json`, and `display.json` may be format markers.
+Read them with `readCheckpointJson` from `benchmarking/v1/checkpoint-json.mjs`,
+not raw `JSON.parse(readFile(...))`. The atomic signed checkpoint and its journal
+are authoritative; keep complete journal generations with any copied run.
+
+Before a bulk rollback or engine/level repair, follow
+`benchmarking/storage/README.md`. Historical one-off repair scripts predate this
+format and must be adapted before use on migrated runs. Do not overwrite marker
+files or authorize unrelated asset changes while resealing a run. Preserve its
+model, tool condition, prompt, conversation identity, and game history.

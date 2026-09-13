@@ -1,3 +1,5 @@
+import { createJournal, attachJournal, summaryHistory } from "../../benchmarking/storage/journal.mjs";
+import { readCheckpointJson } from "../../benchmarking/v1/checkpoint-json.mjs";
 import { mkdir, mkdtemp, readFile, writeFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -19,7 +21,7 @@ export class SlotskiBenchmarkRuntime {
     for (const blocks of internal.history) validateBlocks(this.level, blocks);
   }
   static async assets(root) { return JSON.parse(await readFile(path.join(root, "level-data/slotski/v1/world.json"), "utf8")); }
-  static async create(root, directory, { actionLimit = 100 } = {}) {
+  static async create(root, directory, { actionLimit = 100, incremental = false } = {}) {
     if (actionLimit !== null && (!Number.isSafeInteger(actionLimit) || actionLimit < 1)) throw new Error("Invalid action budget.");
     const world = await this.assets(root), first = parseSlotskiLevel(world.levels[0]);
     const internal = { version: "slotski-v1", blocks: clone(first.blocks), history: [], actionCount: 0, actionLimit,
@@ -27,11 +29,13 @@ export class SlotskiBenchmarkRuntime {
     const runtime = new this(root, directory, world, internal);
     for (const name of ["workspace", "sandbox-state", "records/move_history", "display-history"]) await mkdir(path.join(directory, name), { recursive: true, mode: 0o700 });
     internal.stateHashes.push(runtime.stateHash()); internal.positions.push(runtime.position(first.target));
-    await runtime.persist(); return runtime;
+    await runtime.persist(); if(incremental)await runtime.enableIncremental(); return runtime;
   }
   static async open(root, directory) {
     verifyCheckpoint(directory);
-    return new this(root, directory, await this.assets(root), JSON.parse(safeReadFile(directory, "game-state.json")));
+    const runtime = new this(root, directory, await this.assets(root), await readCheckpointJson(directory));
+    runtime.journal = await attachJournal(directory, runtime.internal, runtime.summary({compact:true}));
+    return runtime;
   }
   get room() { return "Level 1"; }
   stateHash() {
@@ -51,6 +55,12 @@ export class SlotskiBenchmarkRuntime {
   recordIndex() { return moveRecordIndex(this.internal.actions); }
   async readRecord(value) {
     if (this.persistenceError) throw this.persistenceError;
+    if(this.journal){
+      const record=String(value||"").trim();
+      if(record==="moves.txt")return{record,content:this.internal.actions.map(a=>a.action).join("\n")+"\n"};
+      if(record==="history.jsonl")return{record,content:this.internal.actions.map(a=>JSON.stringify(a)).join("\n")+"\n"};
+      if(["current_state.json","current_board.txt"].includes(record)){const o=await this.renderObservation();return{record,content:record==="current_board.txt"?o.level+"\n":JSON.stringify({...o,level:undefined,records:undefined})};}
+    }
     return readMoveRecord(this.runDirectory, this.internal.actions, this.internal.actionCount, value);
   }
   async renderObservation({ includeColor = false } = {}) {
@@ -103,13 +113,18 @@ export class SlotskiBenchmarkRuntime {
     }
     return { requested_count: actions.length, completed_count: steps.length, stopped_early: steps.length < actions.length, steps, final_observation: await this.renderObservation() };
   }
-  summary() {
+  summary({compact=false}={}) {
     const s = this.internal, target = s.blocks.find(b => b.id === this.level.target);
     return { schema_version: 1, world: "slotski", updated_at: s.updatedAt, game_status: this.status(), action_count: s.actionCount, action_limit: s.actionLimit,
       room: this.room, level_number: 1, levels_total: 1, levels_solved: Number(this.status() === "won"), block_count: s.blocks.length, target_row: target.y,
       board_width: this.level.width, board_height: this.level.height, target_block: this.level.target,
-      unique_cells: new Set(s.positions.map(p => `${p.worldX},${p.worldY}`)).size, novelty_rate: s.actionCount ? s.actions.filter(a => a.novel).length / s.actionCount : 1,
-      blocked_actions: s.blockedActions, resets: s.resets, undos: s.undos, deaths: 0, camera_actions: 0, positions: s.positions, novelty: [true, ...s.actions.map(a => a.novel)], actions: s.actions };
+      ...summaryHistory(this,{compact}),
+      blocked_actions: s.blockedActions, resets: s.resets, undos: s.undos, deaths: 0, camera_actions: 0 };
+  }
+  async enableIncremental() {
+    const display = JSON.parse(await readFile(path.join(this.runDirectory,"display.json"),"utf8"));
+    this.journal = await createJournal(this.runDirectory,this.internal,this.summary(),display,await this.renderObservation());
+    this.journal.setSummary(this.summary({compact:true}));
   }
   async persist({ animationFrames = null } = {}) {
     if (this.persistenceError) throw this.persistenceError;
@@ -128,6 +143,11 @@ export class SlotskiBenchmarkRuntime {
       });
       const o = await this.renderObservation({ includeColor: true }), s = this.internal;
       const display = { observation_revision: o.observation_revision, room: o.room, world: "slotski", level: o.level, colored_level: o.colored_level, ascii_legend: o.ascii_legend };
+      if(this.journal){
+        await writeText(`records/move_history/move_${s.actionCount}.txt`, `# move ${s.actionCount} · ${s.actions.at(-1)?.action || "initial"} · ${o.room}\n${o.level}\n`);
+        await writeText(`display-history/move_${s.actionCount}.json`,JSON.stringify(display));
+        await this.journal.commit(s,this.summary({compact:true}),display,{staging,artifacts,observation:{...o,level:undefined,colored_level:undefined,records:undefined}});return;
+      }
       const files = { "game-state.json": JSON.stringify(s), "summary.json": JSON.stringify(this.summary()), "display.json": JSON.stringify(display),
         "records/current_board.txt": o.level + "\n", "records/current_state.json": JSON.stringify({ ...o, level: undefined, colored_level: undefined, records: undefined }),
         "records/moves.txt": s.actions.map(a => a.action).join("\n") + "\n", "records/history.jsonl": s.actions.map(a => JSON.stringify(a)).join("\n") + "\n",

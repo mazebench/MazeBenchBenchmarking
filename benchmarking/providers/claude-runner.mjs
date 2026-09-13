@@ -1,3 +1,4 @@
+import { readCheckpointJson } from "../v1/checkpoint-json.mjs";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createWriteStream, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -10,7 +11,7 @@ export async function atomicJson(file, value) {
   await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   await rename(temporary, file);
 }
-export const readJson = async file => JSON.parse(await readFile(file, "utf8"));
+export const readJson = async file => await readCheckpointJson(path.dirname(file), path.basename(file));
 
 export function runClaudeTurn({ projectRoot, directory, metadata, frozen, prompt, control, onSession, environment }) {
   return new Promise((resolve, reject) => {

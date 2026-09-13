@@ -11,7 +11,7 @@ import { COMPACTION_REPAIR_FILES } from "../scripts/repair-benchmark-compaction-
 export async function historicalRepairFixture(projectRoot) {
   const root = await mkdtemp(path.join(os.tmpdir(), "mazebench-historical-runtime-"));
   try {
-    for (const relative of ["benchmarking/v1", "benchmarking/providers", "benchmarking/worlds", "engine/v1", "play/v1", "render/v1", "render-ascii/v1", "level-data/v2/main-world", "level-data/ice-maze/v1", "ice-maze/v1"])
+    for (const relative of ["benchmarking/storage", "benchmarking/v1", "benchmarking/providers", "benchmarking/worlds", "engine/v1", "play/v1", "render/v1", "render-ascii/v1", "level-data/v2/main-world", "level-data/ice-maze/v1", "ice-maze/v1"])
       await cp(path.join(projectRoot, relative), path.join(root, relative), { recursive: true });
     for (const [relative, hashes] of Object.entries(COMPACTION_REPAIR_FILES)) {
       const bytes = await readFile(new URL(`./fixtures/transport-repair-${path.basename(relative)}.txt`, import.meta.url));

@@ -1,3 +1,5 @@
+import { readCheckpointJson } from "./v1/checkpoint-json.mjs";
+import { isIncremental } from "./storage/journal.mjs";
 // Read-only dashboard measurements; never loaded by the agent or MCP.
 import { closeSync, fstatSync } from "node:fs";
 import { read } from "node:fs";
@@ -222,12 +224,12 @@ export class RunTelemetry {
       const at = Date.parse(event.completed_at);
       if (Number.isFinite(at) && Number.isSafeInteger(event.action_count_after)) value.push({ at, action_count: event.action_count_after });
     });
-    const fd = safeOpenFile(directory, "summary.json");
+    const fd = safeOpenFile(directory, isIncremental(directory) ? "checkpoint.json" : "summary.json");
     let stat;
     try { stat = fstatSync(fd); } finally { closeSync(fd); }
     const version = `${stat.ino}:${stat.size}:${stat.mtimeMs}`;
     if (entry.summaryVersion !== version) {
-      entry.summary = JSON.parse(safeReadFile(directory, "summary.json"));
+      entry.summary = await readCheckpointJson(directory, "summary.json");
       entry.summaryVersion = version;
       entry.gems = gemTimeline(entry.summary);
     }

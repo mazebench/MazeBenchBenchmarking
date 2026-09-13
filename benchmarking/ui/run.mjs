@@ -1,3 +1,4 @@
+import { mergeRunUpdate } from "../storage/history-delta.mjs";
 import { benchmarkFetch, visionUrl } from "./benchmark-api.mjs";
 const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
@@ -676,7 +677,7 @@ function refresh() {
   refreshPromise = (async () => {
     try {
       const [run, library, interviewLibrary] = await Promise.all([
-        api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}`),
+        api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}${currentRun?.history_cursor ? "?history_cursor=" + encodeURIComponent(JSON.stringify(currentRun.history_cursor)) : ""}`),
         api("/api/benchmark/v1/runs"),
         api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/interviews`)
       ]);
@@ -686,7 +687,7 @@ function refresh() {
       const interview = selectedInterviewId
         ? await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/interviews/${encodeURIComponent(selectedInterviewId)}`)
         : null;
-      renderRun(run, library.runs || [], interviewLibrary, interview);
+      renderRun(mergeRunUpdate(currentRun, run), library.runs || [], interviewLibrary, interview);
     } catch (error) {
       stoppedPolling = true;
       showError(error);

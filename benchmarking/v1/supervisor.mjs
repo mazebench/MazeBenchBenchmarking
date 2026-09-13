@@ -1,3 +1,6 @@
+import { historyResponse } from "../storage/history-delta.mjs";
+import { isIncremental, journalHead, verifyJournal, readJournalSummary } from "../storage/journal.mjs";
+import { readJsonLinesTail } from "../storage/tail-jsonl.mjs";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { createWriteStream, existsSync, readFileSync } from "node:fs";
@@ -82,26 +85,13 @@ async function atomicJson(filePath, value) {
 
 async function readJson(filePath, fallback = null) {
   try {
-    return JSON.parse(await readFile(filePath, "utf8"));
+    return await readCheckpointJson(path.dirname(filePath), path.basename(filePath));
   } catch {
     return fallback;
   }
 }
 
-async function readJsonLines(filePath, maximum = 500) {
-  try {
-    const lines = (await readFile(filePath, "utf8")).split(/\r?\n/).filter(Boolean);
-    return lines.slice(-maximum).flatMap((line) => {
-      try {
-        return [JSON.parse(line)];
-      } catch {
-        return [];
-      }
-    });
-  } catch {
-    return [];
-  }
-}
+const readJsonLines = readJsonLinesTail;
 
 async function initialThreadId(filePath) {
   let handle;
@@ -864,6 +854,7 @@ export class BenchmarkSupervisor {
     const prompt = buildBenchmarkPrompt(basePrompt, options);
     const createdAt = now();
     const metadata = {
+      storage_format: "incremental-v1",
       schema_version: 1,
       id,
       pair_id: options.pairId,
@@ -888,6 +879,7 @@ export class BenchmarkSupervisor {
       isolation: options.toolsEnabled ? { verified: false } : { mode: "no-python" }
     };
     metadata.integrity = await createRunIntegrity(this.projectRoot, directory, {
+      storage_format: "incremental-v1",
       model: metadata.model, effort: metadata.effort, tools_enabled: metadata.tools_enabled,
       service_tier: metadata.service_tier,
       action_limit: metadata.action_limit, start_room: metadata.start_room,
@@ -898,7 +890,7 @@ export class BenchmarkSupervisor {
       atomicJson(path.join(directory, "run.json"), metadata),
       BenchmarkGameRuntime.create(this.projectRoot, directory, {
         startRoom: options.startRoom,
-        actionLimit: options.actionLimit
+        incremental: true, actionLimit: options.actionLimit
       })
     ]);
     if (options.toolsEnabled) {
@@ -1249,6 +1241,13 @@ export class BenchmarkSupervisor {
     if (existsSync(path.join(directory, "integrity.json"))) verifyCheckpoint(directory);
     const summary = await readJson(path.join(directory, "summary.json"));
     if (!summary) throw new Error("Benchmark run not found.");
+    if(isIncremental(directory)){
+      const record=String(recordValue||"").trim(), head=journalHead(directory);
+      if(record==="moves.txt")return summary.actions.map(a=>a.action).join("\n")+"\n";
+      if(record==="history.jsonl")return summary.actions.map(a=>JSON.stringify(a)).join("\n")+"\n";
+      if(record==="current_board.txt")return head.display.level+"\n";
+      if(record==="current_state.json")return JSON.stringify(head.observation);
+    }
     return readMoveRecord(directory, summary.actions || [], summary.action_count, recordValue).content;
   }
 
@@ -1804,15 +1803,17 @@ export class BenchmarkSupervisor {
     return runs.filter(Boolean).sort((left, right) => right.created_at.localeCompare(left.created_at));
   }
 
-  async get(idValue, { details = true } = {}) {
+  async get(idValue, { details = true, historyCursor = null } = {}) {
     const id = safeRunId(idValue);
     const directory = this.runDirectory(id);
+    const head = isIncremental(directory) ? verifyJournal(directory) : null;
     const [metadata, summary] = await Promise.all([
       readJson(path.join(directory, "run.json")),
-      readJson(path.join(directory, "summary.json"), {})
+      head ? readJournalSummary(directory, head) : readJson(path.join(directory, "summary.json"), {})
     ]);
     if (!metadata) throw new Error("Benchmark run not found.");
     const publicRun = {
+      ...(head ? {history_epoch: head.generation + ":" + (head.historyEpoch || head.generation)} : {}),
       ...metadata,
       ...summary,
       id: metadata.id,
@@ -1831,7 +1832,10 @@ export class BenchmarkSupervisor {
       delete publicRun.novelty;
       return publicRun;
     }
-    let display = await readJson(path.join(directory, "display.json"));
+    // Snapshot the cached arrays before awaiting logs; another request may
+    // advance the shared summary cache while this response is being assembled.
+    for (const name of ["actions", "positions", "novelty"]) publicRun[name] = [...(publicRun[name] || [])];
+    let display = head?.display || await readJson(path.join(directory, "display.json"));
     if (!display) {
       const runtime = await BenchmarkGameRuntime.open(this.projectRoot, directory);
       const observation = await runtime.renderObservation({ includeColor: true });
@@ -1849,7 +1853,7 @@ export class BenchmarkSupervisor {
       readJsonLines(path.join(directory, "tool-activity.jsonl"), 500),
       readFile(path.join(directory, "last-message.txt"), "utf8").catch(() => "")
     ]);
-    return {
+    return historyResponse({
       ...publicRun,
       feed: eventFeed(events).slice(-250),
       tool_activity: activity.filter((entry) => entry.status !== "running").slice(-250),
@@ -1859,7 +1863,7 @@ export class BenchmarkSupervisor {
       workspace_files: metadata.tools_enabled
         ? workspaceInventory(path.join(directory, "workspace"))
         : []
-    };
+    }, historyCursor);
   }
 }
 
