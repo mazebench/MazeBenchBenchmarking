@@ -1,3 +1,5 @@
+import { LIVE_WORLD_POLICY, LiveWorldRooms } from "../storage/live-world.mjs";
+import { safeReadFile } from "./safe-files.mjs";
 import { createJournal, attachJournal, summaryHistory } from "../storage/journal.mjs";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -173,7 +175,7 @@ export function expandBenchmarkSequence(input) {
   return source.split(/[\n,]+/).map((entry) => normalizeActionText(entry));
 }
 
-export async function loadBenchmarkAssets(projectRoot) {
+export async function loadBenchmarkAssets(projectRoot, runDirectory = null) {
   // Each run loads its own authored world and engine. Reusing a process-wide
   // promise would let a new manifest describe edited files while the starting
   // state still came from an earlier world's cached assets.
@@ -188,19 +190,27 @@ export async function loadBenchmarkAssets(projectRoot) {
       const rows = [...new Set(entries.map(([, position]) => position[1]))].sort();
       const columnIndexes = new Map(columns.map((value, index) => [value, index]));
       const rowIndexes = new Map(rows.map((value, index) => [value, index]));
-      const rooms = await Promise.all(entries.map(async ([fileName, position]) => ({
-        ...decodeVoxelRoom(JSON.parse(await readFile(path.join(levelRoot, fileName), "utf8"))),
-        fileName,
-        legacyFileName: `${fileName.replace(/\.json$/i, "")}.txt`,
-        position,
-        columnIndex: columnIndexes.get(position[0]),
-        rowIndex: rowIndexes.get(position[1])
-      })));
+      const decorate = (fileName, decoded) => {
+        const position = manifest.rooms[fileName];
+        if (!position) throw new Error('Room revision is outside the world topology.');
+        return {...decoded, fileName, legacyFileName: `${fileName.replace(/\.json$/i, "")}.txt`,
+          position, columnIndex:columnIndexes.get(position[0]), rowIndex:rowIndexes.get(position[1])};
+      };
+      let configuration;
+      if (runDirectory) {
+        try { configuration = JSON.parse(safeReadFile(runDirectory,'integrity.json')).configuration; }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
+      const liveWorld = configuration?.world_updates === LIVE_WORLD_POLICY
+        ? new LiveWorldRooms(runDirectory,configuration,decorate) : null;
+      const rooms = liveWorld ? liveWorld.rooms() : await Promise.all(entries.map(async ([fileName]) =>
+        decorate(fileName,decodeVoxelRoom(JSON.parse(await readFile(path.join(levelRoot,fileName),'utf8'))))));
       const wasm = await readFile(path.join(projectRoot, "engine", "v1", "voxel_physics.wasm"));
       const engine = await instantiateMazeBenchEngineV1(wasm);
       const blocks = manifest.blocks || [];
       return {
         engine,
+        liveWorld,
         blocks,
         definitions: new Map(blocks.map((block) => [block.id, block])),
         rooms,
@@ -223,10 +233,11 @@ export class BenchmarkGameRuntime {
     this.assets = assets;
     this.internal = internal;
     this.noveltySeen = new Set(internal.noveltyHashes || []);
+    this.refreshAuthoredRooms();
   }
 
   static async create(projectRoot, runDirectory, options = {}) {
-    const assets = await loadBenchmarkAssets(projectRoot);
+    const assets = await loadBenchmarkAssets(projectRoot, runDirectory);
     const requestedRoom = roomLookupKey(options.startRoom || DEFAULT_START_ROOM);
     const room = assets.roomsByLabel.get(requestedRoom);
     if (!room) throw new Error(`Unknown starting room ${options.startRoom || DEFAULT_START_ROOM}.`);
@@ -244,6 +255,7 @@ export class BenchmarkGameRuntime {
       actionLimit: limit,
       actionCount: 0,
       roomFile: room.fileName,
+      ...(assets.liveWorld ? {roomRevision:room.liveRevision, roomEntryRevisions:{[room.fileName]:room.liveRevision}, worldRevision:assets.liveWorld.head.revision} : {}),
       state: startingState,
       roomEntryState: clone(startingState),
       history: [],
@@ -278,7 +290,7 @@ export class BenchmarkGameRuntime {
 
   static async open(projectRoot, runDirectory) {
     const [assets, internal] = await Promise.all([
-      loadBenchmarkAssets(projectRoot),
+      loadBenchmarkAssets(projectRoot, runDirectory),
       readCheckpointJson(runDirectory)
     ]);
     if (internal.version !== BENCHMARK_RUNTIME_VERSION) {
@@ -290,6 +302,24 @@ export class BenchmarkGameRuntime {
     const runtime = new BenchmarkGameRuntime(projectRoot, runDirectory, assets, internal);
     runtime.journal = await attachJournal(runDirectory, internal, runtime.summary({ compact: true }));
     return runtime;
+  }
+
+  refreshAuthoredRooms() {
+    const world = this.assets.liveWorld;
+    if (!world) return;
+    world.refresh();
+    const rooms = world.rooms(this.internal.roomFile, this.internal.roomRevision ?? 0);
+    this.assets.rooms = rooms;
+    this.assets.roomsByFile = new Map(rooms.map(room => [room.fileName,room]));
+    this.assets.roomsByLabel = new Map(rooms.map(room => [roomLookupKey(roomLabel(room)),room]));
+    this.assets.connectedWorld = new ConnectedWorldSessionV1(this.assets.engine,this.assets.blocks,rooms);
+  }
+
+  pinAuthoredRoom(file, revision = 0) {
+    if (!this.assets.liveWorld) return;
+    const room = this.assets.liveWorld.room(file,revision);
+    this.assets.roomsByFile.set(file,room);
+    this.assets.roomsByLabel.set(roomLookupKey(roomLabel(room)),room);
   }
 
   get room() {
@@ -310,7 +340,7 @@ export class BenchmarkGameRuntime {
     const active = activeGemCoordinateKeys(room, state, this.assets.definitions);
     const collected = new Set(this.internal.gemsCollected);
     for (const key of authoredGemCoordinateKeys(room, this.assets.definitions)) {
-      if (!active.has(key)) collected.add(key);
+      if (!active.has(key)) collected.add(room.gemKeys?.[key] || key);
     }
     this.internal.gemsCollected = [...collected].sort();
   }
@@ -330,6 +360,7 @@ export class BenchmarkGameRuntime {
       : true;
     return {
       schema_version: 1,
+      ...(this.internal.actions.at(-1)?.roomUpdated ? {operator_notice:"The operator updated this room. Inspect the current board before continuing."} : {}),
       observation_revision: this.internal.actionCount,
       game_status: this.status(),
       room: roomLabel(room),
@@ -398,6 +429,7 @@ export class BenchmarkGameRuntime {
   snapshotForUndo() {
     return {
       roomFile: this.internal.roomFile,
+      ...(this.assets.liveWorld ? {roomRevision:this.internal.roomRevision ?? 0} : {}),
       state: clone(this.internal.state),
       roomEntryState: clone(this.internal.roomEntryState)
     };
@@ -407,13 +439,16 @@ export class BenchmarkGameRuntime {
     if (!this.internal.visitedRooms.includes(room.fileName)) this.internal.visitedRooms.push(room.fileName);
     if (!this.internal.roomEntryStates[room.fileName]) {
       this.internal.roomEntryStates[room.fileName] = clone(state);
+      if (this.assets.liveWorld) (this.internal.roomEntryRevisions ??= {})[room.fileName] = room.liveRevision;
     }
   }
 
   async apply(actionValue) {
     this.assertPlayable();
     const action = normalizeActionText(actionValue);
+    this.refreshAuthoredRooms();
     const beforeRoom = this.room;
+    const priorRoomRevisions = {...this.internal.roomEntryRevisions};
     const beforeState = clone(this.internal.state);
     const beforePlayer = playerIn(beforeState, this.assets.definitions);
     const undoSnapshot = this.snapshotForUndo();
@@ -421,6 +456,7 @@ export class BenchmarkGameRuntime {
     let animationFrames = [];
     let animationCycle = null;
     let changed = false;
+    let roomUpdated = false;
 
     if (MOVEMENT_ACTIONS.has(action)) {
       const worldDirection = cameraRelativeMoveDirection(action, this.internal.yaw);
@@ -439,6 +475,10 @@ export class BenchmarkGameRuntime {
         this.collectMissingGems(frame.room, frame.state);
       }
       const afterRoom = simulation.room || beforeRoom;
+      if (this.assets.liveWorld) {
+        roomUpdated = afterRoom.fileName !== beforeRoom.fileName && afterRoom.liveRevision > (priorRoomRevisions[afterRoom.fileName] ?? 0);
+        this.internal.roomRevision = afterRoom.liveRevision;
+      }
       this.internal.roomFile = afterRoom.fileName;
       this.internal.state = simulation.final;
       this.noteVisited(afterRoom, simulation.final);
@@ -449,11 +489,13 @@ export class BenchmarkGameRuntime {
       if (afterRoom.fileName !== beforeRoom.fileName) {
         this.internal.roomEntryState = clone(simulation.final);
         this.internal.roomEntryStates[afterRoom.fileName] = clone(simulation.final);
+        if (this.assets.liveWorld) (this.internal.roomEntryRevisions ??= {})[afterRoom.fileName] = afterRoom.liveRevision;
       }
     } else if (action === "undo") {
       const snapshot = this.internal.history.pop();
       if (snapshot) {
         this.internal.roomFile = snapshot.roomFile;
+        if (this.assets.liveWorld) { this.internal.roomRevision = snapshot.roomRevision ?? 0; this.pinAuthoredRoom(snapshot.roomFile,this.internal.roomRevision); }
         this.internal.state = clone(snapshot.state);
         this.internal.roomEntryState = clone(snapshot.roomEntryState);
         changed = true;
@@ -477,6 +519,7 @@ export class BenchmarkGameRuntime {
       if (destination.fileName !== beforeRoom.fileName) {
         this.internal.history.push(undoSnapshot);
         this.internal.roomFile = destination.fileName;
+        if (this.assets.liveWorld) { this.internal.roomRevision = this.internal.roomEntryRevisions?.[destination.fileName] ?? 0; this.pinAuthoredRoom(destination.fileName,this.internal.roomRevision); }
         this.internal.state = clone(this.internal.roomEntryStates[destination.fileName]);
         this.internal.roomEntryState = clone(this.internal.roomEntryStates[destination.fileName]);
         changed = true;
@@ -503,6 +546,7 @@ export class BenchmarkGameRuntime {
     const died = !afterPlayer;
     if (died && beforePlayer) this.internal.deaths += 1;
 
+    if (this.assets.liveWorld) this.internal.worldRevision = this.assets.liveWorld.head.revision;
     this.internal.actionCount += 1;
     this.internal.updatedAt = now();
     const hash = stateHash(this.internal);
@@ -527,6 +571,7 @@ export class BenchmarkGameRuntime {
       roomsVisited: this.internal.visitedRooms.length,
       novel,
       stateHash: hash,
+      ...(this.assets.liveWorld ? {worldRevision:this.internal.worldRevision,roomRevisionBefore:beforeRoom.liveRevision,roomRevisionAfter:this.internal.roomRevision,roomUpdated} : {}),
       player: afterPosition
     };
     this.internal.actions.push(record);
@@ -573,6 +618,7 @@ export class BenchmarkGameRuntime {
   summary({ compact = false } = {}) {
     return {
       schema_version: 1,
+      ...(this.assets.liveWorld ? {world_updates:LIVE_WORLD_POLICY,world_revision:this.internal.worldRevision ?? 0} : {}),
       novelty_version: NOVELTY_VERSION,
       updated_at: this.internal.updatedAt,
       game_status: this.status(),

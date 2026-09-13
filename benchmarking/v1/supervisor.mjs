@@ -1,3 +1,4 @@
+import { LIVE_WORLD_POLICY } from "../storage/live-world.mjs";
 import { historyResponse } from "../storage/history-delta.mjs";
 import { isIncremental, journalHead, verifyJournal, readJournalSummary } from "../storage/journal.mjs";
 import { readJsonLinesTail } from "../storage/tail-jsonl.mjs";
@@ -854,7 +855,7 @@ export class BenchmarkSupervisor {
     const prompt = buildBenchmarkPrompt(basePrompt, options);
     const createdAt = now();
     const metadata = {
-      storage_format: "incremental-v1",
+      storage_format: "incremental-v1", world_updates: LIVE_WORLD_POLICY,
       schema_version: 1,
       id,
       pair_id: options.pairId,
@@ -879,7 +880,7 @@ export class BenchmarkSupervisor {
       isolation: options.toolsEnabled ? { verified: false } : { mode: "no-python" }
     };
     metadata.integrity = await createRunIntegrity(this.projectRoot, directory, {
-      storage_format: "incremental-v1",
+      storage_format: "incremental-v1", world_updates: LIVE_WORLD_POLICY,
       model: metadata.model, effort: metadata.effort, tools_enabled: metadata.tools_enabled,
       service_tier: metadata.service_tier,
       action_limit: metadata.action_limit, start_room: metadata.start_room,

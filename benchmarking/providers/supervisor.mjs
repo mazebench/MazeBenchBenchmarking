@@ -1,3 +1,4 @@
+import { LIVE_WORLD_POLICY } from "../storage/live-world.mjs";
 // Provider extension. The v1 Codex runtime remains byte-for-byte frozen so
 // existing, attested Codex runs can continue while new providers are added.
 import { randomBytes } from "node:crypto";
@@ -62,7 +63,7 @@ export class BenchmarkSupervisor extends CodexSupervisor {
     await Promise.all(["agent-cwd", "sandbox-state"].map(name => mkdir(path.join(directory, name), { recursive: true, mode: 0o700 })));
     const base = await readFile(path.join(this.projectRoot, "benchmarking/v1/EVAL-PROMPT.md"), "utf8");
     const prompt = buildBenchmarkPrompt(base, options);
-    const configuration = { storage_format: "incremental-v1",
+    const configuration = { storage_format: "incremental-v1", world_updates: LIVE_WORLD_POLICY,
       provider: CLAUDE_PROVIDER, claude_policy: CLAUDE_POLICY,
       claude_executable: installation.executable, claude_version: installation.version,
       claude_sha256: digest(await readFile(installation.executable)), provider_runtime: await providerRuntimeHashes(this.projectRoot),
@@ -70,7 +71,7 @@ export class BenchmarkSupervisor extends CodexSupervisor {
       action_limit: options.actionLimit, start_room: options.startRoom, effective_prompt_sha256: digest(prompt)
     };
     const metadata = {
-      storage_format: "incremental-v1",
+      storage_format: "incremental-v1", world_updates: LIVE_WORLD_POLICY,
       schema_version: 1, id, provider: CLAUDE_PROVIDER, pair_id: options.pairId, created_at: now(), updated_at: now(), status: "preparing",
       model: options.model, effort: options.effort, tools_enabled: options.toolsEnabled, action_limit: options.actionLimit, start_room: options.startRoom,
       effective_prompt_sha256: configuration.effective_prompt_sha256, prompt_sha256: digest(base),

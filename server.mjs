@@ -1,6 +1,9 @@
+import { publishEditorRoom } from "./benchmarking/storage/live-world.mjs";
+import os from "node:os";
+import { randomUUID } from "node:crypto";
 import { resumeExclusively } from "./benchmarking/storage/resume-lock.mjs";
 import { createReadStream } from "node:fs";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile, rename, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,6 +83,7 @@ async function saveV1Level(request, response, fileName) {
   }
 }
 
+let editorSaveQueue = Promise.resolve();
 async function saveV2Level(request, response, fileName) {
   if (!allowedV2Levels.has(fileName)) {
     send(response, 404, JSON.stringify({ error: "Unknown v2 main-world level." }), "application/json");
@@ -95,12 +99,17 @@ async function saveV2Level(request, response, fileName) {
       !v2Manifest.blocks.some((block) => block.id === object.blockId));
     if (unknown) throw new Error(`Unknown v2 blockId: ${unknown.blockId}.`);
     const canonical = encodeVoxelRoom(room);
-    await writeFile(path.join(v2LevelRoot, fileName), `${JSON.stringify(canonical)}\n`, "utf8");
-    send(response, 200, JSON.stringify({
-      ok: true,
-      fileName,
-      objectCount: room.objects.length
-    }), "application/json");
+    const source = `${JSON.stringify(canonical)}\n`;
+    const save = editorSaveQueue.catch(() => {}).then(async () => {
+      const temp = path.join(v2LevelRoot, `.${fileName}-${randomUUID()}.tmp`);
+      try { await writeFile(temp,source,{flag:'wx'}); await rename(temp,path.join(v2LevelRoot,fileName)); }
+      finally { await rm(temp,{force:true}); }
+      return publishEditorRoom(root,[benchmarkSupervisor.recordsRoot,
+        process.env.MAZEBENCH_VISION_RECORDS_ROOT || path.join(os.homedir(),'records','mazebench-vision')],fileName,source);
+    });
+    editorSaveQueue = save;
+    const updates = await save;
+    send(response, 200, JSON.stringify({ok:true,fileName,objectCount:room.objects.length,run_updates:updates}), "application/json");
   } catch (error) {
     send(response, 400, JSON.stringify({ error: error.message }), "application/json");
   }

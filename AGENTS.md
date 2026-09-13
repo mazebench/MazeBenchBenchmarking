@@ -312,3 +312,23 @@ Before a bulk rollback or engine/level repair, follow
 format and must be adapted before use on migrated runs. Do not overwrite marker
 files or authorize unrelated asset changes while resealing a run. Preserve its
 model, tool condition, prompt, conversation identity, and game history.
+
+## Live authored-room updates
+
+New MazeBench ASCII and vision runs use `next-entry-v1`. The editor's validated
+PUT route publishes signed per-run room revisions under `world-updates/`.
+Unvisited rooms use the latest published revision; previously visited rooms do
+so on fresh physical entry. The active room, reset state, stored room-jump entry,
+and undo snapshots retain their original authored version. A room jump restores
+its saved entry, just as before; it does not manufacture a new spawn location.
+
+Room files edited outside the editor are not published automatically. Open and
+save the room in the editor to publish it. Engine code, block definitions and
+world topology remain frozen. Never bypass those checks or expose revision
+files, signing keys, or the publishing interface to benchmark agents. Historical
+ASCII/vision frames remain immutable. Room edits and the authored revisions used
+by actions are audited; moving or removing an existing gem preserves its identity.
+
+Existing runs require the exact-hash, paused operator migration in
+`scripts/enable-live-world-updates.mjs`. Preserve all preexisting game state and
+settings. Do not silently reseal unrelated prior engine or level drift.

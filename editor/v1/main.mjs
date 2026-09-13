@@ -498,6 +498,8 @@ async function saveRoom() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Save failed.");
     markSaved();
+    const updatedRuns = payload.run_updates?.filter(update => update.changed).length || 0;
+    if (updatedRuns) setStatus(`Saved. ${updatedRuns} run${updatedRuns === 1 ? "" : "s"} will use this edit on fresh entry.`);
   } catch (error) {
     setStatus(error.message || "Save failed.", true);
   } finally {

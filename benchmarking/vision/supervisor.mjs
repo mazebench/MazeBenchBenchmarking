@@ -1,3 +1,4 @@
+import { LIVE_WORLD_POLICY } from "../storage/live-world.mjs";
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -36,11 +37,11 @@ export class VisionSupervisor extends ProviderSupervisor {
     const prompt=base+`\nAction budget: ${options.actionLimit??'unlimited'} accepted actions.\n`+(options.toolsEnabled
       ?'Python is enabled through python_exec only. Save relative .py files in isolated /workspace. No network, subprocesses, host files, repository, records, private state or prior runs are accessible. Transfer observations into code yourself.\n'
       :'Python is disabled. There are no code executors or writable files.\n')+'Call maze_observe now.';
-    const meta={storage_format:'incremental-v1',schema_version:1,id,world:'main-world',observation_mode:'vision',provider:options.provider,pair_id:options.pairId,created_at:at,updated_at:at,status:'preparing',model:options.model,effort:options.effort,
+    const meta={storage_format:'incremental-v1',world_updates:LIVE_WORLD_POLICY,schema_version:1,id,world:'main-world',observation_mode:'vision',provider:options.provider,pair_id:options.pairId,created_at:at,updated_at:at,status:'preparing',model:options.model,effort:options.effort,
       tools_enabled:options.toolsEnabled,action_limit:options.actionLimit,start_room:options.startRoom,service_tier:options.serviceTier,service_tier_history:[{at,service_tier:options.serviceTier||'standard',source:'Initial run configuration'}],
       prompt_sha256:digest(base),effective_prompt_sha256:digest(prompt),codex_thread_id:null,claude_session_id:null,continuation_count:0,error:null,completed_at:null,stopped_at:null,
       capability_policy:capability||{version:4,name:CLAUDE_POLICY,claude_version:installation.version},isolation:{mode:'no-python'}};
-    const configuration={storage_format:'incremental-v1',world:meta.world,observation_mode:'vision',provider:meta.provider,model:meta.model,effort:meta.effort,tools_enabled:meta.tools_enabled,service_tier:meta.service_tier,
+    const configuration={storage_format:'incremental-v1',world_updates:LIVE_WORLD_POLICY,world:meta.world,observation_mode:'vision',provider:meta.provider,model:meta.model,effort:meta.effort,tools_enabled:meta.tools_enabled,service_tier:meta.service_tier,
       action_limit:meta.action_limit,start_room:meta.start_room,effective_prompt_sha256:meta.effective_prompt_sha256,vision_runtime:await visionRuntimeHashes(this.projectRoot),
       ...(capability?{codex_policy:capability}:{claude_policy:CLAUDE_POLICY,claude_executable:installation.executable,claude_version:installation.version,claude_sha256:digest(await readFile(installation.executable)),provider_runtime:await providerRuntimeHashes(this.projectRoot)})};
     meta.integrity=await createRunIntegrity(this.projectRoot,directory,configuration);

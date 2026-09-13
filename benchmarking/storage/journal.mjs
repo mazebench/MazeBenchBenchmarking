@@ -137,7 +137,14 @@ export async function createJournal(root,state,summary,display,observation=null)
   for(const[kind,file]of [['state','game-state.json'],['summary','summary.json'],['display','display.json']])await writeFile(path.join(root,file),marker(generation,kind),{mode:0o600});
   atomicHead(root,head);return new JournalWriter(root,state,summary,head);
 }
-export async function attachJournal(root,state,summary){return isIncremental(root)?new JournalWriter(root,state,summary):null;}
+export async function attachJournal(root,state,summary){
+  if(!isIncremental(root))return null;
+  const head=verifyJournal(root,{full:true});
+  // Scalar projections may gain fields during an audited runtime migration.
+  // Compare against what is actually committed so their first update is saved.
+  const persisted={...head.summary,...Object.fromEntries(Object.entries(summary).filter(([,v])=>arrayOf(v)))};
+  return new JournalWriter(root,state,persisted,head);
+}
 export function resetJournalCaches(){caches.clear();summaryCache.clear();pendingSummary.clear();}
 
 // Build growing summary arrays lazily; persist maps only their new suffix.

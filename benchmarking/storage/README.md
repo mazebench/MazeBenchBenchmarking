@@ -45,3 +45,23 @@ which links pages of older records.
 Verification lives in `tests/benchmark-journal*.test.mjs`, the normal benchmark
 security/animation suites, and the real Codex/Claude offline transport tests.
 No API inference is required to run those tests.
+
+## Live editor updates
+
+`next-entry-v1` gives main-world runs a signed private baseline and immutable
+room revision snapshots under `world-updates/`. The editor publishes only valid
+room payloads. Each game action pins the published world revision and the
+before/after authored room revisions. Current rooms and stored undo/reset/jump
+states retain their original revision; fresh physical entry picks up updates.
+
+The world manifest and executable assets still use the frozen runtime checks.
+Editing source room JSON directly changes Play/editor data but does not publish
+an approval to a run. Saving that room in the editor publishes it. The publisher
+uses atomic heads and preserves old snapshots. An unsuccessful editor save may
+leave a new authored source file with the run still safely using its last
+approved revision; saving again retries publication. Runs never receive raw
+room snapshots, update files, or additional capabilities through MCP.
+
+Pause an existing run before the one-time exact-hash migration in
+`scripts/enable-live-world-updates.mjs`. That migration leaves its checkpoint
+byte-identical. Subsequent editor room saves require no run pause or restart.

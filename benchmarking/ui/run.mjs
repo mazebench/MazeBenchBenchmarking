@@ -6,7 +6,7 @@ import { drawNovelty } from "../ui/novelty-chart.mjs";
 import { renderIceLevelTimings } from "./ice-level-timings.mjs";
 
 const ids = [
-  "connection-status", "load-error", "error-copy", "run-content", "model-hero", "run-failure", "run-failure-reason", "retry-new-run",
+  "world-update-status", "connection-status", "load-error", "error-copy", "run-content", "model-hero", "run-failure", "run-failure-reason", "retry-new-run",
   "model-monogram", "run-kicker", "run-title", "run-subtitle", "run-id", "run-status",
   "pause-run", "resume-run", "stop-run", "delete-run", "pair-compare", "stat-actions", "stat-gems", "stat-rooms", "stat-cells",
   "stat-novelty", "stat-blocked", "stat-deaths", "stat-tokens", "board-room", "board-move",
@@ -588,6 +588,11 @@ function renderInterview(library, interview) {
 }
 
 function renderRun(run, allRuns, interviewLibrary, interview) {
+  if (elements["world-update-status"]) {
+    elements["world-update-status"].hidden = !run.world_updates;
+    elements["world-update-status"].textContent = `Live room edits · apply on fresh entry · ${run.world_revision || 0} published edits received`;
+  }
+
   elements["run-content"].hidden = false;
   elements["load-error"].hidden = true;
   const changedRun = currentRun?.id !== run.id;

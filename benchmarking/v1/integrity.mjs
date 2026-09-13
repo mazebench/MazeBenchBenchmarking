@@ -4,6 +4,7 @@ import { readdir, readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { safeDirectory, safeOpenFile, safeReadFile } from "./safe-files.mjs";
 import { isJournalHead, verifyJournal } from "../storage/journal.mjs";
+import { LIVE_WORLD_POLICY, createLiveWorld, readLiveWorld } from "../storage/live-world.mjs";
 
 export const CAPABILITY_POLICY_VERSION = 4;
 export const CAPABILITY_POLICY_NAME = "os-isolated-v4";
@@ -27,10 +28,13 @@ async function runtimeFiles(projectRoot) {
 
 export async function createRunIntegrity(projectRoot, runDirectory, configuration) {
   const hashes = await currentRuntimeHashes(projectRoot);
-  const manifest = { version: CAPABILITY_POLICY_VERSION, configuration, files: hashes };
-  const encoded = `${JSON.stringify(manifest)}\n`;
   safeDirectory(runDirectory, "sandbox-state", { create: true });
   await writeFile(path.join(runDirectory, "sandbox-state", "integrity-key"), randomBytes(32), { flag: "wx", mode: 0o600 });
+  if (configuration.world_updates === LIVE_WORLD_POLICY) {
+    configuration = {...configuration, world_base_sha256: await createLiveWorld(projectRoot, runDirectory)};
+  }
+  const manifest = { version: CAPABILITY_POLICY_VERSION, configuration, files: hashes };
+  const encoded = `${JSON.stringify(manifest)}\n`;
   await writeFile(path.join(runDirectory, "integrity.json"), encoded, { flag: "wx", mode: 0o600 });
   return { version: CAPABILITY_POLICY_VERSION, manifest_sha256: digest(encoded), asset_count: Object.keys(hashes).length };
 }
@@ -47,7 +51,13 @@ export async function verifyRunIntegrity(projectRoot, runDirectory, expected = n
   if (manifest.version !== CAPABILITY_POLICY_VERSION || !manifest.configuration || !manifest.files) throw new Error("Missing current run integrity policy.");
   const files = await runtimeFiles(projectRoot);
   if (JSON.stringify(files) !== JSON.stringify(Object.keys(manifest.files))) throw new Error("Runtime asset inventory changed; start a new run.");
+  const liveWorld = manifest.configuration.world_updates === LIVE_WORLD_POLICY
+    ? readLiveWorld(runDirectory, manifest.configuration.world_base_sha256) : null;
   for (const file of files) {
+    // Only room payloads have a separate signed update channel. Definitions,
+    // topology, engine code, and every security asset remain frozen.
+    if (liveWorld && file.startsWith("level-data/v2/main-world/") &&
+        Object.hasOwn(liveWorld.base.rooms, file.slice("level-data/v2/main-world/".length))) continue;
     if (digest(safeReadFile(projectRoot, file, null)) !== manifest.files[file]) {
       throw new Error(`Benchmark runtime changed (${file}); start a new run.`);
     }
@@ -96,6 +106,8 @@ export function verifyCheckpoint(runDirectory) {
 }
 
 export function assertRunConfiguration(metadata, manifest) {
+  if ((metadata.world_updates ?? null) !== (manifest.configuration.world_updates ?? null)) throw new Error("Run configuration changed (world_updates).");
+  if (metadata.world_updates != null && metadata.world_updates !== LIVE_WORLD_POLICY) throw new Error("Unknown world update policy.");
   if ((metadata.storage_format ?? null) !== (manifest.configuration.storage_format ?? null)) throw new Error("Run configuration changed (storage_format); start a new run.");
   if (metadata.service_tier != null && metadata.service_tier !== "fast") {
     throw new Error("Unsupported benchmark service tier.");

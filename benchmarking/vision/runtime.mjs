@@ -25,7 +25,8 @@ export class VisionRuntime extends BenchmarkGameRuntime {
   async renderObservation(){
     if(this.persistenceError)throw this.persistenceError;
     const count=this.internal.actionCount,frames=this.frameSet(count)?.visionFrames;
-    return {schema_version:1,observation_mode:'vision',observation_revision:count,action_count:count,action_limit:this.internal.actionLimit,
+    return {schema_version:1,observation_mode:'vision',observation_revision:count,
+      ...(this.internal.actions.at(-1)?.roomUpdated?{operator_notice:'The operator updated this room. Inspect the current board before continuing.'}:{}),action_count:count,action_limit:this.internal.actionLimit,
       game_status:this.status(),room:label(this.room),gems_collected:this.internal.gemsCollected.length,gems_total:100,
       rooms_visited:this.internal.visitedRooms.length,visited_rooms:this.internal.visitedRooms.map(f=>label(this.assets.roomsByFile.get(f))).sort(),
       camera:{yaw:this.internal.yaw,pitch:this.internal.pitch},image_record:frames?.at(-1)?.record||'current_board.png',
