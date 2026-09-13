@@ -37,6 +37,7 @@ constexpr uint32_t kGoalRole = HashRoleLiteral("goal");
 constexpr uint32_t kFloorRole = HashRoleLiteral("floor");
 constexpr uint32_t kPlayerLiftRole = HashRoleLiteral("player-lift");
 constexpr uint32_t kPlayerGateRole = HashRoleLiteral("player-gate");
+constexpr uint32_t kPuncherRole = HashRoleLiteral("puncher");
 constexpr uint32_t kOrangeButtonRole = HashRoleLiteral("orange-button");
 constexpr uint32_t kOrangeWallRole = HashRoleLiteral("orange-wall");
 constexpr uint32_t kFloatingFloorRole = HashRoleLiteral("floating-floor");
@@ -175,7 +176,7 @@ uint32_t DynamicFamilyRole(uint32_t role) {
 bool IsDynamic(uint32_t role) {
   return role == kPlayerRole || IsCloneObjectRole(role) ||
       role == kPushableRole || IsWeightlessObjectRole(role) ||
-      role == kPlayerLiftRole ||
+      role == kPlayerLiftRole || role == kPuncherRole ||
       role == kOrangeButtonRole || role == kFloatingFloorRole;
 }
 
@@ -454,7 +455,10 @@ void LoadNode(SearchData* data, const SearchNode& node) {
       data->scene[dynamic].generic_id = filled
           ? kFilledFloatingFloor
           : data->entity_generic_ids[entity];
-    } else if (data->scene[dynamic].role == kPlayerLiftRole) {
+    } else if (data->scene[dynamic].role == kPlayerLiftRole ||
+               data->scene[dynamic].role == kPuncherRole) {
+      // Both fixtures encode orientation plus one mutable state bit. Restore
+      // it from this node so sibling simulations cannot share mechanism state.
       const int32_t authored_id = data->entity_generic_ids[entity];
       const int32_t orientation_base = authored_id >= 0
           ? authored_id - authored_id % 2
@@ -485,7 +489,8 @@ bool CaptureCandidate(SearchData* data) {
   data->candidate_orange_depth = 0;
   for (int32_t entity = 0; entity < data->entity_count; ++entity) {
     const Voxel& anchor = data->scene[data->entity_anchors[entity]];
-    if (anchor.role == kPlayerLiftRole && anchor.generic_id >= 0 &&
+    if ((anchor.role == kPlayerLiftRole || anchor.role == kPuncherRole) &&
+        anchor.generic_id >= 0 &&
         anchor.generic_id % 2 != 0) {
       data->candidate_lift_states |= uint64_t{1} << entity;
     }

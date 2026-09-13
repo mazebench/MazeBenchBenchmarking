@@ -2296,6 +2296,38 @@ void TestPuncherRedirectsPlayerAndResetsVisually() {
         "a puncher should expose its sprung frame and reset before completion");
 }
 
+void TestSearchSolvesAndReplaysPuncherCommands() {
+  static voxelbench::PhysicsWorkspace physics_workspace;
+  static voxelbench::SearchWorkspace search_workspace;
+  for (int32_t sprung = 0; sprung <= 1; ++sprung) {
+    voxelbench::Voxel voxels[] = {
+        {1, 3, 1, Role("player"), -1},
+        {1, 2, 1, Role("puncher"), 2 + sprung},
+        {0, 2, 1, Role("wall"), -1},
+        {4, 2, 1, Role("wall"), -1},
+        {1, 3, 0, Role("floor"), -1},
+        {1, 2, 0, Role("floor"), -1},
+        {2, 2, 0, Role("floor"), -1},
+        {3, 2, 0, Role("floor"), -1},
+        {4, 2, 0, Role("floor"), -1},
+        {3, 2, 1, Role("goal"), -1},
+    };
+    voxelbench::reset_workspace(&physics_workspace);
+    const auto result = voxelbench::search_shortest(
+        &search_workspace, &physics_workspace, voxels, 10, 5, 5, 1000);
+    Check(result.status == voxelbench::SearchStatus::kSolved &&
+              result.moves == (sprung == 0 ? 1 : 3) && result.solution[0] == 0,
+          "search should preserve whether the authored puncher can fire");
+    for (int32_t move = 0; move < result.solution_length; ++move) {
+      Check(voxelbench::simulate_turn(voxels, 10, 5, 5, result.solution[move]) == 0,
+            "a searched puncher command should replay in ordinary physics");
+    }
+    Check(voxels[0].x == 3 && voxels[0].y == 2 && voxels[9].x < 0 &&
+              voxels[1].generic_id == 2 + sprung,
+          "replayed puncher solution should collect the gem with the correct fixture state");
+  }
+}
+
 void TestPuncherMomentumMovesAWholeWeightlessConvoy() {
   voxelbench::Voxel voxels[] = {
       {1, 3, 1, Role("player"), -1},
@@ -2653,6 +2685,7 @@ int main() {
   TestProjectedOrangeFaceTransitionsWithDepth();
   TestSearchTracksOrangeWallDepth();
   TestPuncherRedirectsPlayerAndResetsVisually();
+  TestSearchSolvesAndReplaysPuncherCommands();
   TestPuncherMomentumMovesAWholeWeightlessConvoy();
   TestFloatingFloorHasOneBoxPushWeight();
   TestFloatingFloorFillsHoleOnFollowingTick();
@@ -2667,6 +2700,6 @@ int main() {
     std::cerr << failures << " C++ physics test(s) failed\n";
     return EXIT_FAILURE;
   }
-  std::cout << "all 98 C++ physics/search tests passed\n";
+  std::cout << "all 99 C++ physics/search tests passed\n";
   return EXIT_SUCCESS;
 }

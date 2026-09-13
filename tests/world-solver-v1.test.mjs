@@ -115,6 +115,37 @@ test("editor wrapper offers exact shortest and interaction-biased fast A*", asyn
   assert.ok(exact.statesPerSecond > 0);
 });
 
+test("editor A* and exact search preserve puncher state and replay valid routes", async () => {
+  const definitions = [...blocks, { id: "puncher", roleId: "puncher", visual: { kind: "puncher" } }];
+  for (const heuristicWeight of [0, 3]) {
+    for (const stateId of [0, 1]) {
+      const native = await editorEngine();
+      const room = {
+        width: 5, height: 5,
+        objects: [
+          { x: 1, y: 3, z: 0, blockId: "player" },
+          { x: 1, y: 2, z: 0, blockId: "puncher", orientation: "right", stateId },
+          { x: 0, y: 2, z: 0, blockId: "wall" },
+          { x: 4, y: 2, z: 0, blockId: "wall" },
+          { x: 3, y: 2, z: 0, blockId: "gem" },
+          ...[[1, 3], [1, 2], [2, 2], [3, 2], [4, 2]].map(([x, y]) =>
+            ({ x, y, z: 0, blockId: "floor" }))
+        ]
+      };
+      const session = createEditorSolverSessionV1(native, room, definitions, { heuristicWeight });
+      let result = session.snapshot();
+      for (let chunk = 0; chunk < 16 && result.statusCode === 0; chunk++) result = session.runChunk(16);
+      assert.equal(result.status, heuristicWeight ? "solved-unproven" : "solved");
+      assert.deepEqual(result.solution, stateId ? ["up", "right", "right"] : ["up"]);
+      let state = room;
+      for (const direction of result.solution) state = (await native.simulateCommand(state, direction, definitions)).final;
+      assert.equal(state.objects.find(o => o.blockId === "gem").x, -1);
+      const player = state.objects.find(o => o.blockId === "player");
+      assert.deepEqual([player.x, player.y, player.z], [3, 2, 0]);
+    }
+  }
+});
+
 test("editor UI exposes both solver modes, physics bias, and live throughput", async () => {
   const [html, main, worker] = await Promise.all([
     readFile(new URL("../editor/v1/index.html", import.meta.url), "utf8"),
