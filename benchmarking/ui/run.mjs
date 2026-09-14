@@ -182,8 +182,8 @@ async function showFrame(index, { keepPlaying = false } = {}) {
     if (!snapshot) snapshot = await api(
       `/api/benchmark/v1/runs/${encodeURIComponent(runId)}/display/${selected}`
     );
-    frameCache.set(selected, snapshot);
     if (request !== frameRequest) return;
+    frameCache.set(selected, snapshot);
     renderBoard(snapshot);
     elements["board-room"].textContent = `${numberedWorld(currentRun) ? "" : "Room "}${snapshot.room}`;
     elements["board-move"].textContent = moveLabel(selected);
@@ -604,8 +604,16 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["run-content"].hidden = false;
   elements["load-error"].hidden = true;
   const changedRun = currentRun?.id !== run.id;
+  const changedHistory = changedRun ||
+    currentRun?.history_cursor?.epoch !== run.history_cursor?.epoch ||
+    currentRun?.history_epoch !== run.history_epoch ||
+    (run.action_count || 0) < (currentRun?.action_count || 0);
   currentRun = run;
-  if (changedRun) {
+  if (changedHistory) {
+    // Rollbacks reuse move numbers. Discard old frames and any pending response
+    // before it can pair a discarded board with the new action history.
+    stopPlayback();
+    frameRequest += 1;
     frameCache.clear();
     followingLatest = true;
   }
