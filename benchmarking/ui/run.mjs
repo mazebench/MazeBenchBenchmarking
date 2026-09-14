@@ -1,3 +1,4 @@
+import { heatmapVisits } from "./heatmap.mjs";
 import { mergeRunUpdate } from "../storage/history-delta.mjs";
 import { benchmarkFetch, visionUrl } from "./benchmark-api.mjs";
 const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
@@ -253,7 +254,7 @@ function heatColor(fraction) {
   return `rgb(${channel(0)}, ${channel(1)}, ${channel(2)})`;
 }
 
-function drawHeatmap(positions, toolsEnabled) {
+function drawHeatmap(positions, toolsEnabled, currentPosition) {
   const { context, width, height } = setCanvasSize(elements.heatmap);
   context.clearRect(0, 0, width, height);
   context.fillStyle = "#07090c";
@@ -314,7 +315,7 @@ function drawHeatmap(positions, toolsEnabled) {
       tileSize
     );
   }
-  const current = valid.at(-1);
+  const current = currentPosition || valid.at(-1);
   context.strokeStyle = toolsEnabled ? "#ffbd5b" : "#6cd7ff";
   context.lineWidth = 2;
   const markerSize = Math.max(4, tileSize);
@@ -669,8 +670,11 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   }
   syncTransport();
   elements.heatmap.setAttribute("aria-label", run.world === "slotski" ? "Top-left positions of selected blocks after actions" : "Heatmap of positions visited");
-  elements["heatmap-count"].title = run.world === "slotski" ? "Each action records the selected block’s top-left cell; undo and reset record A." : "Positions after actions";
-  drawHeatmap(run.positions, run.tools_enabled);
+  const heatmap = heatmapVisits(run);
+  elements["heatmap-count"].title = run.world === "slotski"
+    ? "Each action records the selected block’s top-left cell; undo and reset record A."
+    : `Includes slide and punch paths for ${heatmap.trackedActions} of ${(run.actions || []).length} moves. Older moves retain their recorded endpoints. Stationary animation ticks do not add visits.`;
+  drawHeatmap(heatmap.positions, run.tools_enabled, heatmap.current);
   drawNovelty(run.novelty, run.tools_enabled);
   drawProgress(run);
   renderIceLevelTimings(run, document);

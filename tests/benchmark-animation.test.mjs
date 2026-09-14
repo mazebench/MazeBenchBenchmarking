@@ -3,6 +3,9 @@ import { link, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:f
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { VisionRuntime } from "../benchmarking/vision/runtime.mjs";
+import { readCheckpointJson } from "../benchmarking/v1/checkpoint-json.mjs";
+import { heatmapVisits } from "../benchmarking/ui/heatmap.mjs";
 import { BenchmarkGameRuntime } from "../benchmarking/v1/runtime.mjs";
 import { BenchmarkSupervisor } from "../benchmarking/v1/supervisor.mjs";
 import { createRunIntegrity, verifyCheckpoint } from "../benchmarking/v1/integrity.mjs";
@@ -23,10 +26,10 @@ async function temporary(t) {
   return directory;
 }
 
-async function corridor(t) {
+async function corridor(t, Runtime = BenchmarkGameRuntime) {
   const directory = await temporary(t);
   await createRunIntegrity(root, directory, { model: "fixture", tools_enabled: false });
-  const runtime = await BenchmarkGameRuntime.create(root, directory, { actionLimit: 30 });
+  const runtime = await Runtime.create(root, directory, { actionLimit: 30 });
   const objects = [{ x: 0, y: 1, z: 0, blockId: "player" }];
   for (let y = 0; y < 3; y++) for (let x = 0; x < 5; x++) {
     objects.push({ x, y, z: 0, blockId: y === 1 && x > 0 && x < 4 ? "ice-floor" : "floor" });
@@ -37,7 +40,8 @@ async function corridor(t) {
     roomsByLabel: new Map([["AXA", room]]), roomWidth: 5, roomHeight: 3,
     connectedWorld: new ConnectedWorldSessionV1(runtime.assets.engine, runtime.assets.blocks, [room]) };
   Object.assign(runtime.internal, { roomFile: room.fileName, state, roomEntryState: structuredClone(state),
-    visitedRooms: [room.fileName], roomEntryStates: { [room.fileName]: structuredClone(state) } });
+    visitedRooms: [room.fileName], roomEntryStates: { [room.fileName]: structuredClone(state) },
+    positions: [{room: "AxA", worldX: 0, worldY: 1, localX: 0, localY: 1, z: 0}] });
   await runtime.persist({ writeSnapshot: true });
   return { directory, runtime, room };
 }
@@ -258,4 +262,70 @@ test("Ice save failure keeps the signed checkpoint and rejects unsaved observati
   await assert.rejects(() => runtime.readRecord("current_board.txt"), /Benchmark save failed/);
   verifyCheckpoint(directory);
   assert.equal((await IceBenchmarkRuntime.open(root, directory)).internal.actionCount, 0);
+});
+
+
+test("slide heatmaps persist exact intermediate visits through the journal and keep MCP responses unchanged", async t => {
+  for (const Runtime of [BenchmarkGameRuntime, VisionRuntime]) {
+    const { directory, runtime } = await corridor(t, Runtime);
+    await runtime.enableIncremental();
+    const initial = structuredClone(runtime.summary());
+    const result = await runtime.apply("right");
+    const expected = [1, 2, 3].map(worldX => ({ worldX, worldY: 1 }));
+    const summary = await readCheckpointJson(directory, "summary.json");
+    assert.deepEqual(summary.actions[0].traversedPositions, expected);
+    assert.deepEqual((await readCheckpointJson(directory)).actions[0].traversedPositions, expected);
+    assert.equal(summary.positions.length, 2);
+    assert.equal(summary.novelty.length, 2);
+    assert.equal(summary.unique_cells, 5);
+    assert.equal(runtime.internal.history.length, 1);
+    const heatmap = heatmapVisits(summary);
+    assert.deepEqual(heatmap.positions.map(p => p.worldX).sort(), [0, 1, 2, 3, 4]);
+    assert.equal(heatmap.current.worldX, 4);
+    assert.equal(heatmap.trackedActions, 1);
+    assert(!JSON.stringify(result).includes("traversedPositions"));
+    assert(!(await runtime.readRecord("history.jsonl")).content.includes("traversedPositions"));
+    for (const command of ["right", "undo", "reset", "camera left"]) {
+      await runtime.apply(command);
+      assert.deepEqual(runtime.internal.actions.at(-1).traversedPositions, []);
+    }
+    assert.deepEqual(heatmapVisits(initial).positions.map(p => p.worldX), [0]);
+    verifyCheckpoint(directory);
+  }
+});
+
+test("punch heatmaps include the bent path, not a straight line between endpoints", async t => {
+  const { runtime, room } = await corridor(t);
+  room.width = 5; room.height = 5;
+  room.objects = [
+    { x: 1, y: 3, z: 0, blockId: "player" },
+    { x: 1, y: 2, z: 0, blockId: "puncher", orientation: "right", stateId: 0 },
+    { x: 0, y: 2, z: 0, blockId: "wall" },
+    { x: 4, y: 2, z: 0, blockId: "wall" },
+    ...[[1,3],[1,2],[2,2],[3,2],[4,2]].map(([x,y])=>({x,y,z:0,blockId:"floor"}))
+  ];
+  runtime.assets.connectedWorld = new ConnectedWorldSessionV1(runtime.assets.engine, runtime.assets.blocks, [room]);
+  runtime.internal.state = runtime.assets.engine.createState(room);
+  runtime.internal.positions = [{ worldX: 1, worldY: 3 }];
+  await runtime.apply("up");
+  assert.deepEqual(runtime.internal.actions.at(-1).traversedPositions, [{worldX:1,worldY:2},{worldX:2,worldY:2}]);
+  const { positions, current } = heatmapVisits(runtime.summary());
+  assert.deepEqual(positions.map(p=>[p.worldX,p.worldY]), [[1,3],[3,2],[1,2],[2,2]]);
+  assert.deepEqual([current.worldX,current.worldY], [3,2]);
+});
+
+test("one slide across two rooms uses world coordinates for every intermediate cell", async t => {
+  const { runtime, room } = await corridor(t);
+  room.objects = room.objects.map(o => o.blockId === "floor" && o.y === 1 ? {...o, blockId:"ice-floor"} : o);
+  const destination = { ...structuredClone(room), fileName: "next.json", position: ["B","A"], columnIndex: 1 };
+  destination.objects = destination.objects.filter(o=>o.blockId!=="player").map(o=>o.x===4&&o.y===1?{...o,blockId:"floor"}:o);
+  runtime.assets.roomsByFile.set(destination.fileName,destination);
+  runtime.assets.roomsByLabel.set("BXA",destination);
+  runtime.assets.connectedWorld = new ConnectedWorldSessionV1(runtime.assets.engine,runtime.assets.blocks,[room,destination]);
+  runtime.internal.state=runtime.assets.engine.createState(room);
+  const result=await runtime.apply("right");
+  assert.equal(result.action.roomAfter,"BxA");
+  assert.equal(runtime.internal.positions.at(-1).worldX,9);
+  assert.deepEqual(runtime.internal.actions.at(-1).traversedPositions,Array.from({length:8},(_,i)=>({worldX:i+1,worldY:1})));
+  assert.equal(runtime.summary().unique_cells,10);
 });

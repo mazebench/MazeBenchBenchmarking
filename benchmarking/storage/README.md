@@ -68,3 +68,21 @@ room snapshots, update files, or additional capabilities through MCP.
 Pause an existing run before the one-time exact-hash migration in
 `scripts/enable-live-world-updates.mjs`. That migration leaves its checkpoint
 byte-identical. Subsequent editor room saves require no run pause or restart.
+
+## Heatmap traversal telemetry
+
+MazeBench ASCII and vision actions record `traversedPositions` with the exact
+intermediate world `(x,y)` cells from the engine animation. The existing
+`positions` array remains one final position per action (plus the initial
+position), so replay, novelty, and rollback indexes do not change. Heatmaps and
+`unique_cells` include both endpoints and intermediate visits. Stationary ticks
+and vertical movement in the same cell are collapsed; returning to a cell
+counts another visit. The synthetic cycle rollback frame is not a physical
+path. Undo, reset, camera changes, and room commands never interpolate paths.
+
+Traversal data is authenticated inside the action journal and exposed in the
+operator summary only, not MCP action/observation/history responses. Saves
+process only each new action's path, without rescanning old animations. Existing
+actions without this field keep their known endpoints; do not guess historical
+paths from perspective ASCII or replay them using a different engine/layout.
+The heatmap's visit-count tooltip reports the number of actions with path data.

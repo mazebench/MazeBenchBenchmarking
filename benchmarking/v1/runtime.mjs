@@ -1,3 +1,4 @@
+import { intermediatePlayerPositions } from "../storage/heatmap.mjs";
 import { LIVE_WORLD_POLICY, LiveWorldRooms } from "../storage/live-world.mjs";
 import { safeReadFile } from "./safe-files.mjs";
 import { createJournal, attachJournal, summaryHistory } from "../storage/journal.mjs";
@@ -600,6 +601,15 @@ export class BenchmarkGameRuntime {
       { room: beforeRoom, state: beforeState, camera: beforeCamera },
       ...animationFrames.map(frame => ({ ...frame, camera }))
     ];
+    // Operator telemetry only: publicAction deliberately excludes this path
+    // from MCP observations (including vision mode). Save it with the same
+    // authenticated action, without changing move/novelty/undo indexing.
+    record.traversedPositions = MOVEMENT_ACTIONS.has(action)
+      ? intermediatePlayerPositions(animationFrames.map(frame => positionFor(
+        frame.room, playerIn(frame.state, this.assets.definitions),
+        this.assets.roomWidth, this.assets.roomHeight
+      )), { skipFinalRollback: Boolean(animationCycle) })
+      : [];
     await this.persist({ writeSnapshot: true, animationFrames, animationCycle });
     return { action: publicAction(record), observation: await this.renderObservation() };
   }

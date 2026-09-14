@@ -151,9 +151,10 @@ export function resetJournalCaches(){caches.clear();summaryCache.clear();pending
 export function summaryHistory(runtime,{compact:small=false,mapAction=x=>x}={}){
   const s=runtime.internal;let c=runtime._summaryHistory;
   if(!small||!c||c.actions!==s.actions||c.positions!==s.positions||c.n>s.actions.length||c.p>s.positions.length){c={actions:s.actions,positions:s.positions,n:0,p:0,visits:new Set(),novel:0,flags:[true]};runtime._summaryHistory=c;}
-  while(c.n<s.actions.length){const a=s.actions[c.n++];c.novel+=Number(Boolean(a.novel));c.flags.push(Boolean(a.novel));}
+  while(c.n<s.actions.length){const a=s.actions[c.n++];c.novel+=Number(Boolean(a.novel));c.flags.push(Boolean(a.novel));for(const p of a.traversedPositions||[])if(p)c.visits.add(`${p.worldX},${p.worldY}`);}
   while(c.p<s.positions.length){const p=s.positions[c.p++];if(p)c.visits.add(`${p.worldX},${p.worldY}`);}
+  const withTraversal = a => ({...mapAction(a), ...(Array.isArray(a.traversedPositions) ? {traversedPositions:a.traversedPositions} : {})});
   return{unique_cells:c.visits.size,novelty_rate:s.actionCount?c.novel/s.actionCount:1,
     positions:small?arrayView(s.positions):s.positions,novelty:small?arrayView(c.flags):c.flags,
-    actions:small?arrayView(s.actions,mapAction):s.actions.map(mapAction)};
+    actions:small?arrayView(s.actions,withTraversal):s.actions.map(withTraversal)};
 }
