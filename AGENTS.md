@@ -318,9 +318,13 @@ model, tool condition, prompt, conversation identity, and game history.
 New MazeBench ASCII and vision runs use `next-entry-v1`. The editor's validated
 PUT route publishes signed per-run room revisions under `world-updates/`.
 Unvisited rooms use the latest published revision; previously visited rooms do
-so on fresh physical entry. The active room, reset state, stored room-jump entry,
-and undo snapshots retain their original authored version. A room jump restores
-its saved entry, just as before; it does not manufacture a new spawn location.
+so on fresh physical entry or an explicit room command. The active board, reset
+state, and undo snapshots retain their original authored version until then.
+A room command always creates the room's authored starting board and player
+position, including when targeting the current room. Never use a saved physical
+entry position as the spawn. Reject rooms without an authored player rather than
+inventing a fallback spawn. Reset restores the current visit's entry state, and
+undo restores the exact previous board and entry state.
 
 Room files edited outside the editor are not published automatically. Open and
 save the room in the editor to publish it. Engine code, block definitions and

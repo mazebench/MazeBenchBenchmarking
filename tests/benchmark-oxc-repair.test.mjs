@@ -78,7 +78,8 @@ test("reset retains the corrected lift, undo restores OxB exactly, and forward r
     await runtime.apply("down");
     assert.deepEqual(runtime.internal.state, correctedEntry); verifyCheckpoint(directory);
     await runtime.apply("room OxB"); await runtime.apply("room OxC");
-    assert.deepEqual(runtime.internal.state, correctedEntry);
+    assert.deepEqual(runtime.internal.state, runtime.assets.engine.createState(runtime.room));
+    assert(hasLift(runtime.internal.state));
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

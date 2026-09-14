@@ -154,6 +154,14 @@ function stopPlayback() {
   elements["frame-play"].setAttribute("aria-pressed", "false");
 }
 
+function moveLabel(index) {
+  if (index === 0) return "move 0 · initial state";
+  const actions = currentRun?.actions || [];
+  const indexed = actions[index - 1];
+  const action = indexed?.index === index ? indexed : actions.find(entry => entry.index === index);
+  return action?.action ? `move ${index} · ${action.action}` : `move ${index}`;
+}
+
 async function showFrame(index, { keepPlaying = false } = {}) {
   if (!currentRun) return;
   const maximum = currentRun.action_count || 0;
@@ -166,7 +174,7 @@ async function showFrame(index, { keepPlaying = false } = {}) {
   if (selected === maximum && currentRun.display) {
     renderBoard(currentRun.display);
     elements["board-room"].textContent = `${numberedWorld(currentRun) ? "" : "Room "}${currentRun.display.room || currentRun.room || "—"}`;
-    elements["board-move"].textContent = `move ${selected}`;
+    elements["board-move"].textContent = moveLabel(selected);
     elements["frame-source"].textContent = currentRun.observation_mode === "vision" ? "Live 3D agent observation" : "Live engine frame · exact colors";
   } else {
     elements["frame-source"].textContent = currentRun.observation_mode === "vision" ? `Loading image for move ${selected}…` : `Rendering move_${selected}.txt with engine colors…`;
@@ -178,7 +186,7 @@ async function showFrame(index, { keepPlaying = false } = {}) {
     if (request !== frameRequest) return;
     renderBoard(snapshot);
     elements["board-room"].textContent = `${numberedWorld(currentRun) ? "" : "Room "}${snapshot.room}`;
-    elements["board-move"].textContent = `move ${selected}`;
+    elements["board-move"].textContent = moveLabel(selected);
     elements["frame-source"].textContent = snapshot.observation_mode === "vision" ? `${snapshot.image_record} · recorded 3D observation` : `${snapshot.source_record || `records/move_history/move_${selected}.txt`} · exact engine colors`;
   }
 
@@ -607,7 +615,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["model-monogram"].textContent = modelMonogram(run.model);
   elements["run-kicker"].textContent = `${run.provider === "claude-code" ? "Claude Code" : "Codex"} model evaluation · ${worldName(run)}${run.observation_mode === "vision" ? " · 3D vision" : ""} · ${conditionLabel(run)}`;
   elements["run-title"].textContent = run.model;
-  elements["run-subtitle"].textContent = `${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves · sequences disabled" : "Batched moves allowed"} · ${run.service_tier === "fast" ? "Fast" : "Standard speed"}` : ""} · started ${compactDate(run.created_at)} · ${run.action_limit ?? "unlimited"} action limit`;
+  elements["run-subtitle"].textContent = `${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves · sequences disabled" : "Batched moves allowed"}` : ""} · ${run.service_tier === "fast" ? "Fast" : "Standard speed"} · started ${compactDate(run.created_at)} · ${run.action_limit ?? "unlimited"} action limit`;
   elements["run-id"].textContent = run.id;
   elements["run-status"].textContent = statusLabel(run.status);
   elements["run-status"].className = `status-pill ${run.status}`;
@@ -648,7 +656,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
     currentFrame = run.action_count || 0;
     renderBoard(run.display);
     elements["board-room"].textContent = `${numberedWorld(run) ? "" : "Room "}${run.display?.room || run.room || "—"}`;
-    elements["board-move"].textContent = `move ${run.display?.observation_revision ?? run.action_count ?? 0}`;
+    elements["board-move"].textContent = moveLabel(run.display?.observation_revision ?? run.action_count ?? 0);
     elements["frame-source"].textContent = run.observation_mode === "vision" ? "Live 3D agent observation" : "Live engine frame · exact colors";
   }
   syncTransport();

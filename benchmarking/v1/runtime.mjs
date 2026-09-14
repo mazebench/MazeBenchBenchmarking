@@ -516,14 +516,29 @@ export class BenchmarkGameRuntime {
       if (!destination || !this.internal.visitedRooms.includes(destination.fileName)) {
         throw new Error(`Room ${action.slice(5)} has not been visited.`);
       }
-      if (destination.fileName !== beforeRoom.fileName) {
-        this.internal.history.push(undoSnapshot);
-        this.internal.roomFile = destination.fileName;
-        if (this.assets.liveWorld) { this.internal.roomRevision = this.internal.roomEntryRevisions?.[destination.fileName] ?? 0; this.pinAuthoredRoom(destination.fileName,this.internal.roomRevision); }
-        this.internal.state = clone(this.internal.roomEntryStates[destination.fileName]);
-        this.internal.roomEntryState = clone(this.internal.roomEntryStates[destination.fileName]);
-        changed = true;
+      // A room command starts a fresh authored visit, including the current room.
+      // Physical-entry snapshots are only reset/undo state, never spawn locations.
+      const spawnRoom = this.assets.liveWorld
+        ? this.assets.liveWorld.room(destination.fileName)
+        : destination;
+      const spawnState = this.assets.engine.createState(spawnRoom);
+      if (!playerIn(spawnState, this.assets.definitions)) {
+        throw new Error(`Room ${action.slice(5)} has no authored player start.`);
       }
+      changed = destination.fileName !== beforeRoom.fileName ||
+        !engineStatesEqualV1(beforeState, spawnState, this.assets.definitions) ||
+        !engineStatesEqualV1(this.internal.roomEntryState, spawnState, this.assets.definitions);
+      if (changed) this.internal.history.push(undoSnapshot);
+      this.internal.roomFile = destination.fileName;
+      if (this.assets.liveWorld) {
+        roomUpdated = spawnRoom.liveRevision > (priorRoomRevisions[destination.fileName] ?? 0);
+        this.internal.roomRevision = spawnRoom.liveRevision;
+        (this.internal.roomEntryRevisions ??= {})[destination.fileName] = spawnRoom.liveRevision;
+        this.pinAuthoredRoom(destination.fileName, spawnRoom.liveRevision);
+      }
+      this.internal.state = spawnState;
+      this.internal.roomEntryState = clone(spawnState);
+      this.internal.roomEntryStates[destination.fileName] = clone(spawnState);
     } else if (CAMERA_ACTIONS.has(action)) {
       if (action === "camera left") this.internal.yaw = (this.internal.yaw + 3) % 4;
       else if (action === "camera right") this.internal.yaw = (this.internal.yaw + 1) % 4;

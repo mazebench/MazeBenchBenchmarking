@@ -35,13 +35,13 @@ test('editor changes reach unvisited rooms and preserve the active board, histor
   await f.edit('a.json',edited);assert.deepEqual(f.runtime.internal,before);await verifyRunIntegrity(f.root,f.directory,f.integrity);
   await f.runtime.apply('right');assert(!hasWall(f.runtime,3,3));await f.runtime.apply('undo');assert.deepEqual(player(f.runtime),player({internal:before}));
   await f.runtime.apply('reset');assert(!hasWall(f.runtime,3,3));
-  const changedB=room([{x:5,y:5,z:0,blockId:'wall'}]);await f.edit('b.json',changedB);
+  const changedB=room([{x:1,y:15,z:0,blockId:'player'},{x:5,y:5,z:0,blockId:'wall'}]);await f.edit('b.json',changedB);
   await f.runtime.apply('down');assert.equal(f.runtime.internal.roomFile,'b.json');assert(hasWall(f.runtime,5,5));assert.equal(f.runtime.internal.gemsCollected.length,0,'deleting an unvisited gem does not award it');
   const oldSnapshot=await f.runtime.readRecord('move_history/move_4.txt');
   await f.runtime.apply('up');assert.equal(f.runtime.internal.roomFile,'a.json');assert(hasWall(f.runtime,3,3));
   await f.runtime.apply('undo');assert.equal(f.runtime.internal.roomFile,'b.json');assert(hasWall(f.runtime,5,5));
   await f.runtime.apply('undo');assert.equal(f.runtime.internal.roomFile,'a.json');assert(!hasWall(f.runtime,3,3),'undo restores the old authored version');
-  await f.runtime.apply('room HxJ');assert.equal(f.runtime.internal.roomFile,'b.json');assert(hasWall(f.runtime,5,5),'room jumps restore the recorded entry');
+  await f.runtime.apply('room HxJ');assert.equal(f.runtime.internal.roomFile,'b.json');assert(hasWall(f.runtime,5,5),'room jumps use the authored board');
   assert.deepEqual(await f.runtime.readRecord('move_history/move_4.txt'),oldSnapshot);
   const reopened=await BenchmarkGameRuntime.open(f.root,f.directory);assert.deepEqual(reopened.internal,f.runtime.internal);assert.deepEqual(reopened.summary(),await readCheckpointJson(f.directory,'summary.json'));verifyCheckpoint(f.directory);
  }finally{await rm(f.root,{recursive:true,force:true});}
@@ -127,5 +127,46 @@ test('simultaneous publications serialize and an uncommitted future revision can
   await Promise.all([1,2,3].map(x=>publishRoomRevision(f.directory,'b.json',source(room([{x,y:7,z:0,blockId:'wall'}])),V2_BLOCK_CATALOG)));
   const manifest=JSON.parse(await readFile(path.join(f.directory,'integrity.json')));const {head}=readLiveWorld(f.directory,manifest.configuration.world_base_sha256);assert.equal(head.revision,3);
   await verifyRunIntegrity(f.root,f.directory,f.integrity);await f.runtime.apply('down');assert(f.runtime.internal.state.objects.some(o=>o.blockId==='wall'&&o.y===7));
+ }finally{await rm(f.root,{recursive:true,force:true});}
+});
+
+for (const Runtime of [BenchmarkGameRuntime, VisionRuntime]) {
+ test(`${Runtime.name}: room commands use the authored start after boundary entry, including the current room`,async()=>{
+  const f=await fixture(Runtime);try{
+   await f.runtime.apply('down');assert.deepEqual([player(f.runtime).x,player(f.runtime).y],[1,0]);
+   await f.runtime.apply('room HxI');
+   await f.runtime.apply('room HxJ');assert.deepEqual([player(f.runtime).x,player(f.runtime).y],[1,15]);
+   await f.runtime.apply('left');assert.deepEqual([player(f.runtime).x,player(f.runtime).y],[0,15]);
+   await f.runtime.apply('room HxJ');assert.deepEqual([player(f.runtime).x,player(f.runtime).y],[1,15]);
+   await f.runtime.apply('undo');assert.deepEqual([player(f.runtime).x,player(f.runtime).y],[0,15]);
+   await f.runtime.apply('reset');assert.deepEqual([player(f.runtime).x,player(f.runtime).y],[1,15]);
+   const reopened=await Runtime.open(f.root,f.directory);assert.deepEqual(reopened.internal,f.runtime.internal);verifyCheckpoint(f.directory);
+  }finally{await rm(f.root,{recursive:true,force:true});}
+ });
+}
+
+test('room commands adopt published authored starts while undo preserves the earlier visit and replay',async()=>{
+ const f=await fixture();try{
+  await f.runtime.applySequence(['down','up']);
+  const historical=await f.runtime.readRecord('move_history/move_1.txt');
+  await f.edit('b.json',room([{x:8,y:2,z:0,blockId:'player'},{x:5,y:5,z:0,blockId:'wall'},{x:1,y:1,z:0,blockId:'gem'}]));
+  await f.runtime.apply('room HxJ');assert.deepEqual([player(f.runtime).x,player(f.runtime).y],[8,2]);assert(hasWall(f.runtime,5,5));
+  assert.equal(f.runtime.internal.gemsCollected.length,0);assert.match((await f.runtime.renderObservation()).operator_notice,/updated this room/);
+  const earlier=structuredClone(f.runtime.internal.state),revision=f.runtime.internal.roomRevision;
+  await f.edit('b.json',room([{x:9,y:3,z:0,blockId:'player'}]));assert.deepEqual(f.runtime.internal.state,earlier);
+  await f.runtime.apply('room HxJ');assert.deepEqual([player(f.runtime).x,player(f.runtime).y],[9,3]);
+  await f.runtime.apply('undo');assert.deepEqual(f.runtime.internal.state,earlier);assert.equal(f.runtime.internal.roomRevision,revision);
+  await f.runtime.apply('left');await f.runtime.apply('reset');assert.deepEqual(f.runtime.internal.state,earlier);
+  assert.deepEqual(await f.runtime.readRecord('move_history/move_1.txt'),historical);verifyCheckpoint(f.directory);
+ }finally{await rm(f.root,{recursive:true,force:true});}
+});
+
+test('room commands reject unvisited rooms and missing authored starts without inventing a spawn',async()=>{
+ const f=await fixture();try{
+  await assert.rejects(f.runtime.apply('room HxJ'),/has not been visited/);
+  await f.runtime.applySequence(['down','up']);
+  await f.edit('b.json',room());const before=structuredClone(f.runtime.internal);
+  await assert.rejects(f.runtime.apply('room HxJ'),/no authored player start/);
+  assert.deepEqual(f.runtime.internal,before);verifyCheckpoint(f.directory);
  }finally{await rm(f.root,{recursive:true,force:true});}
 });

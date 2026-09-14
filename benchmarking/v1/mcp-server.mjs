@@ -59,7 +59,7 @@ const tools = [
   },
   {
     name: "maze_action",
-    description: "Direct-only tool. Apply exactly one accepted MazeBench action. Valid actions are up, down, left, right, undo, reset, camera up/down/left/right, or room HxI for a previously visited room. Every accepted action counts toward the run limit, including blocked movement and camera actions. Never call or orchestrate it from a code executor.",
+    description: "Direct-only tool. Apply exactly one accepted MazeBench action. Valid actions are up, down, left, right, undo, reset, camera up/down/left/right, or room HxI to start a previously visited room at its authored player start with a fresh board (also works for the current room). Every accepted action counts toward the run limit, including blocked movement and camera actions. Never call or orchestrate it from a code executor.",
     inputSchema: {
       type: "object",
       properties: {

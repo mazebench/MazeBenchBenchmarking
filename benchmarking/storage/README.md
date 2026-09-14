@@ -51,8 +51,11 @@ No API inference is required to run those tests.
 `next-entry-v1` gives main-world runs a signed private baseline and immutable
 room revision snapshots under `world-updates/`. The editor publishes only valid
 room payloads. Each game action pins the published world revision and the
-before/after authored room revisions. Current rooms and stored undo/reset/jump
-states retain their original revision; fresh physical entry picks up updates.
+before/after authored room revisions. Current rooms and stored undo/reset
+states retain their original revision. Fresh physical entry and explicit room
+commands pick up updates. A room command creates the authored starting board
+and player position, including when targeting the current room; it never uses
+a saved physical entry as the spawn.
 
 The world manifest and executable assets still use the frozen runtime checks.
 Editing source room JSON directly changes Play/editor data but does not publish

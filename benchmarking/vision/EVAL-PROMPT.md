@@ -29,3 +29,5 @@ room and camera from that moment. Use current observations as the authority.
 Only direct maze tools and, when enabled, python_exec are available. Do not use
 shell, JavaScript, web, other MCP servers, or delegation. Do not access engine
 source, private state, other runs, or hidden world data.
+
+A room command starts any previously visited room at its authored player start with a fresh board, including the current room. It does not restore your last boundary-entry position.
