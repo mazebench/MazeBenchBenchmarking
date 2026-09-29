@@ -79,7 +79,7 @@ function toolNames(groups) {
 }
 
 try {
-  for (const model of ["gpt-6-astra", "gpt-5.6-terra"]) {
+  for (const model of ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-terra"]) {
     for (const toolsEnabled of [false, true]) {
       const directory = path.join(temporary, `${model}-${toolsEnabled ? "on" : "off"}`);
       await mkdir(path.join(directory, "agent-cwd"), { recursive: true });
@@ -88,7 +88,7 @@ try {
       await writeFile(path.join(directory, "run.json"), JSON.stringify({ ...configuration, integrity }));
       await BenchmarkGameRuntime.create(projectRoot, directory, { actionLimit: 1 });
       await writeDirectToolModelCatalog(directory, model);
-      const options = { projectRoot, runDirectory: directory, agentDirectory: path.join(directory, "agent-cwd"), modelCatalogPath: path.join(directory, "sandbox-state/direct-model-catalog.json"), model, effort: "low", toolsEnabled, disabledFeatures: policy.disabled_features, prompt: "Reply validation complete." };
+      const options = { projectRoot, runDirectory: directory, agentDirectory: path.join(directory, "agent-cwd"), modelCatalogPath: path.join(directory, "sandbox-state/direct-model-catalog.json"), model, effort: "low", toolsEnabled, disabledFeatures: policy.disabled_features, enabledFeatures: policy.enabled_features, prompt: "Reply validation complete." };
       const expected = [
         // The CLI always advertises these helpers when an MCP is configured.
         // MazeBench returns empty lists and rejects every resource URI.

@@ -3,3 +3,4 @@ outputs/
 work/
 .zig-cache/
 .zig-global-cache/
+environments/mazebench/mazebench/runtime/

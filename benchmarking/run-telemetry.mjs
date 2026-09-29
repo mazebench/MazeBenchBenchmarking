@@ -54,7 +54,7 @@ function toolEnd(timeline, id, at) {
 export function consumeThinkingEvent(timeline, event, provider = "codex") {
   const at = time(event);
   if (!Number.isFinite(at)) return;
-  if (provider === "claude-code") {
+  if (["claude-code", "grok-build"].includes(provider)) {
     if (event.parent_tool_use_id) return;
     if (event.type === "system" && event.subtype === "init") begin(timeline, at);
     const inner = event.event;
@@ -217,7 +217,7 @@ export class RunTelemetry {
       entry = {}; this.cache.set(directory, entry);
       if (this.cache.size > 12) this.cache.delete(this.cache.keys().next().value);
     }
-    const file = metadata.provider === "claude-code" ? "claude-events.jsonl" : "agent-events.jsonl";
+    const file = metadata.provider === "claude-code" ? "claude-events.jsonl" : metadata.provider === "grok-build" ? "grok-events.jsonl" : "agent-events.jsonl";
     const timeline = await this.consumeFile(directory, file, entry, createThinkingTimeline,
       (value, event) => consumeThinkingEvent(value, event, metadata.provider));
     const activity = await this.consumeFile(directory, "tool-activity.jsonl", entry, () => [], (value, event) => {

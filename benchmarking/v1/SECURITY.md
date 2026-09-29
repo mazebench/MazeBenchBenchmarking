@@ -9,6 +9,8 @@ host administrator or an OS vulnerability.
 
 Claude Code's authentication client is likewise trusted. The Claude provider
 uses the same game, score, records and mandatory Python OS boundary below.
+Grok Build's OAuth client is also trusted. Its provider uses an isolated Grok
+home and the same shared MCP, game, records, score, and Python boundary.
 
 ## Conditions
 
@@ -100,9 +102,9 @@ node scripts/sync-engine-v1.mjs --check
 ```
 
 The capability script uses the actual CLI and an unauthenticated loopback
-Responses fixture to inspect the emitted model/tool catalog. It tests Astra and
-Terra with Python on/off, initial and resumed turns, and interview forks and
-follow-ups. It uses a temporary Codex home, never sends credentials or prompts
+Responses fixture to inspect the emitted model/tool catalog. It tests Astra,
+GPT-6 Sol, GPT-6 Luna, and Terra with Python on/off, initial and resumed turns,
+and interview forks and follow-ups. It uses a temporary Codex home, never sends credentials or prompts
 to an external service, and removes its fixtures afterward. Also perform a
 bounded live model smoke test in separate validation records after an upgrade.
 
@@ -112,10 +114,11 @@ substitution, unknown tool events, state/score/configuration/manifest tampering,
 and cross-origin requests. Keep these tests when changing the boundary.
 # Compaction and audited recovery
 
-Codex remote compaction v2 remains enabled in both benchmark conditions and in
-interviews. This is a Responses transport feature, not an MCP tool or an agent
-executor. Disabling it makes Codex 0.153.3 use the legacy `/responses/compact`
-endpoint, which returned 404 for ChatGPT-authenticated benchmark runs.
+Codex uses the current authenticated compaction transport in both benchmark
+conditions and interviews. This is a Responses transport behavior, not an MCP
+tool or an agent executor. Codex 0.153.3 requires the `remote_compaction_v2`
+switch to avoid the legacy `/responses/compact` endpoint; Codex 0.155.0 removed
+the switch after making the current protocol unconditional.
 
 The offline capability test forces compaction as well as ordinary turns and
 checks that the tool catalog stays restricted before and after compaction.
@@ -167,6 +170,53 @@ and Python calls, native private-file/network denial after removing Python's
 audit hook, and attempted shell/file/web/delegation/disabled-Python calls.
 Live smoke records belong in `~/records/mazebench-validation/claude-code/`,
 separate from benchmark results.
+
+## Grok Build
+
+The Grok adapter lives in `benchmarking/grok/`, outside the frozen Codex,
+Claude, Ice Maze, and Slotski source inventories. Version 1.0.40 is pinned to
+the `grok-4.7` model and grok.com OAuth. This first adapter supports Main World
+ASCII observations only. Its source, effective prompt, native executable,
+isolated `config.toml`, and frozen local model catalog are hashed into every
+run and checked before every MCP request.
+
+Each run gets a private `$GROK_HOME` under `~/.mazebench/grok-build/`, outside
+`~/records`. The operator's OAuth file is copied there with owner-only
+permissions so credentials never become a benchmark record or Python-readable
+workspace file. Deleting the run also deletes this private state. The child
+environment omits inherited API keys, endpoint/config overrides, and Node
+options. Configuration disables compatibility imports, personal/project
+plugins, skills, hooks, memory, managed configuration, remote tool catalogs,
+web/media tools, filesystem writing, shell environment loading, and subagents.
+The isolated configuration also carries a tightening allowlist for only the
+`mazebench` MCP server.
+
+Grok Build presents MCP through the always-on `search_tool` and `use_tool`
+gateways. A non-empty built-in allowlist leaves exactly those two tools; the
+runner verifies that exact initialization catalog, OAuth source, selected model,
+working directory, permission mode, empty skills, fixed command surface, and
+single MazeBench server. It then checks every discovery result, qualified MCP
+name, inline argument object, tool result, session ID, response model, reported
+usage model, and server-side web counter. File-backed MCP arguments, another
+server or tool, fallback, delegation, and unknown event types invalidate the
+record and prohibit resume. The MCP gate independently rechecks the frozen run
+and authenticated checkpoint before discovery or execution.
+
+Grok Build 1.0.40's built-in macOS sandbox cannot initialize on the current host
+because `/var/run/docker.sock` resolves through a symlink. The adapter therefore
+uses `--sandbox off` and treats the exact gateway-only model catalog as the Grok
+CLI capability boundary. This does not weaken `python_exec`: agent programs are
+still materialized only as `.py` files in `/workspace` and run under the same
+mandatory, preflighted macOS Seatbelt profile described above. The model has no
+Grok shell, JavaScript, file read/write, grep, web, media, or task tool with
+which to access the unsandboxed client process.
+
+Before admitting a different Grok Build release, run the full test suite and a
+bounded live OAuth smoke for tools off and on. Verify the initialization event
+still contains exactly `search_tool` and `use_tool`, discovery publishes only
+the condition's MazeBench tools, `modelUsage` reports the reviewed 4.7 backing
+model, pause/resume preserves the session, and all adversarial boundary tests
+fail closed. Validation records should use a separate records root.
 
 The current dashboard modules live under `benchmarking/ui/`; the original
 v1 dashboard modules remain unchanged to preserve the existing Codex run's

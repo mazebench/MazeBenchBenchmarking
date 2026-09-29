@@ -13,16 +13,27 @@ let launching = false;
 let codexReady = false;
 let installationStatus = {};
 
+function providerName(provider) {
+  return ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build" })[provider] || provider;
+}
+
+function providerCompatible(provider) {
+  return provider !== "grok-build" || (elements.world.value === "main-world" && elements["observation-mode"].value === "ascii");
+}
+
 function updateReadiness() {
   const provider = elements.provider.value;
   const status = installationStatus[provider];
-  codexReady = Boolean(status?.available && status?.tested && (provider !== "claude-code" || status.authenticated) && models.some(model => model.id === elements.model.value && (model.provider || "codex") === provider));
-  elements["codex-version"].textContent = status?.version ? `${provider === "claude-code" ? "Claude Code" : "Codex"} ${status.version.replace(/^codex-cli /, "")}` : "Checking agent…";
+  const needsAuth = ["claude-code", "grok-build"].includes(provider);
+  codexReady = Boolean(status?.available && status?.tested && (!needsAuth || status.authenticated) && providerCompatible(provider) && models.some(model => model.id === elements.model.value && (model.provider || "codex") === provider));
+  elements["codex-version"].textContent = status?.version ? `${providerName(provider)} ${status.version.replace(/^codex-cli /, "")}` : "Checking agent…";
   const labels = { "up-to-date": "Up to date", "update-available": `Update available: ${status?.latest_version}. Run codex update, then restart the server.`, "newer-than-release": "Newer than the current stable release", unknown: "Latest release check unavailable" };
-  elements["codex-update-status"].textContent = !status ? "Checking installation and sign-in…" : status.error || (provider === "claude-code"
+  elements["codex-update-status"].textContent = !providerCompatible(provider)
+    ? "Grok Build currently supports Main World with ASCII observations."
+    : !status ? "Checking installation and sign-in…" : status.error || (needsAuth
     ? `${status?.authenticated ? "Signed in" : "Not signed in"} · ${status?.tested ? "Benchmark tool boundary verified" : "Version needs validation"}`
     : `${labels[status?.update_status] || "Checking installation"} · ${status?.tested ? "Benchmark checks supported" : "Version needs validation"}`);
-  elements["check-codex"].textContent = provider === "claude-code" ? "Check installation" : "Check for updates";
+  elements["check-codex"].textContent = provider === "codex" ? "Check for updates" : "Check installation";
   elements["launch-single"].disabled = launching || !codexReady;
   elements["launch-pair"].disabled = launching || !codexReady;
 }
@@ -31,7 +42,7 @@ async function checkCodex(force = false) {
   elements["check-codex"].disabled = true;
   try {
     installationStatus = await api(`/api/benchmark/v1/providers${force ? "?force=1" : ""}`);
-  } catch (error) { installationStatus = { codex: { error: error.message }, "claude-code": { error: error.message } }; }
+  } catch (error) { installationStatus = { codex: { error: error.message }, "claude-code": { error: error.message }, "grok-build": { error: error.message } }; }
   finally { elements["check-codex"].disabled = false; updateReadiness(); }
 }
 
@@ -106,7 +117,7 @@ function renderRuns(runs) {
     model.textContent = run.model;
     const meta = document.createElement("span");
     meta.className = "record-meta";
-    meta.textContent = `${worldName(run)} · ${run.provider === "claude-code" ? "Claude Code" : "Codex"} · ${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"} · ${run.service_tier === "fast" ? "Fast" : "Standard speed"}` : ""} · ${compactDate(run.created_at)} · ${duration(run)}`;
+    meta.textContent = `${worldName(run)} · ${providerName(run.provider || "codex")} · ${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"} · ${run.service_tier === "fast" ? "Fast" : "Standard speed"}` : ""} · ${compactDate(run.created_at)} · ${duration(run)}`;
 
     const progressBar = document.createElement("span");
     progressBar.className = "run-progress";
@@ -177,7 +188,8 @@ function updateModels() {
     const option = document.createElement("option");
     option.value = model.id;
     option.textContent = model.name;
-    option.selected = model.id === (elements.provider.value === "codex" ? "gpt-5.6-terra" : "claude-sonnet-5");
+    const preferred = ({ codex: "gpt-5.6-terra", "claude-code": "claude-sonnet-5", "grok-build": "grok-4.7" })[elements.provider.value];
+    option.selected = model.id === preferred;
     elements.model.append(option);
   }
   updateEfforts();
@@ -295,11 +307,13 @@ function updateWorld() {
   elements["observation-option"].hidden = ice || slotski;
   if (ice || slotski) elements["observation-mode"].value = "ascii";
   updateObservation();
+  updateReadiness();
   elements["world-objective"].textContent = slotski ? "Move A to the exit" : ice ? "Solve 30 levels" : "Collect 100 gems";
   elements["world-description"].textContent = slotski ? "One classic Slotski puzzle. Choose a labelled block and direction; move the 2×2 target A to the bottom-center exit. Python is optional." : ice ? "Solve the original 30 Ice Maze puzzles in order. All players slide together; every goal must be covered at rest. Choose whether the agent gets isolated Python." : "Start at H×I with the canonical prompt and choose whether the model gets an isolated Python workspace.";
 }
 let previewYaw = 0, previewPitch = 2, previewGeneration = 0;
 async function updateObservation() {
+  updateReadiness();
   const enabled = elements.world.value === "main-world" && elements["observation-mode"].value === "vision";
   elements["vision-preview"].hidden = !enabled;
   if (!enabled) return;

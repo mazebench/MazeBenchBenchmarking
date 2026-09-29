@@ -27,13 +27,24 @@ A deliberately small localhost site that renders the complete MazeBench main wor
 - `play/v1/` — play mode v1, driven by the engine's resumable per-tick command trace
 - `benchmarking/v1/` — shared game/MCP boundary and the frozen Codex runner
 - `benchmarking/providers/` — Claude Code adapter and provider routing; `benchmarking/ui/` contains the current dashboard modules
+- `benchmarking/grok/` — Grok Build 4.7 subscription adapter, isolated profile, MCP gate, and event boundary
 - `editor/v1/` — editor v1 with face-mounted objects, 3D toolbox previews, Fast A*, and Exact Shortest gem solvers
 - `scripts/migrate-v1-to-v2.mjs` — deterministic v1 text to v2 object migration
 - `index.html` — the single page entry point
 
 There is no framework, package manager, or build step in this repository. The vendored runtimes are the source repository's exact Three.js version (`0.184.0`) and the UnitTest repository's byte-identical 395 KB engine-v1 WebAssembly build. The C++ engine is not rewritten in JavaScript.
 
-## Run it
+## Prime Intellect environment
+
+The installable Main World ASCII environment is in
+[`environments/mazebench/`](environments/mazebench/README.md). It uses the game
+runtime and engine from this repository with Verifiers' standard Taskset/Toolset
+API and stock Prime Agent harness. That package documents installation,
+evaluation, tests, and publishing to `mazebench/mazebench` on the Environments Hub.
+It includes tools-on (stock Prime Agent) and tools-off (stock MCP chat harness)
+presets, with the existing 100-gem win condition preserved in both.
+
+## Run the local site
 
 The browser must load the level files over HTTP:
 
@@ -42,6 +53,11 @@ node server.mjs
 ```
 
 Then open <http://localhost:8080>.
+
+After a server interruption, a run whose saved status still says running or
+continuing is displayed as **interrupted** when the server has no active runner.
+Use **Resume** to continue its existing conversation and checkpoint. Recovery
+checks for a surviving process and verifies the run's integrity before resuming.
 
 The small local server also provides the editor's narrowly scoped save endpoint and serves WebAssembly with its required MIME type. The active editor writes only the 256 JSON rooms listed in the v2 manifest, validates their object data, and keeps every room exactly 16×16. The v1 text save route remains available only for compatibility.
 
@@ -64,7 +80,7 @@ yellow while open and turn
 orange once searched or exhausted; the live red position is never drawn in a
 closed orange room.
 
-Open `/benchmarking/v1/` to select Codex or Claude Code and run locally authenticated models against the
+Open `/benchmarking/v1/` to select Codex, Claude Code, or Grok Build and run locally authenticated models against the
 selected world. Main World starts at H×I and targets 100 gems; Ice Maze starts at level 1 and targets all 30 levels in order; Slotski has one sliding-block puzzle. Every condition receives `maze_observe`,
 `maze_action`, and `maze_sequence`; tools-on runs additionally receive
 `python_exec` in a preflighted persistent workspace. `maze_observe` is the only
@@ -72,7 +88,7 @@ agent-facing reader for current state and the run's allowlisted read-only
 records. Authoritative results are stored under
 `~/records/mazebench-benchmark/` and are never exposed to Python.
 Every Codex launch disables agent capabilities from the Codex feature inventory,
-keeps remote compaction v2 enabled for long conversations, and uses a frozen,
+uses the current authenticated compaction transport for long conversations, and uses a frozen,
 hashed per-run model catalog that forces direct MCP tool calls and disables
 model-metadata overrides for shell, patching, delegation, and tool search. Both
 Node/JavaScript hosts and their in-process fallback are disabled. The launcher
@@ -83,8 +99,9 @@ Run `codex update` to update the CLI, then restart this server; an untested
 release remains blocked until the capability checks pass and the version pin
 is deliberately updated.
 
-Claude Code uses the existing `claude auth login` session. Version 2.1.258 is
-admitted after real-CLI capability checks. Select an explicit model version and
+Claude Code uses the existing `claude auth login` session. Versions 2.1.258 and
+2.1.280 are admitted after real-CLI capability checks; 2.1.280 adds the explicit
+`claude-opus-5-5` route. Select an explicit model version and
 Python on/off, or launch a matched pair. The runner removes all built-in tools,
 ignores personal/project settings and CLAUDE.md, disables skills and memory,
 and loads only the MazeBench MCP with `dontAsk` permissions and an exact tool
@@ -97,6 +114,22 @@ See [Claude's CLI reference](https://code.claude.com/docs/en/cli-reference) for
 the supported restriction flags and [model configuration](https://code.claude.com/docs/en/model-config)
 for versioned model IDs and account availability. Run the offline provider check
 with `node scripts/check-claude-capabilities-v1.mjs` before admitting another build.
+
+Grok Build uses the existing `grok login` grok.com subscription session. Version
+1.0.40 and `grok-4.7` are admitted for Main World ASCII runs, with low through
+xhigh reasoning. Each run receives a private Grok home outside the benchmark
+record, containing a copied OAuth state and a frozen configuration. Personal
+instructions, plugins, skills, memories, project configuration, web search,
+subagents, shell and filesystem tools are excluded. Grok's only model-visible
+built-ins are its `search_tool` and `use_tool` MCP gateways; the harness checks
+every discovery result and invocation against the one `mazebench` server and
+its exact condition-specific tool list. Model fallback, extra servers/tools,
+file-backed MCP calls, delegation, or server-side web use permanently invalidate
+the run. Grok Build 1.0.40's native macOS sandbox currently fails to initialize
+on this host because `/var/run/docker.sock` is a symlink, so the CLI profile is
+off; this does not grant a model executor because the built-in catalog is
+verified as gateway-only. Tools-on Python still runs under MazeBench's separate
+mandatory Seatbelt sandbox and can write only its run workspace.
 
 Python runs saved `.py` files in a persistent workspace using a mandatory macOS
 Seatbelt profile installed before agent code starts. Private files, network,

@@ -3,6 +3,7 @@ import { mergeRunUpdate } from "../storage/history-delta.mjs";
 import { benchmarkFetch, visionUrl } from "./benchmark-api.mjs";
 const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
+const providerName = provider => ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build" })[provider || "codex"] || provider;
 import { drawNovelty } from "../ui/novelty-chart.mjs";
 import { renderIceLevelTimings } from "./ice-level-timings.mjs";
 
@@ -622,7 +623,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   document.body.classList.toggle("ice-world", numberedWorld(run));
   document.title = `${run.model} · MazeBench record`;
   elements["model-monogram"].textContent = modelMonogram(run.model);
-  elements["run-kicker"].textContent = `${run.provider === "claude-code" ? "Claude Code" : "Codex"} model evaluation · ${worldName(run)}${run.observation_mode === "vision" ? " · 3D vision" : ""} · ${conditionLabel(run)}`;
+  elements["run-kicker"].textContent = `${providerName(run.provider)} model evaluation · ${worldName(run)}${run.observation_mode === "vision" ? " · 3D vision" : ""} · ${conditionLabel(run)}`;
   elements["run-title"].textContent = run.model;
   elements["run-subtitle"].textContent = `${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves · sequences disabled" : "Batched moves allowed"}` : ""} · ${run.service_tier === "fast" ? "Fast" : "Standard speed"} · started ${compactDate(run.created_at)} · ${run.action_limit ?? "unlimited"} action limit`;
   elements["run-id"].textContent = run.id;
@@ -630,14 +631,14 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["run-status"].className = `status-pill ${run.status}`;
   elements["run-failure"].hidden = run.status !== "failed";
   elements["run-failure-reason"].textContent = run.error || "The runner stopped before finishing. Inspect the activity record for details.";
-  document.querySelector("[aria-labelledby=interview-title]").hidden = run.provider === "claude-code" || numberedWorld(run) || run.observation_mode === "vision";
+  document.querySelector("[aria-labelledby=interview-title]").hidden = run.provider !== "codex" || numberedWorld(run) || run.observation_mode === "vision";
   const terminalGame = ["won", "action-limit"].includes(run.game_status);
   const activeRun = Boolean(run.runner_active);
   const resumableBoundary = Boolean(run.capability_boundary_verified);
   elements["pause-run"].hidden = !activeRun || run.status === "pausing";
   elements["pause-run"].disabled = !activeRun;
   elements["resume-run"].hidden = terminalGame || !resumableBoundary ||
-    (!["paused", "stopped"].includes(run.status) && !(run.world === "slotski" && run.status === "failed") && !run.compaction_recoverable);
+    (!["paused", "stopped", "interrupted"].includes(run.status) && !(run.world === "slotski" && run.status === "failed") && !run.compaction_recoverable);
   elements["resume-run"].disabled = false;
   elements["stop-run"].hidden = terminalGame || ["stopped", "failed", "completed"].includes(run.status);
   elements["stop-run"].disabled = false;
@@ -682,7 +683,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   renderWorkspace(run);
   renderPair(run, allRuns);
   renderInterview(interviewLibrary, interview);
-  elements["connection-status"].textContent = run.status === "failed" ? "run failed · see error details" : isFinished(run) ? `recorded · ${statusLabel(run.game_status || run.status)}` : "live · supervisor online";
+  elements["connection-status"].textContent = run.status === "failed" ? "run failed · see error details" : run.status === "interrupted" ? "run interrupted · resume to continue" : isFinished(run) ? `recorded · ${statusLabel(run.game_status || run.status)}` : run.runner_active ? "live · supervisor online" : "runner inactive · supervisor online";
   elements["connection-status"].classList.remove("error");
   stoppedPolling = isFinished(run);
 }

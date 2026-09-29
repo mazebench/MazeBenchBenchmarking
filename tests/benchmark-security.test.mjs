@@ -150,8 +150,7 @@ test("new, resumed and interview launch arguments reject capability overrides", 
     buildInterviewArguments({ ...argsOptions, forkThreadId: "fork", outputFile: "/tmp/interview.txt", question: "test" })
   ]) {
     assertHardenedCodexArguments(args, argsOptions);
-    assert(args.includes("features.remote_compaction_v2=true"));
-    assert.throws(() => assertHardenedCodexArguments([...args, "--disable", "remote_compaction_v2"], argsOptions));
+    assert(!args.includes("features.remote_compaction_v2=true"));
     for (const override of ['mcp_servers.evil.enabled=true', 'sandbox_mode="danger-full-access"', 'model_provider="untrusted"', 'features.code_mode.enabled=true']) {
       assert.throws(() => assertHardenedCodexArguments([...args, "-c", override], argsOptions));
     }
@@ -161,9 +160,11 @@ test("new, resumed and interview launch arguments reject capability overrides", 
 });
 
 test("legacy compaction inventory is upgraded without enabling agent capabilities", () => {
-  const args = buildCodexArguments({ ...argsOptions, disabledFeatures: ["remote_compaction_v2", "future_executor"] });
+  const legacy = { ...argsOptions, disabledFeatures: ["remote_compaction_v2", "future_executor"], enabledFeatures: ["remote_compaction_v2"] };
+  const args = buildCodexArguments(legacy);
   assert(args.includes("features.remote_compaction_v2=true"));
-  assert(!args.includes("remote_compaction_v2"));
+  assert(!args.some((value, index) => value === "--disable" && args[index + 1] === "remote_compaction_v2"));
+  assert.throws(() => assertHardenedCodexArguments([...args, "--disable", "remote_compaction_v2"], legacy));
   assert(args.some((value, index) => value === "--disable" && args[index + 1] === "future_executor"));
   assert.equal(isRecoverableCompactionError('Error running remote compact task: unexpected status 404 Not Found, url: https://chatgpt.com/backend-api/codex/responses/compact, request id: fixture'), true);
   for (const error of ["Capability boundary violation", "Benchmark state or score was modified", "404 Not Found", "Error running remote compact task: status 403 Forbidden"]) {
@@ -211,8 +212,8 @@ test("unexpected tools invalidate benchmark turns and all interview tool calls",
 
 test("version checker distinguishes current, outdated, unsupported and offline results", async () => {
   const fetchRelease = version => async () => ({ ok: true, json: async () => ({ tag_name: `rust-v${version}` }) });
-  const current = await codexInstallationStatus("codex", { force: true, fetchRelease: fetchRelease("0.153.3") });
-  assert.equal(current.version, "codex-cli 0.153.3");
+  const current = await codexInstallationStatus("codex", { force: true, fetchRelease: fetchRelease("0.155.0") });
+  assert.equal(current.version, "codex-cli 0.155.0");
   assert.equal(current.update_status, "up-to-date");
   assert.equal(current.tested, true);
   const outdated = await codexInstallationStatus("codex", { force: true, fetchRelease: fetchRelease("99.0.0") });

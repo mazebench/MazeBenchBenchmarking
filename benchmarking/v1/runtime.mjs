@@ -224,6 +224,19 @@ export async function loadBenchmarkAssets(projectRoot, runDirectory = null) {
   })();
 }
 
+// Room geometry resets on entry, but a benchmark's credited gems are permanent.
+// Keep this policy here so editor/Play simulations retain their own semantics.
+class BenchmarkConnectedWorldSession extends ConnectedWorldSessionV1 {
+  constructor(runtime, rooms) {
+    super(runtime.assets.engine, runtime.assets.blocks, rooms);
+    this.runtime = runtime;
+  }
+
+  freshRoomState(room) {
+    return this.runtime.withoutCollectedGems(room, super.freshRoomState(room));
+  }
+}
+
 export class BenchmarkGameRuntime {
   constructor(projectRoot, runDirectory, assets, internal) {
     this.projectRoot = projectRoot;
@@ -234,6 +247,7 @@ export class BenchmarkGameRuntime {
     this.assets = assets;
     this.internal = internal;
     this.noveltySeen = new Set(internal.noveltyHashes || []);
+    this.assets.connectedWorld = new BenchmarkConnectedWorldSession(this, assets.rooms);
     this.refreshAuthoredRooms();
   }
 
@@ -313,7 +327,7 @@ export class BenchmarkGameRuntime {
     this.assets.rooms = rooms;
     this.assets.roomsByFile = new Map(rooms.map(room => [room.fileName,room]));
     this.assets.roomsByLabel = new Map(rooms.map(room => [roomLookupKey(roomLabel(room)),room]));
-    this.assets.connectedWorld = new ConnectedWorldSessionV1(this.assets.engine,this.assets.blocks,rooms);
+    this.assets.connectedWorld = new BenchmarkConnectedWorldSession(this, rooms);
   }
 
   pinAuthoredRoom(file, revision = 0) {
@@ -344,6 +358,16 @@ export class BenchmarkGameRuntime {
       if (!active.has(key)) collected.add(room.gemKeys?.[key] || key);
     }
     this.internal.gemsCollected = [...collected].sort();
+  }
+
+  withoutCollectedGems(room, state) {
+    const collected = new Set(this.internal.gemsCollected);
+    if (!collected.size) return state;
+    return { ...state, objects: state.objects.filter(object => {
+      if (engineRoleIdForObject(object, this.assets.definitions) !== "goal") return true;
+      const coordinate = `${room.fileName}:${object.x}:${object.y}:${object.z}`;
+      return !collected.has(room.gemKeys?.[coordinate] || coordinate);
+    }) };
   }
 
   async renderObservation(options = {}) {
@@ -462,7 +486,7 @@ export class BenchmarkGameRuntime {
     if (MOVEMENT_ACTIONS.has(action)) {
       const worldDirection = cameraRelativeMoveDirection(action, this.internal.yaw);
       const simulation = await this.assets.connectedWorld.simulateCommand(
-        this.internal.state,
+        this.withoutCollectedGems(beforeRoom, this.internal.state),
         beforeRoom,
         worldDirection
       );
@@ -474,6 +498,8 @@ export class BenchmarkGameRuntime {
       for (const frame of frames) {
         this.noteVisited(frame.room, frame.state);
         this.collectMissingGems(frame.room, frame.state);
+        // A cycle rollback can restore an earlier board after a gem was credited.
+        frame.state = this.withoutCollectedGems(frame.room, frame.state);
       }
       const afterRoom = simulation.room || beforeRoom;
       if (this.assets.liveWorld) {
@@ -481,15 +507,15 @@ export class BenchmarkGameRuntime {
         this.internal.roomRevision = afterRoom.liveRevision;
       }
       this.internal.roomFile = afterRoom.fileName;
-      this.internal.state = simulation.final;
       this.noteVisited(afterRoom, simulation.final);
       this.collectMissingGems(afterRoom, simulation.final);
+      this.internal.state = this.withoutCollectedGems(afterRoom, simulation.final);
       changed = afterRoom.fileName !== beforeRoom.fileName ||
-        !engineStatesEqualV1(beforeState, simulation.final, this.assets.definitions);
+        !engineStatesEqualV1(beforeState, this.internal.state, this.assets.definitions);
       if (changed) this.internal.history.push(undoSnapshot);
       if (afterRoom.fileName !== beforeRoom.fileName) {
-        this.internal.roomEntryState = clone(simulation.final);
-        this.internal.roomEntryStates[afterRoom.fileName] = clone(simulation.final);
+        this.internal.roomEntryState = clone(this.internal.state);
+        this.internal.roomEntryStates[afterRoom.fileName] = clone(this.internal.state);
         if (this.assets.liveWorld) (this.internal.roomEntryRevisions ??= {})[afterRoom.fileName] = afterRoom.liveRevision;
       }
     } else if (action === "undo") {
@@ -497,19 +523,20 @@ export class BenchmarkGameRuntime {
       if (snapshot) {
         this.internal.roomFile = snapshot.roomFile;
         if (this.assets.liveWorld) { this.internal.roomRevision = snapshot.roomRevision ?? 0; this.pinAuthoredRoom(snapshot.roomFile,this.internal.roomRevision); }
-        this.internal.state = clone(snapshot.state);
-        this.internal.roomEntryState = clone(snapshot.roomEntryState);
+        this.internal.state = this.withoutCollectedGems(this.room, clone(snapshot.state));
+        this.internal.roomEntryState = this.withoutCollectedGems(this.room, clone(snapshot.roomEntryState));
         changed = true;
       }
       this.internal.undos += 1;
     } else if (action === "reset") {
+      const resetState = this.withoutCollectedGems(this.room, clone(this.internal.roomEntryState));
       changed = !engineStatesEqualV1(
         this.internal.state,
-        this.internal.roomEntryState,
+        resetState,
         this.assets.definitions
       );
       if (changed) this.internal.history.push(undoSnapshot);
-      this.internal.state = clone(this.internal.roomEntryState);
+      this.internal.state = resetState;
       this.internal.resets += 1;
     } else if (action.startsWith("room ")) {
       const requested = roomLookupKey(action.slice(5));
@@ -522,7 +549,7 @@ export class BenchmarkGameRuntime {
       const spawnRoom = this.assets.liveWorld
         ? this.assets.liveWorld.room(destination.fileName)
         : destination;
-      const spawnState = this.assets.engine.createState(spawnRoom);
+      const spawnState = this.withoutCollectedGems(spawnRoom, this.assets.engine.createState(spawnRoom));
       if (!playerIn(spawnState, this.assets.definitions)) {
         throw new Error(`Room ${action.slice(5)} has no authored player start.`);
       }

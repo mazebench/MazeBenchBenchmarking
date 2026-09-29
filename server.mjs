@@ -7,7 +7,8 @@ import { readFile, stat, writeFile, rename, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BenchmarkSupervisor } from "./benchmarking/slotski/supervisor.mjs";
+import { BenchmarkSupervisor } from "./benchmarking/grok/supervisor.mjs";
+import { withRunnerLiveness } from "./benchmarking/server-lifecycle.mjs";
 import { TokenTelemetry } from "./benchmarking/token-telemetry.mjs";
 import { RunTelemetry } from "./benchmarking/run-telemetry.mjs";
 import { isTrustedLocalRequest } from "./benchmarking/v1/http-security.mjs";
@@ -22,7 +23,7 @@ const allowedV1Levels = new Set(Object.keys(v1Manifest.levels || {}));
 const allowedV2Levels = new Set(Object.keys(v2Manifest.rooms || {}));
 const host = process.env.MAZEBENCH_BENCHMARK_HOST || "127.0.0.1";
 const port = Number(process.env.MAZEBENCH_BENCHMARK_PORT || 8080);
-const benchmarkSupervisor = new BenchmarkSupervisor(root);
+const benchmarkSupervisor = new (withRunnerLiveness(BenchmarkSupervisor))(root);
 const tokenTelemetry = new TokenTelemetry();
 const runTelemetry = new RunTelemetry();
 

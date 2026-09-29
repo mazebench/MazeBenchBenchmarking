@@ -53,8 +53,9 @@ test("audited compaction repair preserves state, scores, prompt and conversation
     const metadata = JSON.parse(await readFile(path.join(directory, "run.json"), "utf8"));
     assert.equal(metadata.status, "failed"); // Separate explicit resume performs execution.
     assert.equal(metadata.runtime_repairs.length, 1);
-    assert(metadata.capability_policy.enabled_features.includes("remote_compaction_v2"));
-    assert(!metadata.capability_policy.disabled_features.includes("remote_compaction_v2"));
+    const currentPolicy = discoverCodexCapabilityPolicy();
+    assert.deepEqual(metadata.capability_policy.enabled_features, currentPolicy.enabled_features);
+    assert.deepEqual(metadata.capability_policy.disabled_features, currentPolicy.disabled_features);
     assert(existsSync(path.join(result.backup, "integrity.before.json")));
     await verifyRunIntegrity(projectRoot, directory, metadata.integrity);
     verifyCheckpoint(directory);

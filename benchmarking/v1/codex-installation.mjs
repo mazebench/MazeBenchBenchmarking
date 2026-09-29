@@ -5,7 +5,7 @@ import path from "node:path";
 
 // A newer release is displayed immediately, but must pass the capability and
 // adversarial suites before it is admitted here. Never auto-approve a version.
-export const VERIFIED_CODEX_VERSIONS = new Set(["codex-cli 0.153.3"]);
+export const VERIFIED_CODEX_VERSIONS = new Set(["codex-cli 0.153.3", "codex-cli 0.155.0"]);
 export const CODEX_RELEASE_URL = "https://releases.openai.com/codex/channels/latest";
 const CACHE_MS = 15 * 60_000;
 let releaseCache = null;

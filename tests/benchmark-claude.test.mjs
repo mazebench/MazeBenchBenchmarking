@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { CLAUDE_POLICY, CLAUDE_PROVIDER, claudeEnvironment, buildClaudeArguments, claudeTools, claudeBoundaryViolation, digest, providerRuntimeHashes, verifyClaudeIntegrity, inspectClaude } from "../benchmarking/providers/claude-policy.mjs";
+import { CLAUDE_MODELS, CLAUDE_POLICY, CLAUDE_PROVIDER, claudeEnvironment, buildClaudeArguments, claudeTools, claudeBoundaryViolation, digest, providerRuntimeHashes, verifyClaudeIntegrity, inspectClaude } from "../benchmarking/providers/claude-policy.mjs";
 import { BenchmarkSupervisor } from "../benchmarking/providers/supervisor.mjs";
 import { createRunIntegrity } from "../benchmarking/v1/integrity.mjs";
 import { BenchmarkGameRuntime } from "../benchmarking/v1/runtime.mjs";
@@ -19,6 +19,8 @@ test("Claude agent selection cannot cross providers or accept unknown models", a
   const spec = await supervisor.validateSpec({ provider: CLAUDE_PROVIDER, model, tools_enabled: true });
   assert.equal(spec.provider, CLAUDE_PROVIDER);
   assert.equal(spec.toolsEnabled, true);
+  assert(CLAUDE_MODELS.some(entry => entry.id === "claude-opus-5-5"));
+  assert.equal((await supervisor.validateSpec({ provider: CLAUDE_PROVIDER, model: "claude-opus-5-5" })).model, "claude-opus-5-5");
   for (const spec of [{ provider: "unknown" }, { provider: "codex", model }, { provider: CLAUDE_PROVIDER, model: "gpt-6-astra" }, { provider: CLAUDE_PROVIDER, model, effort: "ultra" }]) await assert.rejects(() => supervisor.validateSpec(spec));
 });
 

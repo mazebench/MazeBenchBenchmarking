@@ -10,9 +10,10 @@ import { safeReadFile } from "../v1/safe-files.mjs";
 export const CLAUDE_PROVIDER = "claude-code";
 export const CLAUDE_POLICY = "claude-mcp-only-v1";
 // Admission requires the real-CLI wire tests and the shared adversarial suite.
-export const VERIFIED_CLAUDE_VERSIONS = new Set(["2.1.258"]);
+export const VERIFIED_CLAUDE_VERSIONS = new Set(["2.1.258", "2.1.280"]);
 export const CLAUDE_MODELS = [
   ["claude-sonnet-5", "Claude Sonnet 5"],
+  ["claude-opus-5-5", "Claude Opus 5.5"],
   ["claude-opus-5", "Claude Opus 5"],
   ["claude-fable-5-1", "Claude Fable 5.1"],
   ["claude-fable-5", "Claude Fable 5"],

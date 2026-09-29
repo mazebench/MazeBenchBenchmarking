@@ -32,9 +32,10 @@ const DEFAULT_EFFORT = "medium";
 const MAZEBENCH_TOOL_NAMESPACE = "mcp__mazebench";
 const DIRECT_MODEL_CATALOG_FILE = "direct-model-catalog.json";
 const REQUIRED_CODEX_FEATURES = ["code_mode", "code_mode_host", "shell_tool", "unified_exec"];
-// This changes the compaction transport, not the agent's tool capabilities.
-// Disabling it sends ChatGPT-authenticated runs to the obsolete /responses/compact.
-const REQUIRED_RUNTIME_FEATURES = ["remote_compaction_v2"];
+// Codex 0.153.3 needs this transport switch to avoid the obsolete
+// /responses/compact route. Codex 0.155.0 removed the switch after making the
+// current compaction protocol unconditional.
+const LEGACY_RUNTIME_FEATURES = ["remote_compaction_v2"];
 const BASELINE_DISABLED_FEATURES = [
   "apps",
   "browser_use",
@@ -228,6 +229,13 @@ export async function verifyDirectToolModelCatalog(runDirectory, model, expected
 export function discoverCodexCapabilityPolicy(codexBin = "codex") {
   const installation = inspectCodex(codexBin);
   codexBin = installation.executable;
+  const codexVersion = installation.version;
+  if (!VERIFIED_CODEX_VERSIONS.has(codexVersion)) {
+    throw new Error(`Codex ${codexVersion} has not been security-tested for MazeBench. Refusing to launch until its tool boundary is revalidated.`);
+  }
+  const requiredRuntimeFeatures = codexVersion === "codex-cli 0.153.3"
+    ? LEGACY_RUNTIME_FEATURES
+    : [];
   const inventory = spawnSync(codexBin, ["features", "list"], {
     encoding: "utf8",
     timeout: 10_000,
@@ -237,8 +245,8 @@ export function discoverCodexCapabilityPolicy(codexBin = "codex") {
     throw new Error(`Cannot verify the Codex feature inventory: ${String(inventory.stderr || inventory.error || "unknown error").trim()}`);
   }
   const featureInventory = parseCodexFeatureInventory(inventory.stdout);
-  const disabledFeatures = featureInventory.filter(feature => !REQUIRED_RUNTIME_FEATURES.includes(feature));
-  const missing = [...REQUIRED_CODEX_FEATURES, ...REQUIRED_RUNTIME_FEATURES].filter((feature) => !featureInventory.includes(feature));
+  const disabledFeatures = featureInventory.filter(feature => !requiredRuntimeFeatures.includes(feature));
+  const missing = [...REQUIRED_CODEX_FEATURES, ...requiredRuntimeFeatures].filter((feature) => !featureInventory.includes(feature));
   if (missing.length) {
     throw new Error(`This Codex build cannot prove the benchmark execution boundary; missing features: ${missing.join(", ")}.`);
   }
@@ -247,12 +255,9 @@ export function discoverCodexCapabilityPolicy(codexBin = "codex") {
     timeout: 10_000,
     maxBuffer: 64 * 1024
   });
-  const codexVersion = String(version.stdout || "").trim();
-  if (version.status !== 0 || !codexVersion) {
+  const reportedVersion = String(version.stdout || "").trim();
+  if (version.status !== 0 || reportedVersion !== codexVersion) {
     throw new Error("Cannot verify the Codex version for the benchmark execution boundary.");
-  }
-  if (!VERIFIED_CODEX_VERSIONS.has(codexVersion)) {
-    throw new Error(`Codex ${codexVersion} has not been security-tested for MazeBench. Refusing to launch until its tool boundary is revalidated.`);
   }
   return {
     version: CAPABILITY_POLICY_VERSION,
@@ -261,7 +266,7 @@ export function discoverCodexCapabilityPolicy(codexBin = "codex") {
     codex_executable: codexBin,
     codex_sha256: codexBinaryDigest(codexBin),
     disabled_features: disabledFeatures,
-    enabled_features: [...REQUIRED_RUNTIME_FEATURES],
+    enabled_features: [...requiredRuntimeFeatures],
     direct_only_namespaces: [MAZEBENCH_TOOL_NAMESPACE],
     model_tool_mode: "direct",
     javascript_host: "disabled",
@@ -270,13 +275,13 @@ export function discoverCodexCapabilityPolicy(codexBin = "codex") {
   };
 }
 
-function appendDisabledFeatureArguments(args, featureNames = BASELINE_DISABLED_FEATURES, serviceTier = null) {
+function appendDisabledFeatureArguments(args, featureNames = BASELINE_DISABLED_FEATURES, serviceTier = null, enabledFeatures = []) {
   for (const feature of [...new Set([...BASELINE_DISABLED_FEATURES, ...featureNames])].sort()) {
-    if (REQUIRED_RUNTIME_FEATURES.includes(feature)) continue;
+    if (enabledFeatures.includes(feature)) continue;
     if (feature === "fast_mode" && serviceTier === "fast") continue;
     args.push("--disable", feature);
   }
-  for (const feature of REQUIRED_RUNTIME_FEATURES) args.push("-c", `features.${feature}=true`);
+  for (const feature of enabledFeatures) args.push("-c", `features.${feature}=true`);
   // Service selection changes inference scheduling, not the model's tools.
   if (serviceTier === "fast") args.push("-c", "features.fast_mode=true", "-c", 'service_tier="fast"');
   // Terra's model catalog currently forces code_mode_only. These table-form
@@ -343,12 +348,13 @@ export function assertHardenedCodexArguments(args, options = {}) {
   } else if (overrides.has("service_tier") || overrides.get("features.fast_mode") === "true") {
     throw new Error("Unexpected service tier override.");
   }
+  const enabledFeatures = [...new Set(options.enabledFeatures || [])];
   const disabledFeatures = [...new Set([
     ...BASELINE_DISABLED_FEATURES,
     ...(options.disabledFeatures || [])
-  ])].filter(feature => !REQUIRED_RUNTIME_FEATURES.includes(feature) &&
+  ])].filter(feature => !enabledFeatures.includes(feature) &&
     !(feature === "fast_mode" && options.serviceTier === "fast"));
-  for (const feature of REQUIRED_RUNTIME_FEATURES) {
+  for (const feature of enabledFeatures) {
     if (hasArgumentPair(args, "--disable", feature) || overrides.get(`features.${feature}`) !== "true") {
       throw new Error(`Unsafe Codex launch: required runtime feature ${feature} must be enabled.`);
     }
@@ -542,7 +548,7 @@ export function buildCodexArguments(options) {
       MAZEBENCH_CAPABILITY_POLICY: CAPABILITY_POLICY_NAME
     })}`
   );
-  appendDisabledFeatureArguments(args, options.disabledFeatures, options.serviceTier);
+  appendDisabledFeatureArguments(args, options.disabledFeatures, options.serviceTier, options.enabledFeatures);
   args.push(
     "-c", 'model_reasoning_summary="detailed"',
     "-m", options.model,
@@ -552,6 +558,7 @@ export function buildCodexArguments(options) {
   );
   assertHardenedCodexArguments(args, {
     disabledFeatures: options.disabledFeatures,
+    enabledFeatures: options.enabledFeatures,
     modelCatalogPath,
     toolsEnabled: options.toolsEnabled,
     serviceTier: options.serviceTier
@@ -614,7 +621,7 @@ function appendInterviewIsolationArguments(args, options) {
     "-c", `permissions.mazebench_interview.filesystem=${inlinePermissionTable(permissions)}`,
     "-c", "permissions.mazebench_interview.network.enabled=false"
   );
-  appendDisabledFeatureArguments(args, options.disabledFeatures);
+  appendDisabledFeatureArguments(args, options.disabledFeatures, null, options.enabledFeatures);
   args.push(
     "-c", 'model_reasoning_summary="detailed"',
     "-m", options.model,
@@ -622,6 +629,7 @@ function appendInterviewIsolationArguments(args, options) {
   );
   assertHardenedCodexArguments(args, {
     disabledFeatures: options.disabledFeatures,
+    enabledFeatures: options.enabledFeatures,
     modelCatalogPath
   });
   return args;
@@ -1023,6 +1031,7 @@ export class BenchmarkSupervisor {
         serviceTier: metadata.service_tier,
         toolsEnabled: metadata.tools_enabled,
         disabledFeatures: capabilityPolicy.disabled_features,
+        enabledFeatures: capabilityPolicy.enabled_features,
         modelCatalogPath: modelCatalog.path,
         prompt,
         resumeThreadId
@@ -1474,6 +1483,7 @@ export class BenchmarkSupervisor {
         model: metadata.model,
         effort: metadata.effort,
         disabledFeatures: capabilityPolicy.disabled_features,
+        enabledFeatures: capabilityPolicy.enabled_features,
         modelCatalogPath: modelCatalog.path
       });
       const child = spawn(capabilityPolicy.codex_executable, args, {
@@ -1602,6 +1612,7 @@ export class BenchmarkSupervisor {
         model: metadata.model,
         effort: metadata.effort,
         disabledFeatures: capabilityPolicy.disabled_features,
+        enabledFeatures: capabilityPolicy.enabled_features,
         modelCatalogPath: modelCatalog.path,
         outputFile,
         branchedAtAction: state.branched_at_action,

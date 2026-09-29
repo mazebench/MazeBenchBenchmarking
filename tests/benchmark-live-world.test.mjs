@@ -8,6 +8,8 @@ import {createRunIntegrity,verifyRunIntegrity,verifyCheckpoint} from '../benchma
 import {readCheckpointJson} from '../benchmarking/v1/checkpoint-json.mjs';
 import {LIVE_WORLD_POLICY,publishEditorRoom,publishRoomRevision,readLiveWorld} from '../benchmarking/storage/live-world.mjs';
 import {V2_BLOCK_CATALOG,V2_WORLD_FORMAT,encodeVoxelRoom} from '../render/v1/voxel-world-v2.mjs';
+import {digest,providerRuntimeHashes} from '../benchmarking/providers/claude-policy.mjs';
+import {enablePersistentGems,persistentGemHashes} from '../scripts/enable-persistent-gems-v1.mjs';
 const original=path.resolve(import.meta.dirname,'..');
 const floor=()=>Array.from({length:256},(_,i)=>({x:i%16,y:Math.floor(i/16),z:0,blockId:'floor'}));
 const room=(extras=[])=>({width:16,height:16,objects:[...floor(),...extras]});
@@ -47,14 +49,79 @@ test('editor changes reach unvisited rooms and preserve the active board, histor
  }finally{await rm(f.root,{recursive:true,force:true});}
 });
 
+for (const Runtime of [BenchmarkGameRuntime, VisionRuntime]) for (const live of [false, true]) {
+ test(`${Runtime.name}: collected gems stay absent on re-entry, room jumps, undo, reset and reopen (live=${live})`,async()=>{
+  const f=await fixture(Runtime,live);try{
+   await f.runtime.apply('down');
+   const historical=await f.runtime.readRecord('move_history/move_1/index.json');
+   assert(f.runtime.internal.state.objects.some(o=>o.blockId==='gem'));
+   await f.runtime.apply('down');
+   const assertCollected=runtime=>{
+    assert.equal(runtime.internal.gemsCollected.length,1);
+    assert(!runtime.internal.state.objects.some(o=>o.blockId==='gem'),'credited gem must not return to the board');
+   };
+   assertCollected(f.runtime);
+   await f.runtime.apply('undo');assertCollected(f.runtime);
+   await f.runtime.apply('reset');assertCollected(f.runtime);
+   await f.runtime.apply('up');assert.equal(f.runtime.internal.roomFile,'a.json');
+   // Capture all crossing frames: a display-only fix after physics is insufficient.
+   const persist=f.runtime.persist.bind(f.runtime);let crossingFrames;
+   f.runtime.persist=options=>{crossingFrames=structuredClone(options.animationFrames);return persist(options);};
+   await f.runtime.apply('down');assert.equal(f.runtime.internal.roomFile,'b.json');assertCollected(f.runtime);
+   assert(crossingFrames.filter(frame=>frame.room.fileName==='b.json').every(frame=>!frame.state.objects.some(o=>o.blockId==='gem')));
+   await f.runtime.apply('room HxI');await f.runtime.apply('room HxJ');assertCollected(f.runtime);
+   await f.runtime.apply('room HxJ');assertCollected(f.runtime);
+   const reopened=await Runtime.open(f.root,f.directory);assertCollected(reopened);
+   await reopened.apply('reset');assertCollected(reopened);
+   assert.deepEqual(await reopened.readRecord('move_history/move_1/index.json'),historical,'past observations remain immutable');
+   assert.deepEqual(await readCheckpointJson(f.directory),reopened.internal);verifyCheckpoint(f.directory);
+  }finally{await rm(f.root,{recursive:true,force:true});}
+ });
+}
+
+for(const drift of [false,true]) test(`persistent-gem operator upgrade ${drift?'rejects unrelated drift':'preserves the authenticated checkpoint and session'}`,async()=>{
+ const f=await fixture();try{
+  await f.runtime.applySequence(['down','down']);
+  const executable=path.join(f.root,'fixture-claude'),prompt='Fixture prompt';
+  await writeFile(executable,'fixture executable');await writeFile(path.join(f.directory,'prompt.md'),prompt);
+  const manifest=JSON.parse(await readFile(path.join(f.directory,'integrity.json'),'utf8'));
+  const metadata={id:'run-live-test',status:'paused',provider:'claude-code',model:'claude-opus-5-5',effort:'max',tools_enabled:false,action_limit:null,start_room:'HxI',effective_prompt_sha256:digest(prompt),storage_format:'incremental-v1',world_updates:LIVE_WORLD_POLICY,claude_session_id:'preserved-session'};
+  Object.assign(manifest.configuration,metadata,{claude_policy:'claude-mcp-only-v1',claude_version:'2.1.280',claude_executable:executable,claude_sha256:digest('fixture executable'),provider_runtime:await providerRuntimeHashes(f.root)});
+  manifest.files['benchmarking/v1/runtime.mjs']=persistentGemHashes.before;
+  if(drift)manifest.files['engine/v1/adapter.mjs']='0'.repeat(64);
+  const originalManifest=JSON.stringify(manifest)+'\n';metadata.integrity={...f.integrity,manifest_sha256:digest(originalManifest)};
+  const originalRun=JSON.stringify(metadata)+'\n';
+  await writeFile(path.join(f.directory,'integrity.json'),originalManifest);await writeFile(path.join(f.directory,'run.json'),originalRun);
+  const checkpoint=await readFile(path.join(f.directory,'checkpoint.json')),state=await readCheckpointJson(f.directory);
+  let checks=0;
+  const upgrade=()=>enablePersistentGems(f.root,f.directory,{backupDirectory:path.join(f.root,'operator-backup'),assertInactive:async()=>{checks++;}});
+  if(drift){
+   await assert.rejects(upgrade,/Benchmark runtime changed/);
+   assert.equal(await readFile(path.join(f.directory,'integrity.json'),'utf8'),originalManifest);
+   assert.equal(await readFile(path.join(f.directory,'run.json'),'utf8'),originalRun);
+  }else{
+   const result=await upgrade();assert.equal(result.game_unchanged,true);assert.equal(checks,2);
+   const updated=JSON.parse(await readFile(path.join(f.directory,'run.json'),'utf8'));
+   const {integrity,runtime_repairs,...settings}=updated;const {integrity:oldIntegrity,...oldSettings}=metadata;
+   assert.deepEqual(settings,oldSettings);assert.equal(runtime_repairs.length,1);
+   assert.equal(await readFile(path.join(f.root,'operator-backup/integrity.json'),'utf8'),originalManifest);
+   await verifyRunIntegrity(f.root,f.directory,integrity);
+  }
+  assert.deepEqual(await readFile(path.join(f.directory,'checkpoint.json')),checkpoint);
+  assert.deepEqual(await readCheckpointJson(f.directory),state);verifyCheckpoint(f.directory);
+ }finally{await rm(f.root,{recursive:true,force:true});}
+});
+
 test('moving or removing a collected gem never awards a duplicate or changes the current board',async()=>{
  const f=await fixture();try{
   await f.runtime.applySequence(['down','down']);assert.equal(f.runtime.internal.gemsCollected.length,1);
   const b=room([{x:2,y:0,z:0,blockId:'gem'}]);await f.edit('b.json',b);
   await f.runtime.apply('up');assert.equal(f.runtime.internal.gemsCollected.length,1);await f.runtime.apply('up');
-  await f.runtime.apply('down');assert.equal(f.runtime.internal.roomFile,'b.json');assert.equal(f.runtime.internal.gemsCollected.length,1);await f.runtime.apply('right');assert.equal(f.runtime.internal.gemsCollected.length,1,'moved gem has the original identity');
+  await f.runtime.apply('down');assert.equal(f.runtime.internal.roomFile,'b.json');assert.equal(f.runtime.internal.gemsCollected.length,1);assert(!f.runtime.internal.state.objects.some(o=>o.blockId==='gem'),'moved collected gem stays gone');await f.runtime.apply('right');assert.equal(f.runtime.internal.gemsCollected.length,1,'moved gem has the original identity');
   await f.edit('b.json',room());await f.edit('b.json',b);
-  await f.runtime.applySequence(['up','down','left','right']);assert.equal(f.runtime.internal.gemsCollected.length,1,'remove/re-add cannot mint the same gem again');
+  await f.runtime.applySequence(['up','down','left','right']);assert.equal(f.runtime.internal.gemsCollected.length,1,'remove/re-add cannot mint the same gem again');assert(!f.runtime.internal.state.objects.some(o=>o.blockId==='gem'));
+  await f.edit('b.json',room([{x:1,y:15,z:0,blockId:'player'},{x:2,y:0,z:0,blockId:'gem'},{x:7,y:7,z:0,blockId:'gem'}]));
+  await f.runtime.apply('room HxJ');assert.deepEqual(f.runtime.internal.state.objects.filter(o=>o.blockId==='gem').map(o=>[o.x,o.y]),[[7,7]],'new uncollected gems remain present');
  }finally{await rm(f.root,{recursive:true,force:true});}
 });
 

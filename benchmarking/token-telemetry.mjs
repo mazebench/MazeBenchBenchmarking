@@ -139,7 +139,7 @@ export class TokenTelemetry {
 
   async readTimeline(runDirectory) {
     const metadata = JSON.parse(safeReadFile(runDirectory, "run.json"));
-    const isClaude = metadata.provider === "claude-code";
+    const isMessagesProvider = ["claude-code", "grok-build"].includes(metadata.provider);
     let model;
     try {
       const catalog = JSON.parse(safeReadFile(runDirectory, "sandbox-state/direct-model-catalog.json"));
@@ -147,15 +147,16 @@ export class TokenTelemetry {
     } catch { /* Legacy records may not have a frozen model catalog. */ }
     const limits = modelTokenLimits(model);
     let cached = this.cache.get(runDirectory);
-    const file = cached?.file || (isClaude ? path.join(runDirectory, "claude-events.jsonl") : await this.findRollout(metadata));
-    if (!file) return { available: false, ...limits, samples: [], compactions: [], reason: "Waiting for Codex token telemetry." };
+    const messagesFile = metadata.provider === "grok-build" ? "grok-events.jsonl" : "claude-events.jsonl";
+    const file = cached?.file || (isMessagesProvider ? path.join(runDirectory, messagesFile) : await this.findRollout(metadata));
+    if (!file) return { available: false, ...limits, samples: [], compactions: [], reason: `Waiting for ${metadata.provider === "grok-build" ? "Grok Build" : "Codex"} token telemetry.` };
     const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(error => { if (error.code === "ENOENT") return null; throw error; });
     if (!handle) return { available: false, compaction_threshold: null, samples: [], compactions: [] };
     try {
       const stat = await handle.stat();
       if (!stat.isFile() || stat.nlink !== 1) throw new Error("Invalid token telemetry file.");
       if (!cached || cached.inode !== stat.ino || stat.size < cached.offset) {
-        cached = { file, inode: stat.ino, offset: 0, partial: "", decoder: new StringDecoder("utf8"), timeline: isClaude ? createClaudeTimeline() : createTokenTimeline() };
+        cached = { file, inode: stat.ino, offset: 0, partial: "", decoder: new StringDecoder("utf8"), timeline: isMessagesProvider ? createClaudeTimeline() : createTokenTimeline() };
         this.cache.set(runDirectory, cached);
         if (this.cache.size > 12) this.cache.delete(this.cache.keys().next().value);
       }
@@ -169,13 +170,20 @@ export class TokenTelemetry {
         const lines = text.split("\n");
         cached.partial = lines.pop();
         for (const line of lines) {
-          try { (isClaude ? consumeClaudeEvent : consumeTokenEvent)(cached.timeline, JSON.parse(line)); }
+          try { (isMessagesProvider ? consumeClaudeEvent : consumeTokenEvent)(cached.timeline, JSON.parse(line)); }
           catch { /* A damaged or unrecognized event is not token evidence. */ }
         }
       }
     } finally { await handle.close(); }
     const timeline = cached.timeline;
-    if (isClaude) return claudeTelemetry(timeline);
+    if (isMessagesProvider) {
+      const telemetry = claudeTelemetry(timeline);
+      if (metadata.provider === "grok-build") {
+        telemetry.api_estimate.basis = "Grok Build's reported API-equivalent cost for completed turns. Active-turn cost is pending; this is not a grok.com subscription charge. Context tokens update after model responses; Grok Build's automatic compaction threshold is not reported.";
+        telemetry.reason = "Waiting for Grok Build token telemetry.";
+      }
+      return telemetry;
+    }
     const latest = timeline.samples.at(-1);
     return {
       available: Boolean(latest), ...limits,

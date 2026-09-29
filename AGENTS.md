@@ -333,6 +333,12 @@ files, signing keys, or the publishing interface to benchmark agents. Historical
 ASCII/vision frames remain immutable. Room edits and the authored revisions used
 by actions are audited; moving or removing an existing gem preserves its identity.
 
+Benchmark gem collection is permanent. Fresh room entry, room commands, reset,
+and undo must omit gems already in the run's collected-gem ledger, using the
+pinned room revision's stable gem identities. Other objects keep the entry/reset
+semantics above. Apply this before connected-room physics as well as rendering;
+never rewrite historical replay frames to reflect later gem collection.
+
 Existing runs require the exact-hash, paused operator migration in
 `scripts/enable-live-world-updates.mjs`. Preserve all preexisting game state and
 settings. Do not silently reseal unrelated prior engine or level drift.
