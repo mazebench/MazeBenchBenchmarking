@@ -1,5 +1,6 @@
 // Offline wire-level regression: inspect the tools emitted by the real Codex
 // binary, not just our launch flags. No credentials or paid model calls are used.
+import "../benchmarking/codex-releases.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -23,7 +24,7 @@ const server = createServer(async (request, response) => {
   const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   const groups = [...(payload.tools || []), ...(payload.input || []).filter(item => item.type === "additional_tools").flatMap(item => item.tools || [])];
   const compaction = (payload.input || []).some(item => item.type === "compaction_trigger");
-  requests.push({ model: payload.model, groups, compaction, url: request.url });
+  requests.push({ model: payload.model, effort: payload.reasoning?.effort, groups, compaction, url: request.url });
   if (request.url.endsWith("/compact")) {
     response.writeHead(404);
     response.end('{"detail":"Not Found"}');
@@ -79,16 +80,17 @@ function toolNames(groups) {
 }
 
 try {
-  for (const model of ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-terra"]) {
+  for (const model of ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-terra"]) {
     for (const toolsEnabled of [false, true]) {
       const directory = path.join(temporary, `${model}-${toolsEnabled ? "on" : "off"}`);
       await mkdir(path.join(directory, "agent-cwd"), { recursive: true });
-      const configuration = { model, effort: "low", tools_enabled: toolsEnabled, action_limit: 1, start_room: "HxI", effective_prompt_sha256: "offline-validation" };
+      const effort = model === "gpt-6.1-sol" ? "max" : "low";
+      const configuration = { model, effort, tools_enabled: toolsEnabled, action_limit: 1, start_room: "HxI", effective_prompt_sha256: "offline-validation" };
       const integrity = await createRunIntegrity(projectRoot, directory, configuration);
       await writeFile(path.join(directory, "run.json"), JSON.stringify({ ...configuration, integrity }));
       await BenchmarkGameRuntime.create(projectRoot, directory, { actionLimit: 1 });
       await writeDirectToolModelCatalog(directory, model);
-      const options = { projectRoot, runDirectory: directory, agentDirectory: path.join(directory, "agent-cwd"), modelCatalogPath: path.join(directory, "sandbox-state/direct-model-catalog.json"), model, effort: "low", toolsEnabled, disabledFeatures: policy.disabled_features, enabledFeatures: policy.enabled_features, prompt: "Reply validation complete." };
+      const options = { projectRoot, runDirectory: directory, agentDirectory: path.join(directory, "agent-cwd"), modelCatalogPath: path.join(directory, "sandbox-state/direct-model-catalog.json"), model, effort, toolsEnabled, disabledFeatures: policy.disabled_features, enabledFeatures: policy.enabled_features, prompt: "Reply validation complete." };
       const expected = [
         // The CLI always advertises these helpers when an MCP is configured.
         // MazeBench returns empty lists and rejects every resource URI.
@@ -98,9 +100,12 @@ try {
       ].sort();
       const initial = await run(buildCodexArguments(options), directory);
       assert.equal(initial.request.model, model);
+      assert.equal(initial.request.effort, effort);
       assert.deepEqual(toolNames(initial.request.groups), expected);
       const resumed = await run(buildCodexArguments({ ...options, resumeThreadId: initial.thread }), directory);
       assert.equal(resumed.thread, initial.thread);
+      assert.equal(resumed.request.model, model);
+      assert.equal(resumed.request.effort, effort);
       assert.deepEqual(toolNames(resumed.request.groups), expected);
       const interview = await run(buildInterviewArguments({ ...options, parentThreadId: initial.thread, outputFile: path.join(directory, "interview.txt"), question: "Describe the validation." }), directory);
       assert.notEqual(interview.thread, initial.thread);

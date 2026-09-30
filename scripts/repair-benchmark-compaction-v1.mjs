@@ -1,5 +1,6 @@
 // Operator-only, explicitly requested repair for the September 4 compaction
 // transport bug. Not exposed to MCP or HTTP. Never reseal arbitrary changes.
+import "../benchmarking/codex-releases.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";

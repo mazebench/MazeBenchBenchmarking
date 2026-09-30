@@ -93,7 +93,11 @@ endpoint, with a 15-minute cache and a manual refresh. A failed/offline lookup i
 shown as unknown, never as up to date. Updating is an explicit operator action
 using `codex update`; it does not automatically expand the tested-version list.
 
-Before admitting another version in `codex-installation.mjs`, run:
+Additional reviewed CLI releases are registered by the operator-side
+`benchmarking/codex-releases.mjs`, outside the frozen runtime asset trees.
+This preserves historical run manifests and pinned binaries; it does not
+change tool permissions or auto-approve future versions. Before admitting
+another release, run:
 
 ```sh
 node --test tests/*.test.mjs
@@ -103,7 +107,7 @@ node scripts/sync-engine-v1.mjs --check
 
 The capability script uses the actual CLI and an unauthenticated loopback
 Responses fixture to inspect the emitted model/tool catalog. It tests Astra,
-GPT-6 Sol, GPT-6 Luna, and Terra with Python on/off, initial and resumed turns,
+GPT-6.1 Sol at Max, GPT-6 Sol, GPT-6 Luna, and Terra with Python on/off, initial and resumed turns,
 and interview forks and follow-ups. It uses a temporary Codex home, never sends credentials or prompts
 to an external service, and removes its fixtures afterward. Also perform a
 bounded live model smoke test in separate validation records after an upgrade.
@@ -215,8 +219,24 @@ Before admitting a different Grok Build release, run the full test suite and a
 bounded live OAuth smoke for tools off and on. Verify the initialization event
 still contains exactly `search_tool` and `use_tool`, discovery publishes only
 the condition's MazeBench tools, `modelUsage` reports the reviewed 4.7 backing
-model, pause/resume preserves the session, and all adversarial boundary tests
+model, pause/resume preserves conversation history (via the explicit continuation
+fork workaround in `grok/policy.mjs`), and all adversarial boundary tests
 fail closed. Validation records should use a separate records root.
+
+The 2026-09-28 upgrade admitted Codex 0.158.0, Claude Code 2.1.284 (including
+`claude-sonnet-5-5`), and stable Grok Build 1.0.41 after real-client capability
+checks, bounded live checks in both Python conditions, and the regression
+suite. Claude's built-in `agents-md@builtin` plugin is explicitly disabled;
+do not weaken the empty-plugin event check to admit it. Existing frozen records
+are not resealed or migrated by a CLI upgrade.
+
+Antigravity runs are outside these older frozen provider inventories. The
+1.2.13 custom agent has no native tools or inherited customizations. Real-client
+wire tests verify the effective MCP-only catalog (the startup registry is not
+the effective catalog), rejected native execution, both Python conditions and
+conversation resume. Large responses use lossless, content-addressed read-only
+pages through maze_observe, never an Antigravity host-file reader. See
+`benchmarking/antigravity/README.md` for isolation and validation details.
 
 The current dashboard modules live under `benchmarking/ui/`; the original
 v1 dashboard modules remain unchanged to preserve the existing Codex run's

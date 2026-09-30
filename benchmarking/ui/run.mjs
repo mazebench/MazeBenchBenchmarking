@@ -3,7 +3,7 @@ import { mergeRunUpdate } from "../storage/history-delta.mjs";
 import { benchmarkFetch, visionUrl } from "./benchmark-api.mjs";
 const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
-const providerName = provider => ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build" })[provider || "codex"] || provider;
+const providerName = provider => ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity" })[provider || "codex"] || provider;
 import { drawNovelty } from "../ui/novelty-chart.mjs";
 import { renderIceLevelTimings } from "./ice-level-timings.mjs";
 

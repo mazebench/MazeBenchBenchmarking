@@ -1,3 +1,4 @@
+import "../benchmarking/codex-releases.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";

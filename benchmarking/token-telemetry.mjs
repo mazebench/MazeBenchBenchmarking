@@ -6,6 +6,7 @@ import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { safeReadFile, safeDirectory } from "./v1/safe-files.mjs";
 import { createClaudeTimeline, consumeClaudeEvent, claudeTelemetry } from "./claude-telemetry.mjs";
+import { createAntigravityTimeline, consumeAntigravityEvent, antigravityTelemetry } from "./antigravity-telemetry.mjs";
 
 const finite = value => typeof value === "number" && Number.isFinite(value) && value >= 0;
 const PRICING_SOURCE = "https://developers.openai.com/api/docs/pricing";
@@ -139,7 +140,8 @@ export class TokenTelemetry {
 
   async readTimeline(runDirectory) {
     const metadata = JSON.parse(safeReadFile(runDirectory, "run.json"));
-    const isMessagesProvider = ["claude-code", "grok-build"].includes(metadata.provider);
+    const isAntigravity = metadata.provider === "antigravity";
+    const isMessagesProvider = ["claude-code", "grok-build", "antigravity"].includes(metadata.provider);
     let model;
     try {
       const catalog = JSON.parse(safeReadFile(runDirectory, "sandbox-state/direct-model-catalog.json"));
@@ -147,7 +149,7 @@ export class TokenTelemetry {
     } catch { /* Legacy records may not have a frozen model catalog. */ }
     const limits = modelTokenLimits(model);
     let cached = this.cache.get(runDirectory);
-    const messagesFile = metadata.provider === "grok-build" ? "grok-events.jsonl" : "claude-events.jsonl";
+    const messagesFile = isAntigravity ? "antigravity-events.jsonl" : metadata.provider === "grok-build" ? "grok-events.jsonl" : "claude-events.jsonl";
     const file = cached?.file || (isMessagesProvider ? path.join(runDirectory, messagesFile) : await this.findRollout(metadata));
     if (!file) return { available: false, ...limits, samples: [], compactions: [], reason: `Waiting for ${metadata.provider === "grok-build" ? "Grok Build" : "Codex"} token telemetry.` };
     const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(error => { if (error.code === "ENOENT") return null; throw error; });
@@ -156,7 +158,7 @@ export class TokenTelemetry {
       const stat = await handle.stat();
       if (!stat.isFile() || stat.nlink !== 1) throw new Error("Invalid token telemetry file.");
       if (!cached || cached.inode !== stat.ino || stat.size < cached.offset) {
-        cached = { file, inode: stat.ino, offset: 0, partial: "", decoder: new StringDecoder("utf8"), timeline: isMessagesProvider ? createClaudeTimeline() : createTokenTimeline() };
+        cached = { file, inode: stat.ino, offset: 0, partial: "", decoder: new StringDecoder("utf8"), timeline: isAntigravity ? createAntigravityTimeline() : isMessagesProvider ? createClaudeTimeline() : createTokenTimeline() };
         this.cache.set(runDirectory, cached);
         if (this.cache.size > 12) this.cache.delete(this.cache.keys().next().value);
       }
@@ -170,12 +172,13 @@ export class TokenTelemetry {
         const lines = text.split("\n");
         cached.partial = lines.pop();
         for (const line of lines) {
-          try { (isMessagesProvider ? consumeClaudeEvent : consumeTokenEvent)(cached.timeline, JSON.parse(line)); }
+          try { (isAntigravity ? consumeAntigravityEvent : isMessagesProvider ? consumeClaudeEvent : consumeTokenEvent)(cached.timeline, JSON.parse(line)); }
           catch { /* A damaged or unrecognized event is not token evidence. */ }
         }
       }
     } finally { await handle.close(); }
     const timeline = cached.timeline;
+    if (isAntigravity) return antigravityTelemetry(timeline);
     if (isMessagesProvider) {
       const telemetry = claudeTelemetry(timeline);
       if (metadata.provider === "grok-build") {

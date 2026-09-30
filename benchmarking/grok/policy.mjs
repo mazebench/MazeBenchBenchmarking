@@ -9,7 +9,7 @@ import { safeReadFile } from "../v1/safe-files.mjs";
 
 export const GROK_PROVIDER = "grok-build";
 export const GROK_POLICY = "grok-build-mcp-only-v1";
-export const VERIFIED_GROK_VERSIONS = new Set(["1.0.40"]);
+export const VERIFIED_GROK_VERSIONS = new Set(["1.0.40", "1.0.41"]);
 export const GROK_MODELS = [{
   id: "grok-4.7",
   name: "Grok 4.7",

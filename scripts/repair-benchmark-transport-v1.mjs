@@ -1,6 +1,7 @@
 // Operator-only migration for the audited transport-notice classification fix.
 // Not exposed to the agent MCP or HTTP. Only this exact source hash transition
 // is permitted; state, scores, capabilities and prompts are never resealed.
+import "../benchmarking/codex-releases.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";

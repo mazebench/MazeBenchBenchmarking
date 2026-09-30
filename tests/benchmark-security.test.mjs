@@ -1,3 +1,4 @@
+import "../benchmarking/codex-releases.mjs";
 import assert from "node:assert/strict";
 import { cp, mkdtemp, mkdir, readFile, writeFile, rm, symlink, link } from "node:fs/promises";
 import os from "node:os";
@@ -6,7 +7,7 @@ import test from "node:test";
 import { runSandboxedPython, preflightPythonSandbox, workspaceInventory } from "../benchmarking/v1/python-sandbox.mjs";
 import { createRunIntegrity, verifyRunIntegrity, verifyCheckpoint, signCheckpoint, assertRunConfiguration, CAPABILITY_POLICY_VERSION } from "../benchmarking/v1/integrity.mjs";
 import { buildCodexArguments, buildInterviewArguments, assertHardenedCodexArguments, eventBoundaryViolation, publicRunError, BenchmarkSupervisor, isRecoverableCompactionError } from "../benchmarking/v1/supervisor.mjs";
-import { checkLatestCodex, codexInstallationStatus } from "../benchmarking/v1/codex-installation.mjs";
+import { checkLatestCodex, codexInstallationStatus, inspectCodex } from "../benchmarking/v1/codex-installation.mjs";
 import { isTrustedLocalRequest } from "../benchmarking/v1/http-security.mjs";
 import { BenchmarkGameRuntime, loadBenchmarkAssets } from "../benchmarking/v1/runtime.mjs";
 
@@ -212,8 +213,9 @@ test("unexpected tools invalidate benchmark turns and all interview tool calls",
 
 test("version checker distinguishes current, outdated, unsupported and offline results", async () => {
   const fetchRelease = version => async () => ({ ok: true, json: async () => ({ tag_name: `rust-v${version}` }) });
-  const current = await codexInstallationStatus("codex", { force: true, fetchRelease: fetchRelease("0.155.0") });
-  assert.equal(current.version, "codex-cli 0.155.0");
+  const installed = inspectCodex("codex");
+  const current = await codexInstallationStatus("codex", { force: true, fetchRelease: fetchRelease(installed.version.replace("codex-cli ", "")) });
+  assert.equal(current.version, installed.version);
   assert.equal(current.update_status, "up-to-date");
   assert.equal(current.tested, true);
   const outdated = await codexInstallationStatus("codex", { force: true, fetchRelease: fetchRelease("99.0.0") });

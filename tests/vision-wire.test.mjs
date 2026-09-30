@@ -1,5 +1,6 @@
 // Real Codex -> real vision MCP -> local Responses fixture. No paid requests
 // or credentials: the test proves the PNG actually reaches model input.
+import "../benchmarking/codex-releases.mjs";
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createServer } from 'node:http';

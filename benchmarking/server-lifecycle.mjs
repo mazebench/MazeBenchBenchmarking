@@ -30,7 +30,7 @@ export function withRunnerLiveness(BaseSupervisor) {
       if (!this.active.has(id) && transientStatuses.has(metadata.status)) {
         // A previous HTTP owner may have left a child alive. Never launch a
         // second writer against that child's checkpoint or conversation.
-        const identifiers = [metadata.id, metadata.codex_thread_id, metadata.claude_session_id, metadata.grok_session_id]
+        const identifiers = [metadata.id, metadata.codex_thread_id, metadata.claude_session_id, metadata.grok_session_id, metadata.antigravity_session_id]
           .filter(value => typeof value === "string" && value.length > 0);
         const processes = await this.runnerProcessListing();
         if (processes.split("\n").some(line => identifiers.some(value => line.includes(value)))) {

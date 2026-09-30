@@ -54,6 +54,20 @@ function toolEnd(timeline, id, at) {
 export function consumeThinkingEvent(timeline, event, provider = "codex") {
   const at = time(event);
   if (!Number.isFinite(at)) return;
+  if (provider === "antigravity") {
+    if (event.event === "init") begin(timeline, at);
+    const step = event.step_update;
+    const id = step ? `${step.conversation_id}:${step.step_index}` : null;
+    if (step?.tool_name && step.state === "ACTIVE") toolStart(timeline, id, step.tool_info?.parameters?.ToolName || step.tool_name, at);
+    if (step?.tool_name && ["DONE", "ERROR"].includes(step.state)) toolEnd(timeline, id, at);
+    if (step?.text_delta) timeline.lastMessage = at;
+    if (event.event === "result") {
+      if (event.result?.status === "SUCCESS") finish(timeline, timeline.lastMessage ?? at, "response finished");
+      else interrupt(timeline);
+      timeline.open = false;
+    }
+    return;
+  }
   if (["claude-code", "grok-build"].includes(provider)) {
     if (event.parent_tool_use_id) return;
     if (event.type === "system" && event.subtype === "init") begin(timeline, at);
@@ -217,7 +231,7 @@ export class RunTelemetry {
       entry = {}; this.cache.set(directory, entry);
       if (this.cache.size > 12) this.cache.delete(this.cache.keys().next().value);
     }
-    const file = metadata.provider === "claude-code" ? "claude-events.jsonl" : metadata.provider === "grok-build" ? "grok-events.jsonl" : "agent-events.jsonl";
+    const file = metadata.provider === "antigravity" ? "antigravity-events.jsonl" : metadata.provider === "claude-code" ? "claude-events.jsonl" : metadata.provider === "grok-build" ? "grok-events.jsonl" : "agent-events.jsonl";
     const timeline = await this.consumeFile(directory, file, entry, createThinkingTimeline,
       (value, event) => consumeThinkingEvent(value, event, metadata.provider));
     const activity = await this.consumeFile(directory, "tool-activity.jsonl", entry, () => [], (value, event) => {

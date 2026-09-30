@@ -1,3 +1,4 @@
+import "../benchmarking/codex-releases.mjs";
 import test, { before, after } from "node:test";
 import { historicalRepairFixture } from "./historical-repair-fixture.mjs";
 import assert from "node:assert/strict";

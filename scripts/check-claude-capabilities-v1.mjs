@@ -84,7 +84,7 @@ try {
     const configuration = { provider: CLAUDE_PROVIDER, claude_policy: CLAUDE_POLICY,
       claude_executable: installation.executable, claude_version: installation.version, claude_sha256: digest(await readFile(installation.executable)),
       provider_runtime: await providerRuntimeHashes(projectRoot),
-      model: "claude-sonnet-5", effort: "low", tools_enabled: toolsEnabled, action_limit: 2, start_room: "HxI", effective_prompt_sha256: digest(prompt) };
+      model: "claude-sonnet-5-5", effort: "low", tools_enabled: toolsEnabled, action_limit: 2, start_room: "HxI", effective_prompt_sha256: digest(prompt) };
     const integrity = await createRunIntegrity(projectRoot, directory, configuration);
     await writeFile(path.join(directory, "run.json"), JSON.stringify({ ...configuration, integrity }));
     await writeFile(path.join(directory, "prompt.md"), prompt);

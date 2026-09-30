@@ -1,3 +1,4 @@
+import '../benchmarking/codex-releases.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, writeFile, rm, symlink } from 'node:fs/promises';

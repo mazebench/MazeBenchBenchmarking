@@ -14,22 +14,22 @@ let codexReady = false;
 let installationStatus = {};
 
 function providerName(provider) {
-  return ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build" })[provider] || provider;
+  return ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity" })[provider] || provider;
 }
 
 function providerCompatible(provider) {
-  return provider !== "grok-build" || (elements.world.value === "main-world" && elements["observation-mode"].value === "ascii");
+  return !["grok-build", "antigravity"].includes(provider) || (elements.world.value === "main-world" && elements["observation-mode"].value === "ascii");
 }
 
 function updateReadiness() {
   const provider = elements.provider.value;
   const status = installationStatus[provider];
-  const needsAuth = ["claude-code", "grok-build"].includes(provider);
+  const needsAuth = ["claude-code", "grok-build", "antigravity"].includes(provider);
   codexReady = Boolean(status?.available && status?.tested && (!needsAuth || status.authenticated) && providerCompatible(provider) && models.some(model => model.id === elements.model.value && (model.provider || "codex") === provider));
   elements["codex-version"].textContent = status?.version ? `${providerName(provider)} ${status.version.replace(/^codex-cli /, "")}` : "Checking agent…";
   const labels = { "up-to-date": "Up to date", "update-available": `Update available: ${status?.latest_version}. Run codex update, then restart the server.`, "newer-than-release": "Newer than the current stable release", unknown: "Latest release check unavailable" };
   elements["codex-update-status"].textContent = !providerCompatible(provider)
-    ? "Grok Build currently supports Main World with ASCII observations."
+    ? `${providerName(provider)} currently supports Main World with ASCII observations.`
     : !status ? "Checking installation and sign-in…" : status.error || (needsAuth
     ? `${status?.authenticated ? "Signed in" : "Not signed in"} · ${status?.tested ? "Benchmark tool boundary verified" : "Version needs validation"}`
     : `${labels[status?.update_status] || "Checking installation"} · ${status?.tested ? "Benchmark checks supported" : "Version needs validation"}`);
@@ -42,7 +42,7 @@ async function checkCodex(force = false) {
   elements["check-codex"].disabled = true;
   try {
     installationStatus = await api(`/api/benchmark/v1/providers${force ? "?force=1" : ""}`);
-  } catch (error) { installationStatus = { codex: { error: error.message }, "claude-code": { error: error.message }, "grok-build": { error: error.message } }; }
+  } catch (error) { installationStatus = Object.fromEntries(["codex", "claude-code", "grok-build", "antigravity"].map(provider => [provider, { error: error.message }])); }
   finally { elements["check-codex"].disabled = false; updateReadiness(); }
 }
 
@@ -188,7 +188,7 @@ function updateModels() {
     const option = document.createElement("option");
     option.value = model.id;
     option.textContent = model.name;
-    const preferred = ({ codex: "gpt-5.6-terra", "claude-code": "claude-sonnet-5", "grok-build": "grok-4.7" })[elements.provider.value];
+    const preferred = ({ codex: "gpt-5.6-terra", "claude-code": "claude-sonnet-5-5", "grok-build": "grok-4.7", antigravity: "gemini-3.8-flash-medium" })[elements.provider.value];
     option.selected = model.id === preferred;
     elements.model.append(option);
   }
@@ -240,7 +240,6 @@ async function launchSingle(event) {
 }
 
 async function launchPair() {
-  if (elements["action-limit"].value === "unlimited") elements["action-limit"].value = elements.world.value === "slotski" ? "1000" : "100";
   setLaunching(true, "Preflighting Python isolation, then starting both conditions…");
   try {
     await api("/api/benchmark/v1/pairs", {
@@ -336,7 +335,7 @@ const requestedWorld = new URLSearchParams(location.search).get("world");
 if (["ice-maze", "slotski"].includes(requestedWorld)) elements.world.value = requestedWorld;
 if (elements.world.value === "slotski") elements["action-limit"].value = "1000";
 elements.world.addEventListener("change", () => {
-  elements["action-limit"].value = elements.world.value === "slotski" ? "1000" : "100";
+  elements["action-limit"].value = elements.world.value === "slotski" ? "1000" : "unlimited";
   updateWorld();
 });
 updateWorld();
