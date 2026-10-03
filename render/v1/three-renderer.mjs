@@ -84,6 +84,7 @@ export class ThreeMazeRendererV1 {
     this.canvas = canvas;
     this.mode = options.mode || "world";
     this.onInspect = options.onInspect || null;
+    this.onViewChange = options.onViewChange || null;
     this.onSelect = options.onSelect || null;
     this.onPaint = options.onPaint || null;
     this.scene = new THREE.Scene();
@@ -175,6 +176,7 @@ export class ThreeMazeRendererV1 {
         return;
       }
       this.cancelCameraMotion();
+      this.onInspect?.(null);
       this.pointer = { x: event.clientX, y: event.clientY, moved: false, headingDrag: 0 };
     });
     this.canvas.addEventListener("pointermove", (event) => {
@@ -206,7 +208,9 @@ export class ThreeMazeRendererV1 {
         this.lastPaintKey = "";
         return;
       }
-      if (this.pointer && !this.pointer.moved) this.onSelect?.(this.hitTest(event));
+      if (event.type === "pointerup" && event.button === 0 && this.pointer && !this.pointer.moved) {
+        this.onSelect?.(this.hitTest(event));
+      }
       this.pointer = null;
     };
     this.canvas.addEventListener("pointerup", finishPointer);
@@ -257,12 +261,22 @@ export class ThreeMazeRendererV1 {
     this.scheduleCameraFrame();
   }
 
+  setCameraControl(key, active) {
+    // Keep touch controls separate from physical keys held at the same time.
+    const control = `control:${key}`;
+    if (active) this.cameraMotion.heldKeys.add(control);
+    else this.cameraMotion.heldKeys.delete(control);
+    if (active && (key === "q" || key === "e")) this.cameraMotion.zoomAnimation = null;
+    this.recomputeContinuousDirections();
+  }
+
   recomputeContinuousDirections() {
     const motion = this.cameraMotion;
-    motion.tiltDirection = Number(motion.heldKeys.has("w")) - Number(motion.heldKeys.has("s"));
-    motion.zoomDirection = Number(motion.heldKeys.has("e")) - Number(motion.heldKeys.has("q"));
-    motion.panHorizontal = Number(motion.heldKeys.has("arrowright")) - Number(motion.heldKeys.has("arrowleft"));
-    motion.panForward = Number(motion.heldKeys.has("arrowup")) - Number(motion.heldKeys.has("arrowdown"));
+    const held = (key) => motion.heldKeys.has(key) || motion.heldKeys.has(`control:${key}`);
+    motion.tiltDirection = Number(held("w")) - Number(held("s"));
+    motion.zoomDirection = Number(held("e")) - Number(held("q"));
+    motion.panHorizontal = Number(held("arrowright")) - Number(held("arrowleft"));
+    motion.panForward = Number(held("arrowup")) - Number(held("arrowdown"));
     if (motion.panHorizontal || motion.panForward) motion.centerAnimation = null;
     if (
       motion.tiltDirection || motion.tiltVelocity ||
@@ -825,6 +839,33 @@ export class ThreeMazeRendererV1 {
     this.camera.layers.set(0);
     this.renderer.render(this.scene, this.camera);
     if (this.mode !== "world") this.renderThickOutlines();
+    this.onViewChange?.(this);
+  }
+
+  projectRoomOutline(room) {
+    const left = room.columnIndex * this.world.roomWidth - this.totalWidth / 2;
+    const top = room.rowIndex * this.world.roomHeight - this.totalHeight / 2;
+    const corners = [
+      [left, top], [left + this.world.roomWidth, top],
+      [left + this.world.roomWidth, top + this.world.roomHeight], [left, top + this.world.roomHeight]
+    ].map(([x, z]) => new THREE.Vector3(x, 0.05, z).applyMatrix4(this.camera.matrixWorldInverse));
+    // Clip against the near plane before projection, including at close zoom.
+    const clipped = [];
+    const nearZ = -this.camera.near;
+    for (let index = 0; index < corners.length; index++) {
+      const start = corners[index];
+      const end = corners[(index + 1) % corners.length];
+      const startInside = start.z <= nearZ;
+      const endInside = end.z <= nearZ;
+      if (startInside) clipped.push(start.clone());
+      if (startInside !== endInside) {
+        clipped.push(start.clone().lerp(end, (nearZ - start.z) / (end.z - start.z)));
+      }
+    }
+    return clipped.map((point) => {
+      point.applyMatrix4(this.camera.projectionMatrix);
+      return { x: (point.x + 1) * this.canvas.clientWidth / 2, y: (1 - point.y) * this.canvas.clientHeight / 2 };
+    });
   }
 
   zoomBy(factor) {
