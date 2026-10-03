@@ -16,8 +16,7 @@ Once the server is running, you can go directly to:
 
 - Benchmarks: Run eval with Codex / Claude Code / Grok / Antigravity
 - Play: Explore the world for yourself
-- Room editor: 
-- World solver: 
+- Room editor: Edit and save levels in MazeBench
 
 ---
 
