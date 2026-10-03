@@ -1,3 +1,4 @@
+import { bindCameraHold } from "./camera-controls.mjs";
 import { RENDERER_VERSION } from "./world-renderer.mjs";
 import { ThreeMazeRendererV1 } from "./three-renderer.mjs";
 import { loadMainWorldV2 } from "./voxel-world-v2.mjs";
@@ -7,6 +8,7 @@ const elements = {
   viewport: document.getElementById("viewport"),
   status: document.getElementById("status"),
   loading: document.getElementById("loading"),
+  loadProgress: document.getElementById("load-progress"),
   roomActions: document.getElementById("room-actions"),
   selectedRoom: document.getElementById("selected-room"),
   roomPlay: document.getElementById("room-play"),
@@ -77,58 +79,8 @@ function select(hit) {
   elements.roomActions.hidden = false;
 }
 
-// A tap takes one step; a hold uses the renderer's smooth keyboard motion.
-// Pointer capture and cancellation prevent a released control from sticking.
 function bindHold(id, key, tap) {
-  const button = document.getElementById(id);
-  let holdTimer;
-  let pulseTimer;
-  let holding = false;
-  let suppressClick = false;
-  let pointerId = null;
-  const stop = () => {
-    clearTimeout(holdTimer);
-    clearTimeout(pulseTimer);
-    renderer?.setCameraControl(key, false);
-    button.classList.remove("is-active");
-    pointerId = null;
-  };
-  button.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || pointerId !== null || !renderer) return;
-    stop();
-    pointerId = event.pointerId;
-    holding = false;
-    suppressClick = false;
-    button.setPointerCapture(event.pointerId);
-    button.classList.add("is-active");
-    holdTimer = setTimeout(() => {
-      holding = true;
-      renderer.setCameraControl(key, true);
-    }, 180);
-  });
-  button.addEventListener("pointerup", (event) => {
-    if (event.pointerId !== pointerId) return;
-    suppressClick = holding;
-    stop();
-  });
-  const cancel = () => {
-    suppressClick = true;
-    stop();
-  };
-  button.addEventListener("pointercancel", cancel);
-  button.addEventListener("lostpointercapture", () => { if (pointerId !== null) cancel(); });
-  window.addEventListener("blur", cancel);
-  document.addEventListener("visibilitychange", () => { if (document.hidden) cancel(); });
-  button.addEventListener("click", (event) => {
-    if (suppressClick && event.detail !== 0) { suppressClick = false; return; }
-    if (!renderer) return;
-    if (tap) tap();
-    else {
-      clearTimeout(pulseTimer);
-      renderer.setCameraControl(key, true);
-      pulseTimer = setTimeout(stop, 150);
-    }
-  });
+  return bindCameraHold(document.getElementById(id), { key, getRenderer: () => renderer, tap });
 }
 
 bindHold("zoom-in", "q", () => renderer.zoomBy(0.8));
@@ -147,10 +99,8 @@ window.addEventListener("keydown", (event) => {
 
 try {
   const world = await loadMainWorldV2((complete, total) => {
-    if (complete === total || complete % 16 === 0) {
-      elements.loading.lastElementChild.textContent = `Reading rooms ${complete}/${total}`;
-      elements.status.textContent = `Loading ${complete}/${total}`;
-    }
+    elements.loadProgress.max = total;
+    elements.loadProgress.value = complete;
   });
   renderer = new ThreeMazeRendererV1(elements.canvas, world, {
     mode: "world",
@@ -164,7 +114,8 @@ try {
   elements.status.textContent = `${world.rooms.length} rooms · ${objectCount.toLocaleString()} 3D objects`;
   document.title = `MazeBench — Main World · renderer v${RENDERER_VERSION}`;
 } catch (error) {
-  elements.loading.lastElementChild.textContent = error.message || "Could not render the world.";
+  elements.loading.textContent = error.message || "Could not render the world.";
+  elements.loading.setAttribute("role", "alert");
   elements.status.textContent = "Load failed";
   elements.loading.classList.add("is-error");
   console.error(error);

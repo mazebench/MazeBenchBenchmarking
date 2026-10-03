@@ -3,6 +3,7 @@ import { AsciiMazeRendererV1 } from "../../render-ascii/v1/ascii-renderer.mjs";
 import { roomContextWorld } from "../../render/v1/room-context.mjs";
 import { ThreeMazeRendererV1 } from "../../render/v1/three-renderer.mjs";
 import { loadMainWorldV2 } from "../../render/v1/voxel-world-v2.mjs";
+import { bindCameraHold } from "../../render/v1/camera-controls.mjs";
 import { cameraRelativeMoveDirection } from "./camera-relative-input.mjs";
 import { ConnectedWorldSessionV1 } from "./connected-world-session.mjs";
 import {
@@ -20,13 +21,11 @@ const elements = {
   asciiLegend: document.getElementById("ascii-legend"),
   asciiSeed: document.getElementById("ascii-seed"),
   seededGlyphs: document.getElementById("seeded-glyphs"),
-  cameraHelp: document.getElementById("camera-help"),
+  zoomControls: document.getElementById("zoom-controls"),
   loading: document.getElementById("loading"),
+  loadProgress: document.getElementById("load-progress"),
   roomName: document.getElementById("room-name"),
-  roomSelect: document.getElementById("room-select"),
   roomGrid: document.getElementById("room-grid"),
-  fileName: document.getElementById("file-name"),
-  moveCount: document.getElementById("move-count"),
   gemCount: document.getElementById("gem-count"),
   state: document.getElementById("play-state"),
   animationDelay: document.getElementById("animation-delay"),
@@ -34,6 +33,7 @@ const elements = {
   reset: document.getElementById("reset"),
   undo: document.getElementById("undo"),
   viewToggle: document.getElementById("view-toggle"),
+  viewLabel: document.getElementById("view-label"),
   editorLink: document.getElementById("editor-link"),
   directionButtons: [...document.querySelectorAll("[data-direction]")]
 };
@@ -107,16 +107,16 @@ function moveFromCamera(direction) {
 }
 
 function setViewMode(mode) {
+  cancelCameraButtons.forEach((cancel) => cancel());
+  renderer?.cancelCameraMotion();
   viewMode = mode === "ascii" ? "ascii" : "3d";
   const ascii = viewMode === "ascii";
   elements.asciiView.hidden = !ascii;
   elements.stage.classList.toggle("is-ascii", ascii);
   elements.stage.dataset.viewMode = viewMode;
-  elements.viewToggle.textContent = ascii ? "3D (M)" : "ASCII (M)";
+  elements.viewLabel.textContent = ascii ? "3D" : "ASCII";
   elements.viewToggle.setAttribute("aria-pressed", String(ascii));
-  elements.cameraHelp.textContent = ascii
-    ? "M 3D · arrows move · R reset · Z undo · A/D rotate · W/S pitch"
-    : "M ASCII · arrows move · R reset · Z undo · A/D rotate · W/S tilt · Q/E zoom";
+  elements.zoomControls.hidden = ascii;
   if (ascii) {
     asciiRenderer.setYaw(renderer.heading);
     asciiRenderer.setPitch(asciiPitch);
@@ -125,6 +125,7 @@ function setViewMode(mode) {
 }
 
 function toggleViewMode() {
+  if (!asciiRenderer || !renderer) return;
   setViewMode(viewMode === "3d" ? "ascii" : "3d");
 }
 
@@ -146,19 +147,16 @@ function updateSeedOptions({ persist = true } = {}) {
 }
 
 function updateSession(summary) {
-  elements.moveCount.textContent = String(summary.moves);
   elements.gemCount.textContent = String(summary.gems);
   elements.directionButtons.forEach((button) => {
     button.disabled = !summary.playerActive;
   });
   elements.undo.disabled = !summary.canUndo;
   if (summary.error) elements.state.textContent = summary.error;
-  else if (summary.undone) elements.state.textContent = "Undid the last command.";
-  else if (summary.reset) elements.state.textContent = "Room reset.";
   else if (!summary.playerActive) elements.state.textContent = "Player fell out of the room.";
   else if (summary.cycle) elements.state.textContent = "Cycle detected; command rolled back.";
-  else if (summary.busy) elements.state.textContent = summary.queued ? `Running · ${summary.queued} queued` : "Running command…";
-  else elements.state.textContent = "Ready for arrow-key input.";
+  else elements.state.textContent = "";
+  elements.state.hidden = !elements.state.textContent;
 }
 
 function formatAnimationDelay(value) {
@@ -174,8 +172,8 @@ function updateAnimationSettings({ persist = true } = {}) {
     elements.animationDelay.value = formatAnimationDelay(animationDelayMs);
   }
   elements.animationRate.textContent = animationDelayMs === 0
-    ? "Intermediate engine frames skipped"
-    : `≈ ${(1000 / animationDelayMs).toFixed(2)} engine frames/second`;
+    ? "Instant moves"
+    : `${Number((1000 / animationDelayMs).toFixed(2))} frames per second`;
   session?.setFrameDelay(animationDelayMs);
   if (!persist) return;
   const url = new URL(location.href);
@@ -193,10 +191,8 @@ function activateRoom(room) {
   const label = room.position.join("×");
   const routeRoom = encodeURIComponent(room.position.join("x"));
   elements.roomName.textContent = label;
-  elements.fileName.textContent = room.fileName;
   elements.editorLink.href = `../../editor/v1/?room=${routeRoom}`;
-  elements.editorLink.textContent = `Edit ${label}`;
-  elements.editorLink.setAttribute("aria-label", `Edit room ${label} in editor v1`);
+  elements.editorLink.setAttribute("aria-label", `Edit room ${label}`);
   markCurrentRoom(room);
   const url = new URL(location.href);
   url.searchParams.set("room", room.position.join("x"));
@@ -208,6 +204,34 @@ function openRoom(room) {
   asciiRenderer.openRoom(room);
   session.open(room);
 }
+
+function rotateCamera(direction) {
+  renderer?.rotateCardinal(direction);
+  if (viewMode === "ascii") {
+    asciiRenderer?.setYaw(renderer?.heading || 0);
+    updateAsciiCameraLabel();
+  }
+}
+
+const cancelCameraButtons = [];
+function bindCamera(id, key, tap) {
+  cancelCameraButtons.push(bindCameraHold(document.getElementById(id), {
+    key,
+    getRenderer: () => renderer,
+    tap,
+    discreteStep: () => {
+      if (viewMode !== "ascii" || (key !== "w" && key !== "s")) return false;
+      setAsciiPitch(asciiPitch + (key === "w" ? -1 : 1));
+      return true;
+    }
+  }));
+}
+bindCamera("tilt-up", "w");
+bindCamera("tilt-down", "s");
+bindCamera("zoom-in", "q", () => renderer.zoomBy(0.8));
+bindCamera("zoom-out", "e", () => renderer.zoomBy(1 / 0.8));
+document.getElementById("rotate-left").addEventListener("click", () => rotateCamera(-1));
+document.getElementById("rotate-right").addEventListener("click", () => rotateCamera(1));
 
 elements.viewToggle.addEventListener("click", toggleViewMode);
 elements.reset.addEventListener("click", () => session?.reset());
@@ -247,10 +271,12 @@ window.addEventListener("keydown", (event) => {
   if (viewMode === "ascii" && (key === "a" || key === "d")) {
     event.preventDefault();
     if (!event.repeat) {
-      renderer?.rotateCardinal(key === "a" ? -1 : 1);
-      asciiRenderer?.setYaw(renderer?.heading || 0);
-      updateAsciiCameraLabel();
+      rotateCamera(key === "a" ? -1 : 1);
     }
+    return;
+  }
+  if (viewMode === "ascii" && (key === "q" || key === "e")) {
+    event.preventDefault();
     return;
   }
   const direction = {
@@ -267,19 +293,17 @@ window.addEventListener("keydown", (event) => {
 try {
   [world, engine] = await Promise.all([
     loadMainWorldV2((complete, total) => {
-      if (complete % 32 === 0 || complete === total) {
-        elements.loading.textContent = `Loading rooms ${complete}/${total}`;
-      }
+      elements.loadProgress.max = total + 1;
+      elements.loadProgress.value = complete;
     }),
     loadMazeBenchEngineV1()
   ]);
   markCurrentRoom = installRoomControlsV1(
     world,
-    elements.roomSelect,
     elements.roomGrid,
     openRoom
   );
-  const requested = new URL(location.href).searchParams.get("room")?.toUpperCase();
+  const requested = new URL(location.href).searchParams.get("room")?.toUpperCase() || "HXI";
   currentRoom = world.rooms.find((room) => room.position.join("X") === requested) || world.rooms[0];
   renderer = new ThreeMazeRendererV1(elements.canvas, roomWorld(currentRoom), { mode: "play" });
   const params = new URL(location.href).searchParams;
@@ -304,12 +328,17 @@ try {
       connectedWorld.simulateCommand(state, room, direction),
     frameDelay: animationDelayMs
   });
-  new ResizeObserver(() => renderer.resize()).observe(elements.stage);
+  new ResizeObserver(() => renderer.resize()).observe(elements.canvas.parentElement);
   openRoom(currentRoom);
   setViewMode("3d");
+  elements.viewToggle.disabled = false;
+  elements.reset.disabled = false;
+  elements.loadProgress.value = elements.loadProgress.max;
   elements.stage.classList.add("is-ready");
 } catch (error) {
   elements.loading.textContent = error?.message || "Play mode failed to load.";
+  elements.loading.classList.add("is-error");
+  elements.loading.setAttribute("role", "alert");
   elements.state.textContent = "Play mode failed to load.";
   console.error(error);
 }

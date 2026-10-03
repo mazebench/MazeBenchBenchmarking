@@ -3,84 +3,90 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="MazeBench play mode powered by the copied engine v1 WebAssembly core.">
-    <title>MazeBench — Play v1</title>
-    <link rel="stylesheet" href="./styles.css">
+    <meta name="description" content="Play MazeBench. Explore rooms, collect gems, and find your way through the world.">
+    <title>MazeBench — Play</title>
     <link rel="stylesheet" href="../../render/v1/visual-effects.css">
     <link rel="stylesheet" href="../../render-ascii/v1/styles.css">
+    <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
     <header class="play-topbar">
-      <nav><a href="../../">← Main World</a> · <a href="../../ice-maze/v1/">Ice Maze</a></nav>
-      <div class="play-title">
-        <strong>MazeBench Play</strong>
-        <span>play v1 · engine v1 · renderer v1</span>
-      </div>
-      <div class="play-actions">
-        <a id="editor-link" href="../../editor/v1/">Edit room</a>
-        <button id="view-toggle" type="button">ASCII (M)</button>
-        <button id="undo" type="button" disabled>Undo (Z)</button>
-        <button id="reset" type="button">Reset (R)</button>
-      </div>
+      <a class="back-link" href="../../" title="Back to the world map"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"></path></svg><span>Back</span></a>
+      <nav class="play-actions" aria-label="Play actions">
+        <a id="editor-link" href="../../editor/v1/">Edit</a>
+        <button id="view-toggle" type="button" aria-keyshortcuts="M" title="Switch between ASCII and 3D (M)" disabled><span id="view-label">ASCII</span><kbd aria-hidden="true">M</kbd></button>
+        <button id="undo" type="button" aria-keyshortcuts="Z" title="Undo last move (Z)" disabled>Undo<kbd aria-hidden="true">Z</kbd></button>
+        <button id="reset" type="button" aria-keyshortcuts="R" title="Reset room (R)" disabled>Reset<kbd aria-hidden="true">R</kbd></button>
+      </nav>
     </header>
 
     <main class="play-layout">
       <section id="stage" class="play-stage" aria-label="MazeBench play mode with 3D and ASCII views">
-        <canvas id="play-canvas"></canvas>
-        <div id="ascii-view" class="ascii-view" hidden>
-          <div class="ascii-toolbar">
-            <strong>ASCII renderer v1</strong>
-            <span id="ascii-camera" class="ascii-camera" aria-live="polite">top-diagonal · 0°</span>
-            <label><input id="seeded-glyphs" type="checkbox"> Seed glyphs</label>
-            <label>Seed <input id="ascii-seed" type="text" value="1" spellcheck="false" disabled></label>
-          </div>
-          <div class="ascii-scroll">
-            <div class="ascii-frame">
-              <pre id="ascii-board" class="ascii-board" aria-label="MazeBench ASCII room"></pre>
-              <div id="ascii-legend" class="ascii-legend" aria-label="Dynamic glyph legend" hidden></div>
+        <div class="play-viewport">
+          <canvas id="play-canvas" aria-label="MazeBench room"></canvas>
+          <div id="ascii-view" class="ascii-view" hidden>
+            <div class="ascii-toolbar">
+              <strong>ASCII</strong>
+              <span id="ascii-camera" class="ascii-camera" aria-live="polite">top-diagonal · 0°</span>
+              <label><input id="seeded-glyphs" type="checkbox"> Seed glyphs</label>
+              <label>Seed <input id="ascii-seed" type="text" value="1" spellcheck="false" disabled></label>
+            </div>
+            <div class="ascii-scroll">
+              <div class="ascii-frame">
+                <pre id="ascii-board" class="ascii-board" aria-label="MazeBench ASCII room"></pre>
+                <div id="ascii-legend" class="ascii-legend" aria-label="Dynamic glyph legend" hidden></div>
+              </div>
             </div>
           </div>
+          <div id="loading" class="loading"><progress id="load-progress" max="257" value="0" aria-label="Loading room"></progress></div>
         </div>
-        <div id="loading" class="loading">Loading engine v1…</div>
-        <div id="camera-help" class="camera-help">M ASCII · arrows move · R reset · Z undo · A/D rotate · W/S tilt · Q/E zoom</div>
+
+        <div class="play-controls">
+          <div class="camera-pad" role="group" aria-label="Camera controls">
+            <button id="tilt-up" class="pad-button" type="button" aria-label="Tilt camera up" aria-keyshortcuts="W" title="Tilt up (W)"><span class="pad-arrow up" aria-hidden="true"></span><kbd aria-hidden="true">W</kbd></button>
+            <button id="rotate-left" class="pad-button" type="button" aria-label="Rotate camera left" aria-keyshortcuts="A" title="Rotate left (A)"><span class="pad-arrow left" aria-hidden="true"></span><kbd aria-hidden="true">A</kbd></button>
+            <span class="pad-label" aria-hidden="true">CAM</span>
+            <button id="rotate-right" class="pad-button" type="button" aria-label="Rotate camera right" aria-keyshortcuts="D" title="Rotate right (D)"><span class="pad-arrow right" aria-hidden="true"></span><kbd aria-hidden="true">D</kbd></button>
+            <button id="tilt-down" class="pad-button" type="button" aria-label="Tilt camera down" aria-keyshortcuts="S" title="Tilt down (S)"><span class="pad-arrow down" aria-hidden="true"></span><kbd aria-hidden="true">S</kbd></button>
+          </div>
+          <div id="zoom-controls" class="zoom-controls" role="group" aria-label="Map zoom">
+            <button id="zoom-in" type="button" aria-label="Zoom in" aria-keyshortcuts="Q" title="Zoom in (Q); hold for continuous zoom"><span aria-hidden="true">+</span><kbd aria-hidden="true">Q</kbd></button>
+            <button id="zoom-out" type="button" aria-label="Zoom out" aria-keyshortcuts="E" title="Zoom out (E); hold for continuous zoom"><span aria-hidden="true">−</span><kbd aria-hidden="true">E</kbd></button>
+          </div>
+          <div class="movement-pad" role="group" aria-label="Movement controls">
+            <button class="pad-button" data-direction="up" type="button" aria-label="Move up" aria-keyshortcuts="ArrowUp" title="Move up (↑)" disabled><span class="pad-arrow up" aria-hidden="true"></span></button>
+            <button class="pad-button" data-direction="left" type="button" aria-label="Move left" aria-keyshortcuts="ArrowLeft" title="Move left (←)" disabled><span class="pad-arrow left" aria-hidden="true"></span></button>
+            <span class="pad-label" aria-hidden="true">MOVE</span>
+            <button class="pad-button" data-direction="right" type="button" aria-label="Move right" aria-keyshortcuts="ArrowRight" title="Move right (→)" disabled><span class="pad-arrow right" aria-hidden="true"></span></button>
+            <button class="pad-button" data-direction="down" type="button" aria-label="Move down" aria-keyshortcuts="ArrowDown" title="Move down (↓)" disabled><span class="pad-arrow down" aria-hidden="true"></span></button>
+          </div>
+        </div>
       </section>
 
-      <aside class="play-sidebar">
-        <section class="panel">
-          <div class="panel-heading">
-            <div><span>Room</span><strong id="room-name">—</strong></div>
-            <select id="room-select" aria-label="Choose room"></select>
+      <aside class="play-sidebar" aria-label="Room and progress">
+        <section class="panel room-panel">
+          <div class="room-heading">
+            <div><span class="eyebrow">Current room</span><strong id="room-name">—</strong></div>
           </div>
-          <div id="room-grid" class="room-grid" aria-label="World room grid"></div>
           <dl class="stats">
-            <div><dt>File</dt><dd id="file-name">—</dd></div>
-            <div><dt>Moves</dt><dd id="move-count">0</dd></div>
-            <div><dt>Gems</dt><dd id="gem-count">0</dd></div>
+            <div><dt>Gems in room</dt><dd id="gem-count">0</dd></div>
           </dl>
+          <p id="play-state" class="play-state" role="status" aria-live="polite" hidden></p>
         </section>
 
-        <section class="panel controls-panel">
-          <div class="panel-heading"><div><span>Command</span><strong>Camera-relative directions</strong></div></div>
-          <div class="dpad" aria-label="Movement controls">
-            <button data-direction="up" class="up" type="button" aria-label="Move up">↑</button>
-            <button data-direction="left" class="left" type="button" aria-label="Move left">←</button>
-            <button data-direction="down" class="down" type="button" aria-label="Move down">↓</button>
-            <button data-direction="right" class="right" type="button" aria-label="Move right">→</button>
-          </div>
-          <p id="play-state" class="play-state" role="status" aria-live="polite">Loading…</p>
+        <section class="panel room-picker" aria-labelledby="world-map-heading">
+          <h2 id="world-map-heading">World map</h2>
+          <div id="room-grid" class="room-grid" aria-label="World room grid"></div>
+        </section>
+
+        <details class="panel playback-panel">
+          <summary>Playback settings</summary>
           <div class="playback-controls">
-            <label class="timing-control">
-              <span>Frame delay (ms)</span>
-              <input id="animation-delay" type="number" min="0" max="10000" step="0.1" value="20" inputmode="decimal">
-            </label>
-            <small id="animation-rate">≈ 50.00 engine frames/second</small>
+            <label class="timing-control" for="animation-delay"><span>Frame delay <small>ms</small></span><input id="animation-delay" type="number" min="0" max="10000" step="0.1" value="20" inputmode="decimal"></label>
+            <small id="animation-rate">50 frames per second</small>
+            <p>Set to 0 for instant moves.</p>
           </div>
-        </section>
-
-        <section class="panel engine-panel">
-          <div class="panel-heading"><div><span>Runtime</span><strong>Copied C++ core</strong></div></div>
-          <p>Every input runs through engine v1. Ice continuation, falling, riders, polycubes, lifts, orange mechanisms, collection, and cycle rollback use its per-tick WebAssembly trace.</p>
-        </section>
+        </details>
       </aside>
     </main>
 

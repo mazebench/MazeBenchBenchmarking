@@ -21,7 +21,7 @@
       </div>
 
       <div class="runtime-meta" aria-live="polite">
-        <output id="status">Loading world map…</output>
+        <output id="status"></output>
       </div>
 
       <nav class="map-controls" aria-label="Main navigation">
@@ -51,9 +51,8 @@
         </g>
       </svg>
       <div id="hover-room-label" class="hover-room-label" aria-hidden="true" hidden></div>
-      <div id="loading" class="loading-card" role="status">
-        <span class="loading-indicator" aria-hidden="true"></span>
-        <span>Reading 256 rooms</span>
+      <div id="loading" class="loading-card">
+        <progress id="load-progress" max="256" value="0" aria-label="Loading world"></progress>
       </div>
       <noscript>This map needs JavaScript to read and draw the level text files.</noscript>
 
