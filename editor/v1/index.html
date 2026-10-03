@@ -4,56 +4,61 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="The lightweight Three.js editor for the MazeBench main world.">
-    <title>MazeBench — Editor v1</title>
+    <title>MazeBench — Editor</title>
     <link rel="stylesheet" href="./styles.css">
     <link rel="stylesheet" href="../../render/v1/visual-effects.css">
   </head>
   <body>
     <header class="editor-topbar">
-      <nav><a href="../../">← World</a></nav>
-      <div class="editor-title">
-        <strong>MazeBench Editor</strong>
-        <span>editor v1 · renderer v1 · engine v1 solvers</span>
+      <div class="editor-navigation">
+        <a class="back-link" href="../../" title="Back to the world map"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"></path></svg><span>Back</span></a>
+        <div class="editor-title"><strong>Editor</strong><span id="room-name">—</span></div>
       </div>
-      <div class="editor-actions">
-        <a id="play-link" class="play-room-link" href="../../play/v1/">Play v1</a>
-        <a class="play-room-link" href="../../world-solver/v1/">World Solver</a>
-        <button id="reset-view" type="button">Reset view</button>
-        <button id="eraser" type="button" aria-pressed="false" title="Erase one object">Eraser</button>
-        <button id="undo" type="button" disabled>Undo</button>
-        <button id="save" class="primary" type="button">Saved</button>
-      </div>
+      <nav class="editor-actions" aria-label="Editor actions">
+        <a id="play-link" href="../../play/v1/">Play</a>
+        <button id="undo" type="button" title="Undo last edit (⌘Z / Ctrl+Z)" disabled>Undo</button>
+        <button id="save" type="button" title="Save room (⌘S / Ctrl+S)" disabled>Saved</button>
+        <details id="editor-menu" class="editor-menu">
+          <summary aria-label="More editor actions" title="More"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></summary>
+          <div class="menu-items">
+            <button id="reset-view" type="button">Reset view<kbd>/</kbd></button>
+            <button id="eraser" type="button" aria-pressed="false" title="Erase one object">Eraser</button>
+            <a href="../../world-solver/v1/">World Solver<span aria-hidden="true">↗</span></a>
+          </div>
+        </details>
+      </nav>
     </header>
 
     <main class="editor-layout">
       <section id="stage" class="editor-stage" aria-label="Three-dimensional level editor">
         <canvas id="editor-canvas"></canvas>
-        <div id="loading" class="loading">Loading editor…</div>
-        <div class="camera-help">A/D rotate · W/S tilt · arrows pan · hold Q/E zoom · / center · right-drag or Alt-drag</div>
+        <div id="loading" class="loading"><progress id="load-progress" max="257" value="0" aria-label="Loading editor"></progress></div>
+        <details class="camera-help">
+          <summary>Camera controls</summary>
+          <dl><div><dt>Rotate</dt><dd>A / D</dd></div><div><dt>Tilt</dt><dd>W / S</dd></div><div><dt>Pan</dt><dd>Arrow keys</dd></div><div><dt>Zoom</dt><dd>Q / E</dd></div><div><dt>Center</dt><dd>/</dd></div></dl>
+          <p>Right-drag or Alt-drag to move the camera.</p>
+        </details>
       </section>
 
-      <aside class="editor-sidebar">
-        <section class="panel room-panel">
-          <div class="panel-heading">
-            <div><span>Room</span><strong id="room-name">—</strong></div>
-            <select id="room-select" aria-label="Choose room"></select>
-          </div>
-          <div id="room-grid" class="room-grid" aria-label="World room grid"></div>
-          <dl class="stats">
-            <div><dt>File</dt><dd id="file-name">—</dd></div>
-            <div><dt>Gems</dt><dd id="gem-count">0</dd></div>
-          </dl>
-        </section>
-
+      <aside class="editor-sidebar" aria-label="Editor tools and room settings">
         <section class="panel tools-panel">
           <div class="panel-heading"><div><span>Toolbox</span><strong id="tool-name">Floor</strong></div></div>
           <p id="tool-description" class="description">Plain ground.</p>
           <div id="toolbox" class="toolbox" aria-label="MazeBench tools"></div>
         </section>
 
-        <section class="panel solver-panel">
-          <div class="panel-heading"><div><span>Engine v1 solvers</span><strong>Collect every gem</strong></div></div>
-          <p class="description">Fast A* favors progress and physics activity. Exact Shortest proves the minimum command count when its state budget is sufficient.</p>
+        <section class="panel room-panel">
+          <div class="room-info">
+            <h2>World map</h2>
+            <dl class="stats"><div><dt>Gems in room</dt><dd id="gem-count">0</dd></div></dl>
+          </div>
+          <div id="room-grid" class="room-grid" aria-label="World room grid"></div>
+        </section>
+
+        <details class="panel solver-panel">
+          <summary>Gem solver</summary>
+          <div class="panel-content">
+          <p class="description">Fast A* searches for a route. Exact Shortest proves the fewest moves when its search budget is sufficient.</p>
           <label class="solver-weight">
             <span>Physics interaction bias</span>
             <input id="physics-interaction-weight" type="number" min="0" max="1000" step="1" value="0" inputmode="numeric">
@@ -65,41 +70,48 @@
             <button id="cancel-solve" type="button" disabled>Cancel</button>
             <button id="replay-solution" type="button" disabled>Replay</button>
           </div>
-          <output id="solver-result" class="solver-result">No solution run yet.</output>
+          <output id="solver-result" class="solver-result" aria-live="polite"></output>
           <div id="solver-path" class="solver-path" aria-label="Solver path"></div>
-        </section>
+          </div>
+        </details>
 
-        <section class="panel solver-panel edge-panel">
-          <div class="panel-heading"><div><span>Engine v1 solvers</span><strong>Edge Finder</strong></div></div>
+        <details class="panel solver-panel edge-panel">
+          <summary>Edge Finder</summary>
+          <div class="panel-content">
           <p class="description">Find exact board states that can cross into neighboring rooms from the authored player start.</p>
           <div class="solver-actions">
             <button id="edge-find" type="button">Quick · 12k</button>
             <button id="edge-exact" type="button">Exact · 180k</button>
           </div>
-          <output id="edge-result" class="solver-result">No edge search run yet.</output>
+          <output id="edge-result" class="solver-result" aria-live="polite"></output>
           <div id="edge-list" class="edge-list"></div>
-        </section>
+          </div>
+        </details>
 
-        <section class="panel cell-panel">
+        <details class="panel transform-panel">
+          <summary>Transform room</summary>
+          <div class="transform-grid panel-content">
+            <button data-transform="left" type="button">↶ Rotate left</button>
+            <button data-transform="right" type="button">↷ Rotate right</button>
+            <button data-transform="horizontal" type="button">↔ Flip horizontal</button>
+            <button data-transform="vertical" type="button">↕ Flip vertical</button>
+          </div>
+        </details>
+
+        <details class="panel cell-panel">
+          <summary>Cell inspector</summary>
+          <div class="panel-content">
           <div class="panel-heading"><div><span>Selected 3D cell</span><strong id="cell-position">—</strong></div></div>
           <label class="raw-field">
-            <span>V2 objects (JSON)</span>
+            <span>Objects (JSON)</span>
             <textarea id="cell-value" rows="7" spellcheck="false" disabled></textarea>
           </label>
           <button id="apply-cell" type="button" disabled>Apply object JSON</button>
-        </section>
-
-        <section class="panel transform-panel">
-          <div class="panel-heading"><div><span>Transform</span><strong>Whole room</strong></div></div>
-          <div class="transform-grid">
-            <button data-transform="left" type="button">↶ Rotate</button>
-            <button data-transform="right" type="button">↷ Rotate</button>
-            <button data-transform="horizontal" type="button">↔ Flip</button>
-            <button data-transform="vertical" type="button">↕ Flip</button>
+          <p class="file-info">File <span id="file-name">—</span></p>
           </div>
-        </section>
+        </details>
 
-        <p id="status" class="status" role="status" aria-live="polite">Ready.</p>
+        <p id="status" class="status" role="status" aria-live="polite" hidden></p>
       </aside>
     </main>
 

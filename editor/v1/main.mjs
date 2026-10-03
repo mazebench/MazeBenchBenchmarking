@@ -36,8 +36,9 @@ const elements = {
   stage: document.getElementById("stage"),
   canvas: document.getElementById("editor-canvas"),
   loading: document.getElementById("loading"),
+  loadProgress: document.getElementById("load-progress"),
+  menu: document.getElementById("editor-menu"),
   roomName: document.getElementById("room-name"),
-  roomSelect: document.getElementById("room-select"),
   roomGrid: document.getElementById("room-grid"),
   fileName: document.getElementById("file-name"),
   gemCount: document.getElementById("gem-count"),
@@ -104,6 +105,7 @@ function renderEditorRoom(renderedRoom = currentRoom, options = {}) {
 
 function setStatus(message, error = false) {
   elements.status.textContent = message;
+  elements.status.hidden = !message;
   elements.status.classList.toggle("is-error", error);
 }
 
@@ -148,6 +150,7 @@ function markDirty(message = "Unsaved changes.") {
   invalidateSolution();
   dirty = true;
   elements.save.textContent = "Save";
+  elements.save.disabled = false;
   elements.save.classList.add("primary");
   elements.gemCount.textContent = String(countBlock(currentRoom.objects, "gem"));
   setStatus(message);
@@ -157,6 +160,7 @@ function markSaved() {
   dirty = false;
   savedObjects = cloneObjects(currentRoom.objects);
   elements.save.textContent = "Saved";
+  elements.save.disabled = true;
   elements.save.classList.remove("primary");
   setStatus(`Saved ${currentRoom.fileName}.`);
 }
@@ -412,10 +416,6 @@ function buildRoomControls() {
   const sorted = world.rooms.slice().sort((a, b) => a.rowIndex - b.rowIndex || a.columnIndex - b.columnIndex);
   sorted.forEach((room) => {
     const label = room.position.join("×");
-    const option = document.createElement("option");
-    option.value = room.fileName;
-    option.textContent = label;
-    elements.roomSelect.append(option);
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.file = room.fileName;
@@ -423,10 +423,6 @@ function buildRoomControls() {
     button.setAttribute("aria-label", `Open room ${label}`);
     button.addEventListener("click", () => switchRoom(room));
     elements.roomGrid.append(button);
-  });
-  elements.roomSelect.addEventListener("change", () => {
-    const room = world.rooms.find((candidate) => candidate.fileName === elements.roomSelect.value);
-    if (room) switchRoom(room);
   });
 }
 
@@ -437,12 +433,12 @@ function updateRoomChrome() {
   elements.fileName.textContent = currentRoom.fileName;
   elements.fileName.title = currentRoom.fileName;
   elements.gemCount.textContent = String(countBlock(currentRoom.objects, "gem"));
-  elements.roomSelect.value = currentRoom.fileName;
   elements.playLink.href = `../../play/v1/?room=${routeRoom}`;
-  elements.playLink.textContent = `Play v1 · ${label}`;
-  elements.playLink.setAttribute("aria-label", `Play room ${label} in play mode v1`);
+  elements.playLink.setAttribute("aria-label", `Play room ${label}`);
+  elements.playLink.title = `Play room ${label}`;
   elements.roomGrid.querySelectorAll("button").forEach((button) => {
     button.classList.toggle("is-current", button.dataset.file === currentRoom.fileName);
+    button.setAttribute("aria-pressed", String(button.dataset.file === currentRoom.fileName));
   });
   const url = new URL(location.href);
   url.searchParams.set("room", currentRoom.position.join("x"));
@@ -452,7 +448,6 @@ function updateRoomChrome() {
 function switchRoom(room) {
   if (room === currentRoom) return;
   if (dirty && !confirm(`Discard unsaved changes to room ${currentRoom.position.join("×")}?`)) {
-    elements.roomSelect.value = currentRoom.fileName;
     return;
   }
   if (dirty) currentRoom.objects = cloneObjects(savedObjects);
@@ -470,8 +465,9 @@ function switchRoom(room) {
   renderEditorRoom(room);
   updateRoomChrome();
   elements.save.textContent = "Saved";
+  elements.save.disabled = true;
   elements.save.classList.remove("primary");
-  setStatus(`Editing v2 room ${room.position.join("×")}.`);
+  setStatus("");
 }
 
 function transformRoom(transform) {
@@ -487,6 +483,7 @@ function transformRoom(transform) {
 }
 
 async function saveRoom() {
+  if (!dirty || elements.save.disabled) return;
   elements.save.disabled = true;
   setStatus(`Saving ${currentRoom.fileName}…`);
   try {
@@ -503,7 +500,7 @@ async function saveRoom() {
   } catch (error) {
     setStatus(error.message || "Save failed.", true);
   } finally {
-    elements.save.disabled = false;
+    elements.save.disabled = !dirty;
   }
 }
 
@@ -623,6 +620,18 @@ async function runEdgeFinder(preset) {
   }
 }
 
+elements.menu.addEventListener("click", (event) => {
+  if (event.target.closest(".menu-items button, .menu-items a")) {
+    elements.menu.open = false;
+    elements.menu.querySelector("summary").focus();
+  }
+});
+document.addEventListener("pointerdown", (event) => {
+  if (!elements.menu.contains(event.target)) elements.menu.open = false;
+});
+document.addEventListener("focusin", (event) => {
+  if (!elements.menu.contains(event.target)) elements.menu.open = false;
+});
 elements.resetView.addEventListener("click", () => renderer?.resetView());
 elements.eraser.addEventListener("click", () => setTool("__erase_top__"));
 elements.save.addEventListener("click", saveRoom);
@@ -691,6 +700,12 @@ window.addEventListener("beforeunload", (event) => {
   event.returnValue = "";
 });
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && elements.menu.open) {
+    event.preventDefault();
+    elements.menu.open = false;
+    elements.menu.querySelector("summary").focus();
+    return;
+  }
   if (event.key === "Escape" && genericPrompt) {
     event.preventDefault();
     closeGenericPrompt();
@@ -710,9 +725,13 @@ window.addEventListener("keydown", (event) => {
 });
 
 try {
+  const loadingControls = [elements.eraser, elements.quickSolve, elements.exactSolve,
+    elements.edgeFind, elements.edgeExact, ...document.querySelectorAll("[data-transform]")];
+  loadingControls.forEach((button) => { button.disabled = true; });
   [world, parser, toolboxCatalog] = await Promise.all([
     loadMainWorldV2((complete, total) => {
-      if (complete % 32 === 0 || complete === total) elements.loading.textContent = `Loading v2 ${complete}/${total}`;
+      elements.loadProgress.max = total + 1;
+      elements.loadProgress.value = complete;
     }),
     fetch("./level_parsing.json").then((response) => response.json()),
     fetch("./toolbox.json").then((response) => response.json())
@@ -730,10 +749,14 @@ try {
   });
   new ResizeObserver(() => renderer.resize()).observe(elements.stage);
   updateRoomChrome();
+  elements.loadProgress.value = elements.loadProgress.max;
+  loadingControls.forEach((button) => { button.disabled = false; });
   elements.stage.classList.add("is-ready");
-  setStatus(`Editing v2 room ${currentRoom.position.join("×")}.`);
+  setStatus("");
 } catch (error) {
   elements.loading.textContent = error.message || "Could not load editor.";
+  elements.loading.classList.add("is-error");
+  elements.loading.setAttribute("role", "alert");
   setStatus("Editor failed to load.", true);
   console.error(error);
 }
