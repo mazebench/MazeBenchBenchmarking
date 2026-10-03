@@ -176,12 +176,12 @@ test("legacy compaction inventory is upgraded without enabling agent capabilitie
 test("Fast mode preserves the tool boundary on new and resumed runs and requires a signed selection", () => {
   const disabledFeatures = ["fast_mode", "shell_tool", "code_mode", "code_mode_host", "future_executor"];
   for (const toolsEnabled of [false, true]) {
-    for (const resumeThreadId of [undefined, "same-thread"]) {
-      const options = { ...argsOptions, toolsEnabled, resumeThreadId, disabledFeatures, serviceTier: "fast" };
+    for (const resumeThreadId of [undefined, "same-thread"]) for (const enabledFeatures of [[], ["fast_mode", "remote_compaction_v2"]]) {
+      const options = { ...argsOptions, toolsEnabled, resumeThreadId, disabledFeatures, enabledFeatures, serviceTier: "fast" };
       const args = buildCodexArguments(options);
       assertHardenedCodexArguments(args, options);
       assert(args.includes('service_tier="fast"'));
-      assert(args.includes("features.fast_mode=true"));
+      assert.equal(args.filter(value => value === "features.fast_mode=true").length, 1);
       assert(args.includes('model_reasoning_effort="low"'));
       for (const feature of disabledFeatures.filter(feature => feature !== "fast_mode")) {
         assert(args.some((value, i) => value === "--disable" && args[i + 1] === feature));

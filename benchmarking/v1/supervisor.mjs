@@ -281,7 +281,10 @@ function appendDisabledFeatureArguments(args, featureNames = BASELINE_DISABLED_F
     if (feature === "fast_mode" && serviceTier === "fast") continue;
     args.push("--disable", feature);
   }
-  for (const feature of enabledFeatures) args.push("-c", `features.${feature}=true`);
+  for (const feature of enabledFeatures) {
+    if (feature === "fast_mode" && serviceTier === "fast") continue; // emitted once below
+    args.push("-c", `features.${feature}=true`);
+  }
   // Service selection changes inference scheduling, not the model's tools.
   if (serviceTier === "fast") args.push("-c", "features.fast_mode=true", "-c", 'service_tier="fast"');
   // Terra's model catalog currently forces code_mode_only. These table-form
