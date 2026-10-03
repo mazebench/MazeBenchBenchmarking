@@ -1,10 +1,9 @@
 import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs";
-const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
-const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
+import { RunListView, providerName, runCompany, selectRuns } from "./run-library.mjs";
 const elements = Object.fromEntries([
-  "world", "world-description", "world-objective", "connection-status", "launch-form", "provider", "model", "effort", "action-limit",
+  "world", "world-description", "world-objective", "connection-status", "launch-form", "provider", "model", "effort", "action-limit", "run-options-summary",
   "tools-enabled", "tools-label", "sequence-option", "sequence-enabled", "observation-option", "observation-mode", "vision-preview", "vision-preview-image", "vision-preview-status", "vision-room", "vision-left", "vision-right", "vision-tilt", "launch-single", "launch-pair",
-  "launch-status", "refresh", "run-list", "record-count", "codex-version", "codex-update-status", "check-codex"
+  "launch-status", "refresh", "run-list", "record-count", "codex-version", "codex-update-status", "check-codex", "runtime-details", "agent-readiness", "run-pagination", "run-page", "previous-runs", "next-runs", "run-company", "run-model", "run-sort"
 ].map((id) => [id, document.getElementById(id)]));
 
 let models = [];
@@ -12,10 +11,6 @@ let polling = false;
 let launching = false;
 let codexReady = false;
 let installationStatus = {};
-
-function providerName(provider) {
-  return ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity" })[provider] || provider;
-}
 
 function providerCompatible(provider) {
   return !["grok-build", "antigravity"].includes(provider) || (elements.world.value === "main-world" && elements["observation-mode"].value === "ascii");
@@ -34,6 +29,9 @@ function updateReadiness() {
     ? `${status?.authenticated ? "Signed in" : "Not signed in"} · ${status?.tested ? "Benchmark tool boundary verified" : "Version needs validation"}`
     : `${labels[status?.update_status] || "Checking installation"} · ${status?.tested ? "Benchmark checks supported" : "Version needs validation"}`);
   elements["check-codex"].textContent = provider === "codex" ? "Check for updates" : "Check installation";
+  elements["agent-readiness"].textContent = codexReady ? "Ready" : status ? "Needs attention" : "Checking…";
+  elements["runtime-details"].classList.toggle("needs-attention", Boolean(status && !codexReady));
+  if (status && !codexReady) elements["runtime-details"].open = true;
   elements["launch-single"].disabled = launching || !codexReady;
   elements["launch-pair"].disabled = launching || !codexReady;
 }
@@ -56,117 +54,34 @@ async function api(path, options = {}) {
   return value;
 }
 
-function statusLabel(value) {
-  return String(value || "unknown").replaceAll("-", " ");
+const runList = new RunListView(elements["run-list"]);
+let latestRuns = [];
+let pollTimer;
+
+function filterOptions(select, values, placeholder) {
+  const options = [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const signature = JSON.stringify(options);
+  if (select.dataset.options === signature) return;
+  const selected = select.value;
+  select.replaceChildren(new Option(placeholder, ""), ...options.map(value => new Option(value, value)));
+  select.value = options.includes(selected) ? selected : "";
+  select.dataset.options = signature;
 }
 
-function compactDate(value) {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  }).format(new Date(value));
-}
-
-function duration(run) {
-  if (!run.created_at) return "";
-  const end = run.completed_at || run.stopped_at || Date.now();
-  const seconds = Math.max(0, Math.floor((new Date(end) - new Date(run.created_at)) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-}
-
-function recordHref(run) {
-  return `./run.html?id=${encodeURIComponent(run.id)}`;
-}
-
-function renderRuns(runs) {
-  elements["run-list"].replaceChildren();
-  elements["record-count"].textContent = `${runs.length} record${runs.length === 1 ? "" : "s"}`;
-  if (!runs.length) {
-    const empty = document.createElement("div");
-    empty.className = "records-empty";
-    empty.innerHTML = "<strong>No evaluations yet</strong><p>Launch a model above. Its record will appear here immediately.</p>";
-    elements["run-list"].append(empty);
-    return;
-  }
-  for (const run of runs) {
-    const card = document.createElement("article");
-    card.className = `record-card${run.tools_enabled ? " tools" : ""}`;
-    const link = document.createElement("a");
-    link.className = "record-card-link";
-    link.href = recordHref(run);
-    const progress = run.action_limit
-      ? Math.min(100, (run.action_count || 0) / run.action_limit * 100)
-      : run.status === "completed" ? 100 : 0;
-
-    const top = document.createElement("div");
-    top.className = "record-top";
-    const condition = document.createElement("span");
-    condition.className = "condition";
-    condition.textContent = `${run.observation_mode === "vision" ? "Vision · " : ""}${run.tools_enabled ? "Python on" : "Python off"}`;
-    const recordStatus = document.createElement("span");
-    recordStatus.className = `record-status ${run.status}`;
-    recordStatus.textContent = statusLabel(run.status);
-    top.append(condition, recordStatus);
-
-    const model = document.createElement("strong");
-    model.className = "record-model";
-    model.textContent = run.model;
-    const meta = document.createElement("span");
-    meta.className = "record-meta";
-    meta.textContent = `${worldName(run)} · ${providerName(run.provider || "codex")} · ${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"} · ${run.service_tier === "fast" ? "Fast" : "Standard speed"}` : ""} · ${compactDate(run.created_at)} · ${duration(run)}`;
-
-    const progressBar = document.createElement("span");
-    progressBar.className = "run-progress";
-    const progressValue = document.createElement("i");
-    progressValue.style.width = `${progress}%`;
-    progressBar.append(progressValue);
-
-    const metrics = document.createElement("div");
-    metrics.className = "record-metrics";
-    const values = [
-      ["Actions", `${run.action_count || 0}${run.action_limit ? `/${run.action_limit}` : ""}`],
-      [numberedWorld(run) ? "Levels solved" : "Gems", numberedWorld(run) ? `${run.levels_solved || 0}/${run.levels_total || (run.world === "slotski" ? 1 : 30)}` : run.gems_collected || 0],
-      [numberedWorld(run) ? "Level" : "Rooms", numberedWorld(run) ? run.level_number : run.rooms_visited || 1],
-      ["Cells", run.unique_cells || 1]
-    ];
-    for (const [label, value] of values) {
-      const metric = document.createElement("span");
-      const name = document.createElement("small");
-      const output = document.createElement("b");
-      name.textContent = label;
-      output.textContent = value;
-      metric.append(name, output);
-      metrics.append(metric);
-    }
-
-    const footer = document.createElement("div");
-    footer.className = "record-footer";
-    const runId = document.createElement("code");
-    runId.textContent = run.id.slice(-13);
-    const footerActions = document.createElement("div");
-    footerActions.className = "record-footer-actions";
-    const open = document.createElement("a");
-    open.href = recordHref(run);
-    open.textContent = "Open model report →";
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "record-delete danger";
-    remove.dataset.deleteRun = run.id;
-    remove.textContent = "Delete";
-    remove.disabled = Boolean(run.runner_active);
-    remove.title = run.runner_active
-      ? "Stop or pause this run before deleting it."
-      : "Permanently delete this run.";
-    footerActions.append(open, remove);
-    footer.append(runId, footerActions);
-    link.append(top, model, meta, progressBar, metrics);
-    card.append(link, footer);
-    elements["run-list"].append(card);
-  }
+function renderRuns(runs, page) {
+  latestRuns = runs;
+  filterOptions(elements["run-company"], runs.map(runCompany), "All companies");
+  const company = elements["run-company"].value;
+  filterOptions(elements["run-model"], runs.filter(run => !company || runCompany(run) === company).map(run => run.model), "All models");
+  const visible = selectRuns(runs, { company, model: elements["run-model"].value, sort: elements["run-sort"].value });
+  const result = runList.update(visible, page);
+  elements["record-count"].textContent = visible.length === runs.length
+    ? `${runs.length} run${runs.length === 1 ? "" : "s"}` : `${visible.length} of ${runs.length} runs`;
+  elements["run-list"].setAttribute("aria-busy", "false");
+  elements["run-pagination"].hidden = result.totalPages === 1;
+  elements["run-page"].textContent = `${result.page + 1} of ${result.totalPages}`;
+  elements["previous-runs"].disabled = result.page === 0;
+  elements["next-runs"].disabled = result.page + 1 === result.totalPages;
 }
 
 function updateEfforts() {
@@ -254,26 +169,40 @@ async function launchPair() {
 }
 
 async function refreshRuns() {
-  const value = await api("/api/benchmark/v1/runs");
+  const value = await api("/api/benchmark/v1/runs?view=library");
   renderRuns(value.runs);
 }
 
 function showError(error) {
   elements["connection-status"].textContent = error.message;
   elements["connection-status"].classList.add("error");
+  elements["connection-status"].classList.remove("connected");
 }
 
 async function poll() {
+  clearTimeout(pollTimer);
   if (polling) return;
   polling = true;
   try {
     await refreshRuns();
-    elements["connection-status"].textContent = "local supervisor online";
+    elements["connection-status"].textContent = "Connected";
     elements["connection-status"].classList.remove("error");
+    elements["connection-status"].classList.add("connected");
   } catch (error) {
     showError(error);
+    if (elements["run-list"].getAttribute("aria-busy") === "true") {
+      const message = document.createElement("p");
+      message.className = "empty-copy";
+      message.textContent = "Runs couldn’t load. Refresh to try again.";
+      elements["run-list"].replaceChildren(message);
+    }
   } finally {
+    elements["run-list"].setAttribute("aria-busy", "false");
     polling = false;
+    if (!document.hidden) {
+      const active = latestRuns.some(run => run.runner_active || ["queued", "running", "continuing", "preparing", "pausing"].includes(run.status));
+      pollTimer = setTimeout(poll, active ? 5000 : 30000);
+    }
   }
 }
 
@@ -281,11 +210,24 @@ elements["launch-form"].addEventListener("submit", launchSingle);
 elements["check-codex"].addEventListener("click", () => checkCodex(true));
 elements["launch-pair"].addEventListener("click", launchPair);
 elements.refresh.addEventListener("click", () => poll());
+for (const id of ["run-company", "run-model", "run-sort"]) {
+  elements[id].addEventListener("change", () => renderRuns(latestRuns, 0));
+}
+for (const [id, step] of [["previous-runs", -1], ["next-runs", 1]]) {
+  elements[id].addEventListener("click", () => {
+    renderRuns(latestRuns, runList.page + step);
+    elements["run-list"].scrollIntoView({ block: "start" });
+  });
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) clearTimeout(pollTimer);
+  else poll();
+});
 elements["run-list"].addEventListener("click", async (event) => {
   const button = event.target.closest("[data-delete-run]");
   if (!button || button.disabled) return;
   const id = button.dataset.deleteRun;
-  const run = (await api("/api/benchmark/v1/runs")).runs.find((entry) => entry.id === id);
+  const run = (await api("/api/benchmark/v1/runs?view=library")).runs.find((entry) => entry.id === id);
   if (!run) return poll();
   const confirmed = window.confirm(
     `Permanently delete ${run.model} run ${run.id}?\n\nThis removes its record, workspace, replay, and interview chats. This cannot be undone.`
@@ -300,6 +242,15 @@ elements["run-list"].addEventListener("click", async (event) => {
     showError(error);
   }
 });
+function updateRunOptionsSummary() {
+  const limit = elements["action-limit"].value;
+  const actions = limit === "unlimited" ? "Unlimited actions" : `${Number(limit).toLocaleString()} actions`;
+  const sequences = elements.world.value === "slotski"
+    ? ` · ${elements["sequence-enabled"].value === "true" ? "Batch moves" : "Single moves"}`
+    : "";
+  elements["run-options-summary"].textContent = actions + sequences;
+}
+
 function updateWorld() {
   const ice = elements.world.value === "ice-maze", slotski = elements.world.value === "slotski";
   elements["sequence-option"].hidden = !slotski;
@@ -308,7 +259,8 @@ function updateWorld() {
   updateObservation();
   updateReadiness();
   elements["world-objective"].textContent = slotski ? "Move A to the exit" : ice ? "Solve 30 levels" : "Collect 100 gems";
-  elements["world-description"].textContent = slotski ? "One classic Slotski puzzle. Choose a labelled block and direction; move the 2×2 target A to the bottom-center exit. Python is optional." : ice ? "Solve the original 30 Ice Maze puzzles in order. All players slide together; every goal must be covered at rest. Choose whether the agent gets isolated Python." : "Start at H×I with the canonical prompt and choose whether the model gets an isolated Python workspace.";
+  elements["world-description"].textContent = slotski ? "Move the 2×2 target block to the bottom-center exit." : ice ? "Solve 30 puzzles in order. All players slide together." : "Explore Main World from room H×I.";
+  updateRunOptionsSummary();
 }
 let previewYaw = 0, previewPitch = 2, previewGeneration = 0;
 async function updateObservation() {
@@ -339,6 +291,8 @@ elements.world.addEventListener("change", () => {
   updateWorld();
 });
 updateWorld();
+elements["action-limit"].addEventListener("change", updateRunOptionsSummary);
+elements["sequence-enabled"].addEventListener("change", updateRunOptionsSummary);
 elements.model.addEventListener("change", updateEfforts);
 elements.provider.addEventListener("change", updateModels);
 elements["tools-enabled"].addEventListener("change", () => {
@@ -347,10 +301,8 @@ elements["tools-enabled"].addEventListener("change", () => {
 
 try {
   setLaunching(false, elements["launch-status"].textContent);
-  await Promise.all([loadModels(), checkCodex()]);
-  await poll();
-  setInterval(poll, 2000);
-  setInterval(() => checkCodex(), 15 * 60_000);
+  await Promise.all([loadModels(), checkCodex(), poll()]);
+  setInterval(() => { if (!document.hidden) checkCodex(); }, 15 * 60_000);
 } catch (error) {
   showError(error);
   elements["launch-status"].textContent = error.message;

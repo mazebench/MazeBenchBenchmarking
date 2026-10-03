@@ -10,6 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BenchmarkSupervisor } from "./benchmarking/antigravity/supervisor.mjs";
 import { withRunnerLiveness } from "./benchmarking/server-lifecycle.mjs";
+import { RunLibrary } from "./benchmarking/run-library.mjs";
 import { TokenTelemetry } from "./benchmarking/token-telemetry.mjs";
 import { RunTelemetry } from "./benchmarking/run-telemetry.mjs";
 import { isTrustedLocalRequest } from "./benchmarking/v1/http-security.mjs";
@@ -25,6 +26,7 @@ const allowedV2Levels = new Set(Object.keys(v2Manifest.rooms || {}));
 const host = process.env.MAZEBENCH_BENCHMARK_HOST || "127.0.0.1";
 const port = Number(process.env.MAZEBENCH_BENCHMARK_PORT || 8080);
 const benchmarkSupervisor = new (withRunnerLiveness(BenchmarkSupervisor))(root);
+const runLibrary = new RunLibrary({ markInterrupted: true });
 const tokenTelemetry = new TokenTelemetry();
 const runTelemetry = new RunTelemetry();
 
@@ -132,7 +134,8 @@ async function benchmarkApi(request, response, url) {
       return true;
     }
     if (request.method === "GET" && url.pathname === "/api/benchmark/v1/runs") {
-      sendJson(response, 200, { runs: await benchmarkSupervisor.list() });
+      sendJson(response, 200, { runs: await (url.searchParams.get("view") === "library"
+        ? runLibrary.list(benchmarkSupervisor) : benchmarkSupervisor.list()) });
       return true;
     }
     if (request.method === "POST" && url.pathname === "/api/benchmark/v1/runs") {
