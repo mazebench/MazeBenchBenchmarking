@@ -1,5 +1,6 @@
-import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs";
+import { benchmarkFetch } from "./benchmark-api.mjs";
 import "./run-charts.mjs";
+import { runTabVisible } from "./run-tabs.mjs";
 
 const chart = document.getElementById("token-chart");
 const current = document.getElementById("token-current");
@@ -12,6 +13,7 @@ const clock = value => new Date(value).toLocaleTimeString([], { hour: "2-digit",
 const left = 62, right = 1070, top = 22, bottom = 185;
 let data = null;
 let busy = false;
+let fetchedAt = 0, signature = "";
 
 function elapsed(ms) {
   const minutes = Math.max(0, ms) / 60000;
@@ -21,6 +23,7 @@ function elapsed(ms) {
 function render(value) {
   data = value;
   const totals = value.totals;
+  if (totals) document.dispatchEvent(new CustomEvent("run-tokens", { detail: totals }));
   for (const [id, key] of [["token-total-input", "input_tokens"], ["token-total-cached", "cached_input_tokens"], ["token-total-output", "output_tokens"]]) {
     document.getElementById(id).textContent = totals ? number.format(totals[key]) : "—";
   }
@@ -97,16 +100,19 @@ chart.addEventListener("pointerleave", () => {
 });
 
 async function refresh() {
-  if (busy || !id || document.hidden) return;
+  if (busy || !id || !runTabVisible("analysis")) return;
+  if (Date.now() - fetchedAt < (document.body.dataset.runnerActive === "true" ? 5000 : 60000)) return;
   busy = true;
   try {
     const response = await benchmarkFetch(`/api/benchmark/v1/runs/${encodeURIComponent(id)}/tokens`);
     if (!response.ok) throw new Error("Token telemetry unavailable");
-    render(await response.json());
+    const value = await response.json(), next = JSON.stringify(value);
+    fetchedAt = Date.now();
+    if (next !== signature) { render(value); signature = next; }
   } catch {
     detail.textContent = "Token telemetry unavailable · retrying…";
   } finally { busy = false; }
 }
 document.addEventListener("visibilitychange", refresh);
-await refresh();
-setInterval(refresh, 3000);
+document.addEventListener("run-tab-change", refresh);
+setInterval(refresh, 5000);

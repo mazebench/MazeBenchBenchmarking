@@ -1,5 +1,5 @@
 import { heatmapVisits } from "./heatmap.mjs";
-import { mergeRunUpdate } from "../storage/history-delta.mjs";
+import { runTabVisible } from "./run-tabs.mjs";
 import { benchmarkFetch, visionUrl } from "./benchmark-api.mjs";
 const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
@@ -22,8 +22,6 @@ const ids = [
 ];
 const elements = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
 const runId = new URLSearchParams(location.search).get("id");
-let polling = false;
-let stoppedPolling = false;
 let currentRun = null;
 let currentFrame = 0;
 let followingLatest = true;
@@ -37,6 +35,14 @@ let currentInterviewLibrary = null;
 let selectedInterviewId = null;
 let creatingInterview = false;
 let refreshPromise = null;
+let pollTimer = null;
+let analysisData = null, analysisKey = null, analysisBusy = false;
+let activityData = null, activityAt = 0, activityBusy = false;
+let interviewBusy = false, pairRuns = [], pairAt = 0;
+let boardSignature = "", feedSignature = "", workspaceSignature = "", interviewSignature = "";
+let tokenUsage = null;
+const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+const standardNumbers = new Intl.NumberFormat(), compactNumbers = new Intl.NumberFormat(undefined, { notation: "compact" });
 
 async function api(path, options = {}) {
   const response = await benchmarkFetch(path, {
@@ -58,15 +64,11 @@ function isFinished(run) {
 
 function compactDate(value) {
   if (!value) return "—";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(new Date(value));
+  return dateFormatter.format(new Date(value));
 }
 
 function formatNumber(value) {
-  return new Intl.NumberFormat(undefined, { notation: value >= 100_000 ? "compact" : "standard" })
-    .format(Number(value) || 0);
+  return (value >= 100_000 ? compactNumbers : standardNumbers).format(Number(value) || 0);
 }
 
 function usageTotal(usage) {
@@ -79,10 +81,6 @@ function usageTotal(usage) {
 function modelMonogram(model) {
   const meaningful = String(model || "M").split(/[-_.]/).filter(Boolean).filter((part) => !/^(gpt|codex|5|6)$/.test(part));
   return (meaningful.at(-1)?.[0] || "M").toUpperCase();
-}
-
-function conditionLabel(run) {
-  return run.tools_enabled ? "Python workspace enabled" : "No Python workspace";
 }
 
 function setCanvasSize(canvas) {
@@ -101,6 +99,9 @@ function setCanvasSize(canvas) {
 }
 
 function renderBoard(display) {
+  const signature = JSON.stringify(display);
+  if (boardSignature === signature) return;
+  boardSignature = signature;
   const vision = display?.observation_mode === "vision";
   elements.board.classList.toggle("vision-board", vision);
   if (vision && display.image_record) {
@@ -133,6 +134,17 @@ function renderBoard(display) {
     elements.board.append(fallback);
   }
   elements.board.setAttribute("aria-label", display?.level ? `Current ASCII maze board\n${display.level}` : "Current ASCII maze board");
+  fitBoard();
+}
+
+function fitBoard() {
+  if (!runTabVisible("overview") || elements.board.classList.contains("vision-board")) return;
+  const rows = [...elements.board.querySelectorAll(".ascii-row")];
+  if (!rows.length) return;
+  const wrapper = elements.board.parentElement;
+  const columns = Math.max(...rows.map(row => row.textContent.length));
+  const size = Math.max(3, Math.min(12, (wrapper.clientWidth - 56) / Math.max(1, columns * .61), (wrapper.clientHeight - 48) / (rows.length * .86)));
+  elements.board.style.fontSize = `${size}px`;
 }
 
 function syncTransport() {
@@ -177,19 +189,20 @@ async function showFrame(index, { keepPlaying = false } = {}) {
     renderBoard(currentRun.display);
     elements["board-room"].textContent = `${numberedWorld(currentRun) ? "" : "Room "}${currentRun.display.room || currentRun.room || "—"}`;
     elements["board-move"].textContent = moveLabel(selected);
-    elements["frame-source"].textContent = currentRun.observation_mode === "vision" ? "Live 3D agent observation" : "Live engine frame · exact colors";
+    elements["frame-source"].textContent = currentRun.observation_mode === "vision" ? "Live 3D agent observation" : "Latest observation";
   } else {
-    elements["frame-source"].textContent = currentRun.observation_mode === "vision" ? `Loading image for move ${selected}…` : `Rendering move_${selected}.txt with engine colors…`;
+    elements["frame-source"].textContent = currentRun.observation_mode === "vision" ? `Loading image for move ${selected}…` : `Loading move ${selected}…`;
     let snapshot = frameCache.get(selected);
     if (!snapshot) snapshot = await api(
       `/api/benchmark/v1/runs/${encodeURIComponent(runId)}/display/${selected}`
     );
     if (request !== frameRequest) return;
     frameCache.set(selected, snapshot);
+    if (frameCache.size > 80) frameCache.delete(frameCache.keys().next().value);
     renderBoard(snapshot);
     elements["board-room"].textContent = `${numberedWorld(currentRun) ? "" : "Room "}${snapshot.room}`;
     elements["board-move"].textContent = moveLabel(selected);
-    elements["frame-source"].textContent = snapshot.observation_mode === "vision" ? `${snapshot.image_record} · recorded 3D observation` : `${snapshot.source_record || `records/move_history/move_${selected}.txt`} · exact engine colors`;
+    elements["frame-source"].textContent = snapshot.observation_mode === "vision" ? "Recorded 3D observation" : "Recorded observation";
   }
 
   if (!keepPlaying) stopPlayback();
@@ -261,13 +274,14 @@ function drawHeatmap(positions, toolsEnabled, currentPosition) {
   context.fillStyle = "#07090c";
   context.fillRect(0, 0, width, height);
   const valid = (positions || []).filter((position) => position && Number.isFinite(position.worldX) && Number.isFinite(position.worldY));
-  elements["heatmap-count"].textContent = `${valid.length} visit${valid.length === 1 ? "" : "s"}`;
+  const total = valid.reduce((sum, point) => sum + (point.count || 1), 0);
+  elements["heatmap-count"].textContent = `${formatNumber(total)} visit${total === 1 ? "" : "s"}`;
   if (!valid.length) return;
 
   const counts = new Map();
   for (const position of valid) {
     const key = `${position.worldX},${position.worldY}`;
-    counts.set(key, (counts.get(key) || 0) + 1);
+    counts.set(key, (counts.get(key) || 0) + (position.count || 1));
   }
   const points = [...counts].map(([key, count]) => {
     const [x, y] = key.split(",").map(Number);
@@ -329,36 +343,33 @@ function drawHeatmap(positions, toolsEnabled, currentPosition) {
 }
 
 function drawProgress(run) {
-  const { context, width, height } = setCanvasSize(elements["progress-chart"]);
+  const canvas = elements["progress-chart"];
+  const { context, width, height } = setCanvasSize(canvas);
   context.clearRect(0, 0, width, height);
-  context.fillStyle = "#090b0e";
-  context.fillRect(0, 0, width, height);
-  const accent = run.tools_enabled ? "#ffbd5b" : "#6cd7ff";
   const rows = [
-    numberedWorld(run) ? { label: "Levels solved", value: run.levels_solved || 0, total: run.levels_total || (run.world === "slotski" ? 1 : 30) } : { label: "Gems", value: run.gems_collected || 0, total: run.gems_total || 100 },
-    { label: "Action budget", value: run.action_count || 0, total: run.action_limit || Math.max(1, run.action_count || 1) }
+    numberedWorld(run) ? { label: "Levels solved", value: run.levels_solved || 0, total: run.levels_total || (run.world === "slotski" ? 1 : 30) } : { label: "Gems collected", value: run.gems_collected || 0, total: run.gems_total || 100 },
+    { label: "Actions", value: run.action_count || 0, total: run.action_limit || null }
   ];
-  const left = 108;
-  const right = 52;
-  const barWidth = Math.max(80, width - left - right);
-  context.font = "11px ui-monospace, monospace";
+  const left = 20, barWidth = width - 40;
+  context.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
   rows.forEach((row, index) => {
-    const y = 54 + index * 75;
-    const fraction = Math.max(0, Math.min(1, row.value / Math.max(1, row.total)));
-    context.fillStyle = "#8c96a2";
-    context.textAlign = "right";
-    context.fillText(row.label, left - 14, y + 4);
-    context.fillStyle = "#20252c";
-    context.fillRect(left, y - 9, barWidth, 18);
-    context.fillStyle = accent;
-    context.fillRect(left, y - 9, barWidth * fraction, 18);
-    context.fillStyle = "#dfe6eb";
+    const y = 35 + index * 88;
+    context.fillStyle = "#98989f";
     context.textAlign = "left";
-    context.fillText(`${row.value}/${run.action_limit === null && index === 1 ? "∞" : row.total}`, left + 8, y + 4);
-    context.fillStyle = "#8c96a2";
+    context.fillText(row.label, left, y);
+    context.fillStyle = "#f2f2f7";
     context.textAlign = "right";
-    context.fillText(`${Math.round(fraction * 100)}%`, width - 12, y + 4);
+    context.fillText(`${standardNumbers.format(row.value)}${row.total ? ` / ${standardNumbers.format(row.total)}` : " · No limit"}`, width - left, y);
+    if (!row.total) return;
+    const fraction = Math.max(0, Math.min(1, row.value / row.total));
+    context.fillStyle = "#2c2c2e";
+    context.beginPath(); context.roundRect(left, y + 17, barWidth, 6, 3); context.fill();
+    if (fraction > 0) {
+      context.fillStyle = "#0a84ff";
+      context.beginPath(); context.roundRect(left, y + 17, barWidth * fraction, 6, 3); context.fill();
+    }
   });
+  canvas.setAttribute("aria-label", rows.map(row => `${row.label}: ${row.value}${row.total ? ` of ${row.total}` : ", no limit"}`).join(". "));
 }
 
 function feedText(entry) {
@@ -370,6 +381,9 @@ function feedText(entry) {
 }
 
 function renderFeed(run) {
+  const signature = JSON.stringify(run.feed || []);
+  if (signature === feedSignature) return;
+  feedSignature = signature;
   elements.feed.replaceChildren();
   const entries = (run.feed || []).slice(-60);
   elements["feed-count"].textContent = `${entries.length} event${entries.length === 1 ? "" : "s"}`;
@@ -397,6 +411,9 @@ function renderFeed(run) {
 }
 
 function renderWorkspace(run) {
+  const signature = JSON.stringify([run.workspace_files, run.tools_enabled, run.capability_boundary_verified, run.isolation]);
+  if (signature === workspaceSignature) return;
+  workspaceSignature = signature;
   elements["workspace-files"].replaceChildren();
   elements["workspace-title"].textContent = run.tools_enabled ? "Python workspace" : "Python unavailable";
   const isolation = run.isolation || {};
@@ -500,6 +517,9 @@ function syncInterviewSendButton() {
 function renderInterview(library, interview) {
   currentInterviewLibrary = library;
   currentInterview = interview;
+  const signature = JSON.stringify([library, interview, creatingInterview, selectedInterviewId]);
+  if (signature === interviewSignature) return;
+  interviewSignature = signature;
   const messages = interview?.messages || [];
   const chats = library?.chats || [];
   elements["interview-count"].textContent = String(chats.length);
@@ -618,20 +638,20 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
     frameRequest += 1;
     frameCache.clear();
     followingLatest = true;
+    analysisData = null; analysisKey = null;
   }
   document.body.classList.toggle("tools-on", Boolean(run.tools_enabled));
   document.body.classList.toggle("ice-world", numberedWorld(run));
   document.title = `${run.model} · MazeBench record`;
   elements["model-monogram"].textContent = modelMonogram(run.model);
-  elements["run-kicker"].textContent = `${providerName(run.provider)} model evaluation · ${worldName(run)}${run.observation_mode === "vision" ? " · 3D vision" : ""} · ${conditionLabel(run)}`;
+  elements["run-kicker"].textContent = `${worldName(run)} · ${providerName(run.provider)}${run.observation_mode === "vision" ? " · Vision" : ""} · Python ${run.tools_enabled ? "on" : "off"}`;
   elements["run-title"].textContent = run.model;
-  elements["run-subtitle"].textContent = `${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves · sequences disabled" : "Batched moves allowed"}` : ""} · ${run.service_tier === "fast" ? "Fast" : "Standard speed"} · started ${compactDate(run.created_at)} · ${run.action_limit ?? "unlimited"} action limit`;
+  elements["run-subtitle"].textContent = `${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"}` : ""} · ${run.service_tier === "fast" ? "Fast" : "Standard"} · ${compactDate(run.created_at)}`;
   elements["run-id"].textContent = run.id;
   elements["run-status"].textContent = statusLabel(run.status);
   elements["run-status"].className = `status-pill ${run.status}`;
   elements["run-failure"].hidden = run.status !== "failed";
   elements["run-failure-reason"].textContent = run.error || "The runner stopped before finishing. Inspect the activity record for details.";
-  document.querySelector("[aria-labelledby=interview-title]").hidden = run.provider !== "codex" || numberedWorld(run) || run.observation_mode === "vision";
   const terminalGame = ["won", "action-limit"].includes(run.game_status);
   const activeRun = Boolean(run.runner_active);
   const resumableBoundary = Boolean(run.capability_boundary_verified);
@@ -644,7 +664,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["stop-run"].disabled = false;
   elements["delete-run"].disabled = activeRun;
   elements["delete-run"].title = activeRun ? "Stop or pause this run before deleting it." : "Permanently delete this run record.";
-  elements["stat-actions"].textContent = `${run.action_count || 0}${run.action_limit ? ` / ${run.action_limit}` : ""}`;
+  elements["stat-actions"].textContent = `${standardNumbers.format(run.action_count || 0)}${run.action_limit ? ` / ${standardNumbers.format(run.action_limit)}` : ""}`;
   elements["stat-gems"].previousElementSibling.textContent = numberedWorld(run) ? "Levels solved" : "Gems";
   elements["stat-rooms"].previousElementSibling.textContent = numberedWorld(run) ? "Current level" : "Rooms";
   elements["stat-gems"].textContent = numberedWorld(run) ? `${run.levels_solved || 0} / ${run.levels_total || (run.world === "slotski" ? 1 : 30)}` : `${run.gems_collected || 0} / ${run.gems_total || 100}`;
@@ -656,36 +676,84 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["stat-deaths"].textContent = run.world === "slotski" ? `${(run.target_row || 0) + 1} / ${(run.board_height || 5) - 1}` : run.world === "ice-maze" ? `${run.goals_covered || 0} / ${run.goals_total || 0}` : formatNumber(run.deaths || 0);
   elements["progress-chart"].setAttribute("aria-label", numberedWorld(run) ? "Levels solved and action progress" : "Gem and action progress");
   document.getElementById("board-legend").textContent = run.world === "slotski" ? "A target · letters are blocks · . empty · vv exit" : run.world === "ice-maze" ? "# wall · . ice · o goal · P player · @ covered goal" : "Move history playback";
-  elements["stat-tokens"].textContent = formatNumber(usageTotal(run.usage));
+  elements["stat-tokens"].textContent = tokenUsage ? formatNumber(usageTotal(tokenUsage)) : "—";
   elements["novelty-value"].textContent = `${Math.round((run.novelty_rate || 0) * 100)}% overall`;
   const progress = run.action_limit ? Math.min(100, (run.action_count || 0) / run.action_limit * 100) : 0;
   elements["progress-value"].textContent = run.game_status === "won" ? "objective complete" : run.action_limit ? `${Math.round(progress)}% of budget` : "unlimited run";
   elements.continuations.textContent = formatNumber(run.continuation_count || 0);
-  elements["final-message"].textContent = run.final_message || (isFinished(run) ? "The model did not leave a final message." : "No final model message yet.");
+  elements["final-message"].textContent = activityData?.final_message || run.final_message || (isFinished(run) ? "The model did not leave a final message." : "No final model message yet.");
   if (followingLatest || changedRun) {
     currentFrame = run.action_count || 0;
     renderBoard(run.display);
     elements["board-room"].textContent = `${numberedWorld(run) ? "" : "Room "}${run.display?.room || run.room || "—"}`;
     elements["board-move"].textContent = moveLabel(run.display?.observation_revision ?? run.action_count ?? 0);
-    elements["frame-source"].textContent = run.observation_mode === "vision" ? "Live 3D agent observation" : "Live engine frame · exact colors";
+    elements["frame-source"].textContent = run.observation_mode === "vision" ? "Live 3D agent observation" : "Latest observation";
   }
   syncTransport();
   elements.heatmap.setAttribute("aria-label", run.world === "slotski" ? "Top-left positions of selected blocks after actions" : "Heatmap of positions visited");
-  const heatmap = heatmapVisits(run);
-  elements["heatmap-count"].title = run.world === "slotski"
-    ? "Each action records the selected block’s top-left cell; undo and reset record A."
-    : `Includes slide and punch paths for ${heatmap.trackedActions} of ${(run.actions || []).length} moves. Older moves retain their recorded endpoints. Stationary animation ticks do not add visits.`;
-  drawHeatmap(heatmap.positions, run.tools_enabled, heatmap.current);
-  drawNovelty(run.novelty, run.tools_enabled);
-  drawProgress(run);
-  renderIceLevelTimings(run, document);
-  renderFeed(run);
-  renderWorkspace(run);
+  if (runTabVisible("overview")) drawProgress(run);
   renderPair(run, allRuns);
   renderInterview(interviewLibrary, interview);
-  elements["connection-status"].textContent = run.status === "failed" ? "run failed · see error details" : run.status === "interrupted" ? "run interrupted · resume to continue" : isFinished(run) ? `recorded · ${statusLabel(run.game_status || run.status)}` : run.runner_active ? "live · supervisor online" : "runner inactive · supervisor online";
+  elements["connection-status"].textContent = run.runner_active ? "Live" : "Saved run";
   elements["connection-status"].classList.remove("error");
-  stoppedPolling = isFinished(run);
+  document.body.dataset.runnerActive = String(run.runner_active);
+}
+
+function renderAnalysis() {
+  if (!analysisData || !currentRun || !runTabVisible("analysis")) return;
+  const heatmap = analysisData.heatmap || heatmapVisits(analysisData);
+  elements["heatmap-count"].title = `Includes slide and punch paths for ${heatmap.trackedActions} moves. Older moves retain their recorded endpoints.`;
+  drawHeatmap(heatmap.points || heatmap.positions, currentRun.tools_enabled, heatmap.current);
+  drawNovelty(analysisData.novelty, currentRun.tools_enabled);
+  renderIceLevelTimings({ ...currentRun, ...analysisData }, document);
+}
+
+async function refreshSection() {
+  if (!currentRun || document.hidden) return;
+  if (runTabVisible("overview")) { fitBoard(); drawProgress(currentRun); return; }
+  if (runTabVisible("analysis")) {
+    const key = `${currentRun.history_epoch}:${currentRun.action_count}:${currentRun.status}`;
+    if (analysisKey === key) { renderAnalysis(); return; }
+    if (analysisBusy) return;
+    analysisBusy = true;
+    const status = document.getElementById("analysis-status");
+    status.hidden = false; status.textContent = analysisData ? "Updating charts…" : "Loading run analysis…";
+    try {
+      const value = await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}?view=analysis`);
+      if (value.history_epoch && currentRun.history_epoch && value.history_epoch !== currentRun.history_epoch) return;
+      analysisData = value; analysisKey = key;
+      renderAnalysis(); status.hidden = true;
+    } catch (error) { status.textContent = `Analysis couldn’t load: ${error.message} Select Analysis to retry.`; }
+    finally { analysisBusy = false; }
+    return;
+  }
+  if (runTabVisible("activity")) {
+    if (activityBusy) return;
+    if (activityData && Date.now() - activityAt < (currentRun.runner_active ? 3000 : 30000)) {
+      renderFeed(activityData); renderWorkspace({ ...currentRun, ...activityData }); return;
+    }
+    activityBusy = true;
+    const status = document.getElementById("activity-status");
+    status.hidden = false; status.textContent = "Loading recent activity…";
+    try {
+      activityData = await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}?view=activity`); activityAt = Date.now();
+      renderFeed(activityData); renderWorkspace({ ...currentRun, ...activityData });
+      elements["final-message"].textContent = activityData.final_message || "No final model message.";
+      status.hidden = true;
+    } catch (error) { status.textContent = error.message; }
+    finally { activityBusy = false; }
+    return;
+  }
+  if (runTabVisible("interviews") && !interviewBusy) {
+    interviewBusy = true;
+    try {
+      const library = await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/interviews`);
+      if (!library.chats.some(chat => chat.id === selectedInterviewId)) selectedInterviewId = library.chats[0]?.id || null;
+      const interview = selectedInterviewId ? await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/interviews/${encodeURIComponent(selectedInterviewId)}`) : null;
+      renderInterview(library, interview);
+    } catch (error) { elements["interview-status"].textContent = error.message; }
+    finally { interviewBusy = false; }
+  }
 }
 
 function showError(error) {
@@ -699,31 +767,41 @@ function showError(error) {
 function refresh() {
   if (!runId) return Promise.resolve();
   if (refreshPromise) return refreshPromise;
-  polling = true;
   refreshPromise = (async () => {
     try {
-      const [run, library, interviewLibrary] = await Promise.all([
-        api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}${currentRun?.history_cursor ? "?history_cursor=" + encodeURIComponent(JSON.stringify(currentRun.history_cursor)) : ""}`),
-        api("/api/benchmark/v1/runs"),
-        api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/interviews`)
-      ]);
-      if (!interviewLibrary.chats.some((chat) => chat.id === selectedInterviewId)) {
-        selectedInterviewId = interviewLibrary.chats[0]?.id || null;
+      const run = await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}?view=overview`);
+      renderRun(run, pairRuns, currentInterviewLibrary, currentInterview);
+      void refreshSection();
+      if (run.pair_id && Date.now() - pairAt > 30000) {
+        pairAt = Date.now();
+        api("/api/benchmark/v1/runs?view=library").then(library => { pairRuns = library.runs || []; renderPair(currentRun, pairRuns); }).catch(() => { pairAt = 0; });
       }
-      const interview = selectedInterviewId
-        ? await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/interviews/${encodeURIComponent(selectedInterviewId)}`)
-        : null;
-      renderRun(mergeRunUpdate(currentRun, run), library.runs || [], interviewLibrary, interview);
     } catch (error) {
-      stoppedPolling = true;
-      showError(error);
+      if (!currentRun) showError(error);
+      else { elements["connection-status"].textContent = "Connection lost · retrying"; elements["connection-status"].classList.add("error"); }
     } finally {
-      polling = false;
       refreshPromise = null;
+      scheduleRefresh();
     }
   })();
   return refreshPromise;
 }
+
+function scheduleRefresh() {
+  clearTimeout(pollTimer);
+  if (document.hidden) return;
+  const liveInterview = currentInterviewLibrary?.chats?.some(chat => ["forking", "running", "queued"].includes(chat.status));
+  pollTimer = setTimeout(refresh, currentRun?.runner_active || liveInterview || !currentRun ? 3000 : 30000);
+}
+document.addEventListener("run-tab-change", () => {
+  if (!runTabVisible("overview")) stopPlayback();
+  void refreshSection();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { clearTimeout(pollTimer); stopPlayback(); }
+  else refresh();
+});
+document.addEventListener("run-tokens", event => { tokenUsage = event.detail; elements["stat-tokens"].textContent = formatNumber(usageTotal(tokenUsage)); });
 
 async function refreshAfterMutation() {
   if (refreshPromise) await refreshPromise;
@@ -734,7 +812,6 @@ elements["stop-run"].addEventListener("click", async () => {
   elements["stop-run"].disabled = true;
   try {
     await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/stop`, { method: "POST" });
-    stoppedPolling = false;
     await refreshAfterMutation();
   } catch (error) {
     elements["stop-run"].disabled = false;
@@ -746,7 +823,6 @@ elements["pause-run"].addEventListener("click", async () => {
   elements["pause-run"].disabled = true;
   try {
     await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/pause`, { method: "POST" });
-    stoppedPolling = false;
     await refreshAfterMutation();
   } catch (error) {
     elements["pause-run"].disabled = false;
@@ -759,7 +835,6 @@ elements["resume-run"].addEventListener("click", async () => {
   elements["resume-run"].disabled = true;
   try {
     await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/resume`, { method: "POST" });
-    stoppedPolling = false;
     await refreshAfterMutation();
   } catch (error) {
     elements["resume-run"].disabled = false;
@@ -896,18 +971,15 @@ elements["interview-form"].addEventListener("submit", async (event) => {
 });
 
 window.addEventListener("resize", () => {
-  if (!polling && !elements["run-content"].hidden) refresh();
+  if (!currentRun) return;
+  if (runTabVisible("overview")) { fitBoard(); drawProgress(currentRun); }
+  else if (runTabVisible("analysis")) renderAnalysis();
 });
 
 if (!runId) {
   showError(new Error("No run id was supplied in this record URL."));
 } else {
   await refresh();
-  setInterval(() => {
-    const liveInterview = currentInterviewLibrary?.chats?.some((chat) =>
-      ["forking", "running", "queued"].includes(chat.status));
-    if (!stoppedPolling || liveInterview || !currentInterviewLibrary?.available) refresh();
-  }, 1500);
 }
 
 elements["retry-new-run"].addEventListener("click", async () => {

@@ -1,6 +1,6 @@
 // Read-only dashboard telemetry. Never imported by the benchmark agent or MCP.
 import { constants } from "node:fs";
-import { open, readdir } from "node:fs/promises";
+import { open, readdir, lstat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -121,6 +121,10 @@ export class TokenTelemetry {
       const date = new Date(created + delta * 86400000).toISOString().slice(0, 10).replaceAll("-", "/");
       const relative = `sessions/${date}`;
       try {
+        // A missing UTC-day folder is normal when rollouts use local dates.
+        // Check existence separately: safeDirectory intentionally treats missing
+        // directories like invalid paths. Keep its link checks before reading.
+        await lstat(path.join(this.codexHome, relative));
         const directory = safeDirectory(this.codexHome, relative);
         const names = await readdir(directory);
         const name = names.find(name => name.startsWith("rollout-") && name.endsWith(`-${id}.jsonl`));

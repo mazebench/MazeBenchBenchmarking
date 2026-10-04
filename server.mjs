@@ -11,8 +11,9 @@ import { fileURLToPath } from "node:url";
 import { BenchmarkSupervisor } from "./benchmarking/antigravity/supervisor.mjs";
 import { withRunnerLiveness } from "./benchmarking/server-lifecycle.mjs";
 import { RunLibrary } from "./benchmarking/run-library.mjs";
+import { RunDashboard } from "./benchmarking/run-dashboard.mjs";
+import { ReportReader } from "./benchmarking/report-reader.mjs";
 import { TokenTelemetry } from "./benchmarking/token-telemetry.mjs";
-import { RunTelemetry } from "./benchmarking/run-telemetry.mjs";
 import { isTrustedLocalRequest } from "./benchmarking/v1/http-security.mjs";
 import { decodeVoxelRoom, encodeVoxelRoom } from "./render/v1/voxel-world-v2.mjs";
 
@@ -27,8 +28,9 @@ const host = process.env.MAZEBENCH_BENCHMARK_HOST || "127.0.0.1";
 const port = Number(process.env.MAZEBENCH_BENCHMARK_PORT || 8080);
 const benchmarkSupervisor = new (withRunnerLiveness(BenchmarkSupervisor))(root);
 const runLibrary = new RunLibrary({ markInterrupted: true });
+const runDashboard = new RunDashboard(runLibrary);
+const reportReader = new ReportReader();
 const tokenTelemetry = new TokenTelemetry();
-const runTelemetry = new RunTelemetry();
 
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -159,7 +161,7 @@ async function benchmarkApi(request, response, url) {
     }
     const displayMatch = url.pathname.match(/^\/api\/benchmark\/v1\/runs\/([^/]+)\/display\/(\d+)$/);
     if (request.method === "GET" && displayMatch) {
-      sendJson(response, 200, await benchmarkSupervisor.displayFrame(
+      sendJson(response, 200, await runDashboard.frame(benchmarkSupervisor,
         decodeURIComponent(displayMatch[1]),
         displayMatch[2]
       ));
@@ -210,18 +212,23 @@ async function benchmarkApi(request, response, url) {
     if (request.method === "GET" && chartsMatch) {
       const id = decodeURIComponent(chartsMatch[1]);
       const directory = benchmarkSupervisor.runDirectory(id);
-      const tokens = await tokenTelemetry.read(directory).catch(() => null);
-      sendJson(response, 200, await runTelemetry.read(directory, {
-        runnerActive: benchmarkSupervisor.active.has(id), compactions: tokens?.compactions || []
-      }));
+      sendJson(response, 200, await reportReader.read(directory, "charts", benchmarkSupervisor.active.has(id)));
       return true;
     }
     if (request.method === "GET" && tokensMatch) {
-      sendJson(response, 200, await tokenTelemetry.read(benchmarkSupervisor.runDirectory(decodeURIComponent(tokensMatch[1]))));
+      const id = decodeURIComponent(tokensMatch[1]);
+      sendJson(response, 200, await reportReader.read(benchmarkSupervisor.runDirectory(id), "tokens", benchmarkSupervisor.active.has(id)));
       return true;
     }
     if (request.method === "GET" && runMatch) {
       const id = decodeURIComponent(runMatch[1]);
+      const view = url.searchParams.get("view");
+      if (["overview", "analysis", "activity"].includes(view)) {
+        sendJson(response, 200, view === "analysis"
+          ? await reportReader.read(benchmarkSupervisor.runDirectory(id), "analysis", benchmarkSupervisor.active.has(id))
+          : await runDashboard[view](benchmarkSupervisor, id));
+        return true;
+      }
       const run = await benchmarkSupervisor.get(id, {historyCursor:url.searchParams.get("history_cursor")});
       const telemetry = await tokenTelemetry.read(benchmarkSupervisor.runDirectory(id)).catch(() => null);
       if (telemetry?.totals) run.usage = telemetry.totals;

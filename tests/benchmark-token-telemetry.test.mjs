@@ -1,11 +1,27 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, mkdir, writeFile, rm, symlink, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { modelTokenLimits, createTokenTimeline, consumeTokenEvent, TokenTelemetry, requestApiCost, tokenBilling } from "../benchmarking/token-telemetry.mjs";
 
 const sample = (tokens, timestamp = "2026-09-04T19:30:00Z") => ({ timestamp, type: "event_msg", payload: { type: "token_count", info: { last_token_usage: { total_tokens: tokens }, total_token_usage: { total_tokens: 9_000_000 }, model_context_window: 258400 } } });
+
+test("rollout discovery skips absent date folders and still rejects directory links", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "mazebench-rollout-test-"));
+  try {
+    const metadata = { codex_thread_id: "01a06de5-cf11-7883-9f85-b1197dd668f5", created_at: "2026-09-04T01:00:00Z" };
+    const telemetry = new TokenTelemetry({ codexHome: home });
+    assert.equal(await telemetry.findRollout(metadata), null);
+    const previous = path.join(home, "sessions/2026/09/03");
+    await mkdir(previous, { recursive: true });
+    const file = path.join(previous, `rollout-local-${metadata.codex_thread_id}.jsonl`);
+    await writeFile(file, "");
+    assert.equal(await telemetry.findRollout(metadata), await realpath(file));
+    await symlink(previous, path.join(home, "sessions/2026/09/04"), "dir");
+    await assert.rejects(telemetry.findRollout(metadata), /symbolic links/);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
 
 test("API estimates count cached tokens once, price each request's context tier and include compaction once", () => {
   const usage = { input_tokens: 200000, cached_input_tokens: 150000, output_tokens: 10000, reasoning_output_tokens: 8000 };

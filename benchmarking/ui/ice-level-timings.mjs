@@ -50,7 +50,7 @@ export function renderIceLevelTimings(run, document, now = Date.now()) {
   const panel = document.getElementById("ice-level-timings");
   panel.hidden = run.world !== "ice-maze";
   if (panel.hidden) return;
-  const rows = iceLevelTimings(run, now), solved = rows.filter(row => row.solved);
+  const rows = run.ice_timing_rows || iceLevelTimings(run, now), solved = rows.filter(row => row.solved);
   const current = rows.find(row => row.status === "playing");
   document.getElementById("ice-level-timings-summary").textContent = `${solved.length} / ${rows.length} solved${current ? ` · Level ${current.level} in progress` : ""}`;
   const body = document.getElementById("ice-level-timings-body");

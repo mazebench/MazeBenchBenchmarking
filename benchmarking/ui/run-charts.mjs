@@ -1,8 +1,10 @@
-import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs";
+import { benchmarkFetch } from "./benchmark-api.mjs";
+import { runTabVisible } from "./run-tabs.mjs";
 // Shared dashboard entry; keep reporting outside the frozen agent runtime.
 const anchor = document.querySelector(".token-panel");
 const runId = new URLSearchParams(location.search).get("id");
-const number = value => new Intl.NumberFormat().format(value);
+const numberFormatter = new Intl.NumberFormat();
+const number = value => numberFormatter.format(value);
 const weighted = episode => episode.weighted_duration_ms ?? episode.duration_ms;
 const duration = ms => ms == null ? "—" : ms < 60000 ? `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`
   : ms < 3600000 ? `${Math.floor(ms / 60000)}m ${Math.floor(ms % 60000 / 1000)}s`
@@ -11,10 +13,6 @@ let data = null, busy = false, receivedAt = 0;
 const plots = new Map();
 
 if (anchor && runId) {
-  const css = document.createElement("link");
-  css.rel = "stylesheet";
-  css.href = new URL("./run-charts.css", import.meta.url).href;
-  document.head.append(css);
   anchor.insertAdjacentHTML("afterend", `
     <article class="panel run-chart-panel" id="thinking-panel" aria-labelledby="thinking-title">
       <header class="panel-heading">
@@ -23,7 +21,7 @@ if (anchor && runId) {
       </header>
       <div class="run-chart-stats"><span>Episodes<strong id="thinking-count">—</strong></span><span>Total<strong id="thinking-total">—</strong></span><span>Median<strong id="thinking-median">—</strong></span><span>Longest<strong id="thinking-longest">—</strong></span><output class="run-chart-live" id="thinking-live">Loading timing data…</output></div>
       <div class="run-chart-wrap"><svg id="thinking-chart" role="img" aria-label="Thinking duration by episode"></svg><output class="token-tooltip" id="thinking-tooltip" hidden></output></div>
-      <p class="run-chart-note">Fast-mode intervals count at 2× elapsed time; standard-mode intervals count at 1×. This is a benchmark weighting, not measured compute time. Hover for actual elapsed time. Each episode runs from a tool result (or turn start) to the next tool call or final response, including generation and network/server waiting. Tool execution and interrupted intervals are excluded. Total sums all recorded episodes plus the current episode, regardless of the selected range. Amber compaction intervals count toward Total but are excluded from median/longest. Dashed cyan shows the current episode. History includes attempts before rollbacks.</p>
+      <details class="run-chart-note"><summary>How thinking time is measured</summary><p>Fast-mode intervals count at 2× elapsed time; standard-mode intervals count at 1×. This is a benchmark weighting, not measured compute time. Hover for actual elapsed time. Each episode runs from a tool result (or turn start) to the next tool call or final response, including generation and network/server waiting. Tool execution and interrupted intervals are excluded. Total sums all recorded episodes plus the current episode, regardless of the selected range. Amber compaction intervals count toward Total but are excluded from median/longest. Dashed cyan shows the current episode. History includes attempts before rollbacks.</p></details>
     </article>
     <article class="panel run-chart-panel" id="gems-panel" aria-labelledby="gems-title">
       <header class="panel-heading"><div><span>Collection progress</span><strong id="gems-title">Gems by move</strong></div><code id="gems-current">—</code></header>
@@ -34,13 +32,16 @@ if (anchor && runId) {
   for (const id of ["thinking", "gems"]) attachHover(id);
   const observer = new ResizeObserver(() => {
     for (const id of ["thinking-tooltip", "gems-tooltip"]) document.getElementById(id).hidden = true;
-    if (data) { renderThinking(); renderGems(); }
+    if (data && runTabVisible("analysis")) { renderThinking(); renderGems(); }
   });
   observer.observe(document.getElementById("thinking-panel"));
   document.addEventListener("visibilitychange", refresh);
-  refresh();
-  setInterval(refresh, 3000);
-  setInterval(() => { if (data && !document.hidden) renderThinking(); }, 1000);
+  document.addEventListener("run-tab-change", () => {
+    if (data && runTabVisible("analysis")) { renderThinking(); renderGems(); }
+    refresh();
+  });
+  setInterval(refresh, 5000);
+  setInterval(() => { if (data?.thinking?.current && runTabVisible("analysis")) renderThinking(); }, 1000);
 }
 
 function axes(id, { minX = 0, maxX, maxY, xLabel, yLabel, yFormat = number, integerY = false }) {
@@ -71,7 +72,7 @@ function renderThinking() {
   const median = value.weighted_median_ms ?? value.median_ms, longest = value.weighted_longest_ms ?? value.longest_ms;
   document.getElementById("thinking-median").textContent = duration(median);
   document.getElementById("thinking-longest").textContent = duration(longest);
-  const fresh = Date.now() - receivedAt < 15000;
+  const fresh = !value.current || Date.now() - receivedAt < 15000;
   const advance = fresh ? Date.now() - receivedAt : 0;
   const current = value.current ? { ...value.current, duration_ms: value.current.duration_ms + advance,
     weighted_duration_ms: weighted(value.current) + advance * (value.current.weight || 1) } : null;
@@ -86,14 +87,14 @@ function renderThinking() {
   const elapsedTotal = all.reduce((sum, episode) => sum + episode.duration_ms, 0);
   totalElement.title = `${number(Math.round(total / 1000))} weighted seconds; ${duration(elapsedTotal)} actual elapsed. Includes all recorded episodes, compaction intervals and the current episode.`;
   const points = limit === "all" ? all : all.slice(-Number(limit));
-  const maxDuration = Math.max(1000, ...points.map(weighted));
+  const maxDuration = points.reduce((max, point) => Math.max(max, weighted(point)), 1000);
   const unit = maxDuration >= 3600000 ? 3600000 : maxDuration >= 60000 ? 60000 : 1000;
   const plot = axes("thinking", { minX: points[0]?.number ?? 1, maxX: points.at(-1)?.number ?? 1,
     maxY: Math.ceil(maxDuration / unit * 1.1), xLabel: "Thinking episode", yLabel: `Weighted ${unit === 1000 ? "seconds" : unit === 60000 ? "minutes" : "hours"}`,
     yFormat: v => Number(v.toFixed(1)).toString() });
   const completed = points.filter(point => point !== current);
   let marks = completed.length ? `<polyline class="thinking-series" points="${completed.map(point => `${plot.x(point.number)},${plot.y(weighted(point) / unit)}`).join(" ")}"/>` : "";
-  for (const point of completed) marks += `<circle class="${point.compaction ? "thinking-compact" : "thinking-dot"}" cx="${plot.x(point.number)}" cy="${plot.y(weighted(point) / unit)}" r="${point.compaction ? 4 : 2.5}"/>`;
+  for (const point of completed.filter(point => completed.length <= 500 || point.compaction)) marks += `<circle class="${point.compaction ? "thinking-compact" : "thinking-dot"}" cx="${plot.x(point.number)}" cy="${plot.y(weighted(point) / unit)}" r="${point.compaction ? 4 : 2.5}"/>`;
   if (current) {
     const last = completed.at(-1);
     if (last) marks += `<line class="thinking-live-line" x1="${plot.x(last.number)}" y1="${plot.y(weighted(last) / unit)}" x2="${plot.x(current.number)}" y2="${plot.y(weighted(current) / unit)}"/>`;
@@ -110,7 +111,7 @@ function renderGems() {
   document.getElementById("gems-panel").hidden = !value.applicable;
   if (!value.applicable) return;
   document.getElementById("gems-current").textContent = `${number(value.collected)} / ${number(value.total)} gems · ${number(value.moves)} moves`;
-  const max = Math.max(1, ...value.points.map(point => point.gems));
+  const max = value.points.reduce((max, point) => Math.max(max, point.gems), 1);
   const maxY = Math.ceil(max / Math.max(1, Math.ceil(max / 4))) * Math.max(1, Math.ceil(max / 4));
   const plot = axes("gems", { maxX: value.moves, maxY, xLabel: "Move count", yLabel: "Gem count", integerY: true });
   const points = value.points.flatMap((point, index) => [
@@ -148,7 +149,8 @@ function attachHover(id) {
 }
 
 async function refresh() {
-  if (busy || document.hidden) return;
+  if (busy || !runTabVisible("analysis")) return;
+  if (Date.now() - receivedAt < (document.body.dataset.runnerActive === "true" ? 5000 : 60000)) return;
   busy = true;
   try {
     const response = await benchmarkFetch(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/charts`);

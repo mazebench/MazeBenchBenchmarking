@@ -9,7 +9,7 @@ import { safeOpenFile } from "./v1/safe-files.mjs";
 
 const RUN_ID = /^run-[0-9TZ-]+-[a-f0-9]{6}$/;
 const TRANSIENT = new Set(["queued", "running", "continuing", "pausing"]);
-const METADATA = ["id", "model", "provider", "world", "observation_mode", "effort", "tools_enabled",
+const METADATA = ["id", "pair_id", "model", "provider", "world", "observation_mode", "effort", "tools_enabled",
   "sequence_enabled", "service_tier", "action_limit", "created_at", "completed_at", "stopped_at", "paused_at", "updated_at", "status"];
 const COUNTERS = ["action_count", "gems_collected", "rooms_visited", "unique_cells", "levels_solved", "levels_total", "level_number"];
 const pick = (value, fields) => Object.fromEntries(fields.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
@@ -60,12 +60,20 @@ export class RunLibrary {
     // The journal verifier has a smaller cache. Preserve its changed-log check
     // even when a large library has evicted this run from that cache.
     const full = incremental && cached?.hmac === head.hmac && cached.logStamp !== logStamp;
-    const summary = incremental ? verifyJournal(directory, { full }).summary
+    const verified = incremental ? verifyJournal(directory, { full }) : null;
+    const summary = verified ? verified.summary
       : await readCheckpointJson(directory, "summary.json").catch(error => { if (error.code === "ENOENT") return {}; throw error; });
     const value = pick(summary, COUNTERS);
-    this.cache.set(directory, { fingerprint, value, hmac: head?.hmac, logStamp });
+    const snapshot = { summary: Object.fromEntries(Object.entries(summary).filter(([, value]) => !Array.isArray(value))),
+      display: verified?.display, history_epoch: verified ? `${verified.generation}:${verified.historyEpoch || verified.generation}` : null };
+    this.cache.set(directory, { fingerprint, value, snapshot, hmac: verified?.hmac, logStamp });
     if (this.cache.size > 512) this.cache.delete(this.cache.keys().next().value);
     return value;
+  }
+
+  async snapshot(directory) {
+    await this.summary(directory);
+    return this.cache.get(directory).snapshot;
   }
 
   async list(supervisor) {
