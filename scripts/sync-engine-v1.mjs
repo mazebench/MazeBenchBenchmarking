@@ -331,11 +331,17 @@ async function main() {
     stdio: "inherit",
     env: { ...process.env, MAZEBENCH_UNIT_TEST_REPO: sourceRoot }
   });
+  console.log("Building the project-owned Solutions accelerator...");
+  command("sh", ["scripts/build-editor-solver-v1.sh", "solutions"], repositoryRoot, {
+    stdio: "inherit",
+    env: { ...process.env, MAZEBENCH_UNIT_TEST_REPO: sourceRoot }
+  });
   console.log("Running MazeBenchBenchmarking integration tests...");
   command(process.execPath, [
     "--test",
     "tests/engine-v1.test.mjs",
-    "tests/world-solver-v1.test.mjs"
+    "tests/world-solver-v1.test.mjs",
+    "tests/solutions-v1.test.mjs"
   ], repositoryRoot, { stdio: "inherit" });
   console.log(
     `Synced engine v1 from UnitTesting ${manifest.sourceCommit.slice(0, 12)} ` +

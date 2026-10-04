@@ -173,9 +173,17 @@ bool EditorCandidateEquals(int32_t index) {
       g_editor_data->candidate_orange_depth;
 }
 
+#ifdef MAZEBENCH_SOLUTIONS_SOLVER
+uint32_t SolutionsHeuristic(const int16_t (*coordinates)[3], uint64_t collected);
+bool SolutionsTarget(int32_t source, const voxelbench::SearchNode& node);
+#endif
+
 uint32_t EditorHeuristic(
     const int16_t (*coordinates)[3],
     uint64_t collected_goals) {
+#ifdef MAZEBENCH_SOLUTIONS_SOLVER
+  return SolutionsHeuristic(coordinates, collected_goals);
+#endif
   if (g_editor_heuristic_weight <= 0 || g_editor_data->player_entity < 0) {
     return 0;
   }
@@ -517,6 +525,9 @@ int32_t editor_solver_run(int32_t maximum_expansions) {
     voxelbench::SearchNode parent{};
     EditorLoadNode(source, &parent);
     EditorRecordPlayer(parent);
+#ifdef MAZEBENCH_SOLUTIONS_SOLVER
+    if (SolutionsTarget(source, parent)) return EditorFinishSolution(source);
+#endif
     if (g_editor_stop_on_goals &&
         voxelbench::NodeIsGoal(g_editor_data, parent)) {
       return EditorFinishSolution(source);

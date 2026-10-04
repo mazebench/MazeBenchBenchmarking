@@ -1,0 +1,110 @@
+# Solutions
+
+Open [Solutions](http://localhost:8080/solutions/v1/) from the main navigation.
+Start the site with `node server.mjs` from the repository root if needed.
+
+- Begin at H×I. Move with the arrow keys or the movement pad.
+- **Undo** (Z or ⌘/Ctrl+Z) removes one move, including moves in generated
+  routes and room crossings. It restores the exact board and gem ledger and
+  works after reload. It deletes the last command from the active draft or
+  newest saved route, along with any checkpoint/proof created only by that
+  command. Undo never adds a move or a separate saved route. Existing older
+  branches remain intact; resuming one starts a new editing session.
+- **Find next gem** combines native room A* with connected-room route search.
+  **Reach new room** searches for a crossing into an unvisited room.
+- Tap a tile in the 3D view to immediately run A*, follow the route, and save
+  its moves. Dragging still controls the camera. **Adjust target** lets you
+  refine X/Y/height and search again; an empty height accepts any height.
+- **Search time** beside the search buttons defaults to one minute, with
+  options up to ten minutes for harder puzzles. Cancel stops the search
+  without changing your moves. A time or memory limit is not an unreachable
+  result.
+- Green on the map means **visited**. Unvisited rooms cannot be selected.
+  Gold diamonds mark remaining gems; white dots mark collected gems. A room
+  with both has some gems left. Hover for exact counts or select a visited
+  room to see its collected/remaining total.
+- **Spawn points** contains authored room starts and automatic room entrances
+  only. Visit a room to unlock its start. Selecting either type restores the
+  original blocks and mechanisms, places the player at that spawn, and keeps
+  all gems collected across the collection removed.
+- Routes save automatically upon reaching a gem or crossing a room boundary.
+  A* also saves completed routes. These run endpoints are not spawn points.
+  There is no manual Save spot action. View/copy moves or replay a run from
+  **Saved runs**.
+- **Clear all runs** removes the entire saved collection in one action after
+  confirmation: every run, discovered spawn, current draft, and reachability
+  proof. It returns to the authored H×I start, keeps normal room starts, and
+  saves the empty collection so cleared runs stay gone after reload. Clearing
+  cannot be undone and never becomes a recorded move.
+- **Setup** beside a saved spawn shows the sequence that recreates it. A setup
+  starts at the game start or an authored room start, then stacks the move
+  sequences of the preceding spawns. It never teleports to arbitrary coordinates.
+- **Full solution** combines the runs into one replayed command sequence from
+  H×I. Its only commands are `up`, `down`, `left`, `right`, and `room HxI`
+  (substituting the destination label). A room command requires an earlier
+  physical visit and uses the authored player start, matching the benchmark.
+  Branch changes expand their spawn setup after a room command when needed.
+  Gems remain collected across the entire assembled solution. Runs whose
+  starting rooms have not been discovered wait until discovery; any runs that
+  still cannot be included are listed separately, not reported as solved.
+- **Import JSON** loads a previously exported Solutions JSON when there are no
+  saved runs or unfinished moves. If rooms were edited, choose **Import and
+  recheck** to override the world mismatch. Every run is replayed against the
+  current rooms; entrances must still reach their saved positions. Gem IDs and
+  progress are rebuilt from that replay. An invalid route leaves the empty
+  solution unchanged. The engine version must still match. The imported
+  collection saves automatically under the current world; the original file
+  and saves belonging to older worlds remain intact.
+- Progress is stored in this browser using IndexedDB. **Export routes** saves
+  the run collection, spawn setups, existing reachability witnesses, and a
+  replay-validated `fullSolution` with commands and reached rooms/gems.
+  `fullSolution.complete` means all saved runs were included, not that every
+  room or gem in the world has been solved. Existing v1 saves load normally;
+  setup dependencies are reconstructed from their verified move sequences.
+
+## Verification and search
+
+Search and replay run in a worker. The canonical engine and
+`ConnectedWorldSessionV1` decide every move, including slopes, Ice, punchers,
+room-local orange circuits, and reset-on-entry room geometry. Collected gems
+stay removed when selecting starts or entrances and when re-entering rooms.
+Recorded runs retain their exact source state/reset mode and gem ledger for
+replay, reload, and undo. The internal run endpoints used to join move sequences
+are never offered as selectable spawns.
+
+A crossing records its entrance coordinate and its settled player position.
+Spawn selection resets the authored room at that settled position; intermediate
+rooms crossed during one continuous slide are visited without inventing a place
+the player could stop. Full solution always replays and checks entrance setups;
+a setup that cannot reproduce the reset board is reported as blocked.
+Rooms without an authored player have no fabricated default start.
+
+A* uses the editor's compact native command-state search for all three target
+types: gems, clicked coordinates (with optional height), and room boundaries.
+The board is uploaded once per room search; candidate expansion does not copy
+room objects or construct JavaScript animation frames. Only proposed routes
+are replayed with connected physics. Boundary candidates resume the same
+native frontier after blocked exits, preserving alternative board states.
+Room jobs are keyed by exact entrance state and gem ledger. A bounded
+connected-state fallback handles unsupported rooms and unusual seams.
+
+A* uses a weighted Manhattan priority, so routes are not certified shortest.
+A budget limit is reported separately from exhausting a search. Native room
+solver proposals are replayed with connected-room physics before acceptance.
+Stored routes are also replayed on load; stored verification flags are never
+trusted. A world/engine fingerprint keeps different world revisions separate.
+
+Build the separate Solutions accelerator with
+`sh scripts/build-editor-solver-v1.sh solutions`. Engine sync rebuilds it too.
+This reuses the editor search source; it does not alter the canonical WASM or
+the editor's compiled solver. A native room search retains its frontier for
+the selected time instead of abandoning it after two seconds. It uses the
+editor's growing compact-state storage up to the native memory limit, with
+no fixed 500,000-state cutoff. The connected-physics fallback retains its
+smaller JavaScript state budget and at most one second of reserved time.
+
+Run focused checks with:
+
+```sh
+node --test tests/solutions-v1.test.mjs tests/connected-world-slopes.test.mjs tests/room-context.test.mjs tests/engine-v1.test.mjs
+```

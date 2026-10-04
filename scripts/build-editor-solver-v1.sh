@@ -5,6 +5,17 @@ project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 engine_tools=${MAZEBENCH_UNIT_TEST_REPO:-"$project_root/../MazeBenchEngineUnitTest"}
 zig="$engine_tools/node_modules/.bin/zig"
 output="$project_root/world-solver/v1/editor-solver.wasm"
+source="$project_root/world-solver/v1/native/editor-solver-wasm.cpp"
+set -- "${1:-editor}"
+case "$1" in
+  editor) set -- ;;
+  solutions)
+    output="$project_root/solutions/v1/solutions-solver.wasm"
+    source="$project_root/world-solver/v1/native/solutions-solver-wasm.cpp"
+    set -- -Wl,--export=solutions_solver_begin -Wl,--export=solutions_solver_continue -Wl,--export=solutions_solver_direction
+    ;;
+  *) echo "Expected editor or solutions" >&2; exit 1 ;;
+esac
 
 if [ ! -x "$zig" ]; then
   echo "Missing Zig compiler at $zig" >&2
@@ -63,11 +74,12 @@ ZIG_GLOBAL_CACHE_DIR="$project_root/.zig-global-cache" \
   -Wl,--export=editor_solver_solution_length \
   -Wl,--export=editor_solver_solution_step \
   -Wl,--export-memory \
+  "$@" \
   -Wl,--initial-memory=100663296 \
   -Wl,--max-memory=2147483648 \
   -o "$output" \
   -I"$project_root/engine/v1/core/include" \
   "$project_root/engine/v1/core/src/physics.cpp" \
-  "$project_root/world-solver/v1/native/editor-solver-wasm.cpp"
+  "$source"
 
 echo "Built $output"
