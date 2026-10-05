@@ -15,6 +15,7 @@ constexpr uint32_t kEditorInteractionCap = 3;
 constexpr uint32_t kNoNode = UINT32_MAX;
 constexpr uint16_t kSuperseded = 1;
 constexpr uint16_t kClosed = 2;
+constexpr uint16_t kAuthoredGates = 4;
 constexpr int32_t kEditorEdgeCapacity = voxelbench::kSearchVoxelCapacity * 4;
 
 extern "C" uint8_t __heap_base;
@@ -151,6 +152,7 @@ void EditorLoadNode(int32_t index, voxelbench::SearchNode* node) {
   node->collected_goals = EditorRead64(source + EditorGoalsOffset());
   node->lift_states = EditorRead64(source + EditorLiftsOffset());
   node->orange_depth = source[EditorOrangeOffset()];
+  node->authored_gates = (source[EditorFlagsOffset()] & kAuthoredGates) != 0;
   node->parent = 0;
   node->cost = static_cast<uint16_t>(EditorNodeCost(index));
   node->direction = source[EditorActionOffset()];
@@ -170,7 +172,9 @@ bool EditorCandidateEquals(int32_t index) {
   if (EditorRead64(source + EditorLiftsOffset()) !=
       g_editor_data->candidate_lift_states) return false;
   return source[EditorOrangeOffset()] ==
-      g_editor_data->candidate_orange_depth;
+      g_editor_data->candidate_orange_depth &&
+      ((source[EditorFlagsOffset()] & kAuthoredGates) != 0) ==
+          g_editor_data->candidate_authored_gates;
 }
 
 #ifdef MAZEBENCH_SOLUTIONS_SOLVER
@@ -283,6 +287,7 @@ uint32_t EditorInteractionCount(const voxelbench::SearchNode& parent) {
     if (changed && ++moved >= kEditorInteractionCap) return moved;
   }
   if ((g_editor_data->candidate_lift_states != parent.lift_states ||
+       g_editor_data->candidate_authored_gates != parent.authored_gates ||
        g_editor_data->candidate_orange_depth != parent.orange_depth) &&
       moved < kEditorInteractionCap) {
     ++moved;
@@ -337,7 +342,7 @@ int32_t EditorStoreCandidate(
   EditorWrite32(target + EditorRewardOffset(), reward);
   EditorWrite64(target + EditorHashOffset(), hash);
   target[EditorActionOffset()] = action;
-  target[EditorFlagsOffset()] = 0;
+  target[EditorFlagsOffset()] = g_editor_data->candidate_authored_gates ? kAuthoredGates : 0;
   g_editor_hash_heads[bucket] = static_cast<uint32_t>(index);
   g_editor_collected_goal_mask |=
       g_editor_data->candidate_collected_goals;
@@ -497,12 +502,14 @@ int32_t editor_solver_begin(
   g_editor_data->candidate_collected_goals = root.collected_goals;
   g_editor_data->candidate_lift_states = root.lift_states;
   g_editor_data->candidate_orange_depth = root.orange_depth;
+  g_editor_data->candidate_authored_gates = root.authored_gates;
   const uint64_t hash = voxelbench::HashState(
       g_editor_data->candidate,
       g_editor_data->entity_count,
       root.collected_goals,
       root.lift_states,
-      root.orange_depth);
+      root.orange_depth,
+      root.authored_gates);
   return EditorStoreCandidate(hash, kNoNode, 0, 0, 0) == 1 ? 1 : 0;
 }
 
@@ -583,7 +590,8 @@ int32_t editor_solver_run(int32_t maximum_expansions) {
           g_editor_data->entity_count,
           g_editor_data->candidate_collected_goals,
           g_editor_data->candidate_lift_states,
-          g_editor_data->candidate_orange_depth);
+          g_editor_data->candidate_orange_depth,
+          g_editor_data->candidate_authored_gates);
       const int32_t inserted = EditorStoreCandidate(
           hash,
           static_cast<uint32_t>(source),

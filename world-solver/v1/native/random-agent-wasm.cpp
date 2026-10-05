@@ -167,7 +167,7 @@ uint32_t RoomBfsRead32(const uint16_t* source) {
 }
 
 int32_t RoomBfsMetadataOffset() {
-  return g_bfs_data->entity_count * 3 + 9;
+  return g_bfs_data->entity_count * 3 + 10;
 }
 
 uint32_t RoomBfsStateCost(int32_t index) {
@@ -503,6 +503,7 @@ void RoomBfsStoreCandidate(int32_t index, uint32_t cost) {
   RoomBfsWrite64(target + cursor, g_bfs_data->candidate_lift_states);
   cursor += 4;
   target[cursor++] = g_bfs_data->candidate_orange_depth;
+  target[cursor++] = g_bfs_data->candidate_authored_gates ? 1 : 0;
   RoomBfsWrite32(target + cursor, cost);
   cursor += 2;
   RoomBfsWrite32(target + cursor, 0);
@@ -518,7 +519,8 @@ void RoomBfsLoadNode(int32_t index, voxelbench::SearchNode* node) {
   cursor += 4;
   node->lift_states = RoomBfsRead64(source + cursor);
   cursor += 4;
-  node->orange_depth = source[cursor];
+  node->orange_depth = source[cursor++];
+  node->authored_gates = source[cursor] != 0;
 }
 
 bool RoomBfsCandidateEquals(int32_t index) {
@@ -536,7 +538,8 @@ bool RoomBfsCandidateEquals(int32_t index) {
   if (RoomBfsRead64(source + cursor) !=
       g_bfs_data->candidate_lift_states) return false;
   cursor += 4;
-  return source[cursor] == g_bfs_data->candidate_orange_depth;
+  return source[cursor] == g_bfs_data->candidate_orange_depth &&
+      (source[cursor + 1] != 0) == g_bfs_data->candidate_authored_gates;
 }
 
 // Returns 1 for a new global board state, 0 for a transposition, and -1 at
@@ -549,7 +552,8 @@ int32_t RoomBfsInsertCandidate(uint32_t cost = 0) {
       g_bfs_data->entity_count,
       g_bfs_data->candidate_collected_goals,
       g_bfs_data->candidate_lift_states,
-      g_bfs_data->candidate_orange_depth);
+      g_bfs_data->candidate_orange_depth,
+      g_bfs_data->candidate_authored_gates);
   const uint32_t fingerprint = static_cast<uint32_t>(hash);
   int32_t slot = static_cast<int32_t>(hash) & kRoomBfsHashMask;
   for (int32_t probe = 0; probe < kRoomBfsHashCapacity; ++probe) {
@@ -942,7 +946,7 @@ int32_t BeginRoomSearch(
   g_super_astar_weight = heuristic_weight < 1
       ? 1
       : heuristic_weight > 16 ? 16 : heuristic_weight;
-  g_bfs_state_words = g_bfs_data->entity_count * 3 + 15;
+  g_bfs_state_words = g_bfs_data->entity_count * 3 + 16;
   const int64_t table_bytes = static_cast<int64_t>(kRoomBfsHashCapacity) * 8;
   const int64_t state_bytes = g_bfs_arena_bytes - table_bytes;
   if (g_bfs_state_words < 1 || state_bytes <= 0) return 0;
@@ -1221,7 +1225,8 @@ int32_t room_bfs_restore(
         g_bfs_data->entity_count,
         node.collected_goals,
         node.lift_states,
-        node.orange_depth);
+        node.orange_depth,
+        node.authored_gates);
     int32_t slot = static_cast<int32_t>(hash) & kRoomBfsHashMask;
     for (int32_t probe = 0; probe < kRoomBfsHashCapacity; ++probe) {
       if (RoomBfsSlots()[slot] < 0) {
@@ -1395,6 +1400,7 @@ int32_t row_astar_edge_load_state(int32_t index) {
   player.x = voxelbench::DecodeCoordinate(g_bfs_edge_player[index][0]);
   player.y = voxelbench::DecodeCoordinate(g_bfs_edge_player[index][1]);
   player.z = voxelbench::DecodeCoordinate(g_bfs_edge_player[index][2]);
+  voxelbench::RestoreSearchPlayerGates(g_bfs_data, node.authored_gates);
   if (player.x < 0) return 0;
   for (int32_t source = 0; source < g_bfs_data->count; ++source) {
     const int32_t scene = g_bfs_original_to_scene[source];

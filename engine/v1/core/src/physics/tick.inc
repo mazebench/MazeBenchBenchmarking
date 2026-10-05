@@ -8,7 +8,7 @@ bool IsCommandActorObject(int32_t object) {
 
 // Clone components resolve from front to back, so one may reach the player's
 // current cell before the player's own command is evaluated. Validate the
-// player's straight, non-slope proposal without committing it; a clone may
+// player's local entry and push proposal without committing it; a clone may
 // treat that cell as vacated only when the complete push transaction can
 // actually succeed.
 bool PlayerWillVacateForCloneCommand(
@@ -29,10 +29,6 @@ bool PlayerWillVacateForCloneCommand(
   } else if (g_object_kind[g_voxel_object[player_index]] == kPlayerObject) {
     return true;
   }
-  // Directional slope commands have their own simultaneous proposal graph.
-  // Existing clone/slope behavior remains authoritative there.
-  if (SceneHasIceSlopes(voxels, count, width, height)) return true;
-
   constexpr int32_t kDx[] = {0, 1, 0, -1};
   constexpr int32_t kDy[] = {-1, 0, 1, 0};
   const Voxel& player = voxels[player_index];
@@ -41,9 +37,16 @@ bool PlayerWillVacateForCloneCommand(
   const int32_t target_x = player.x + dx;
   const int32_t target_y = player.y + dy;
   if (!IsInsideRoom(target_x, target_y, width, height)) return false;
-
+  const int32_t dz = DeliberateSlopeVerticalDelta(
+      voxels, player, direction, width, height, false);
+  if (SlopeEntryIsBlocked(voxels, player, direction, dz, width, height, false)) {
+    return false;
+  }
+  const int32_t target_z = player.z + dz;
+  // Use the player's actual local ramp proposal. An unrelated ramp elsewhere
+  // in the room cannot waive this collision check for every trailing clone.
   const int32_t target = FindVoxelAt(
-      voxels, target_x, target_y, player.z, width, height);
+      voxels, target_x, target_y, target_z, width, height);
   if (target >= 0) {
     const int32_t object = g_voxel_object[target];
     if (object < 0) return false;
@@ -74,16 +77,16 @@ bool PlayerWillVacateForCloneCommand(
     return can_move;
   }
 
-  if (player.z == INT32_MIN) return false;
+  if (target_z == INT32_MIN) return false;
   const int32_t direct_support = FindVoxelAt(
-      voxels, target_x, target_y, player.z - 1, width, height);
+      voxels, target_x, target_y, target_z - 1, width, height);
   if (direct_support >= 0) {
     return voxels[direct_support].role != kFloatingFloorRole;
   }
   const int32_t current_support = FindVoxelAt(
       voxels, player.x, player.y, player.z - 1, width, height);
   const int32_t lower_support = FindNearestVoxelBelow(
-      voxels, count, target_x, target_y, player.z, -1, width);
+      voxels, count, target_x, target_y, target_z, -1, width);
   return current_support >= 0 &&
       (voxels[current_support].role == kFloorRole ||
        IsIceRole(voxels[current_support].role)) &&

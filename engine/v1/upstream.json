@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "e90f13cd5729ca9f28f01c26b7d1c6b357963a3b",
-  "sourceTree": "64d75d07fdb55a9b1ee9c3bc032e175e2c2ced54",
+  "sourceCommit": "f33f68ff188c6432a1deded214c628544d417194",
+  "sourceTree": "fe92fa013c5d5bf0089d71bf08f4013c4a8d66a1",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "sourcePath": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "e39b0991d639a290cbb43a273fc3cf336105afc5192e1dd94098b3fb87573915",
-    "bytes": 468798
+    "sha256": "7b040e2258f77754c1d05f2bcd71517a294e07943ea7ce27694a43903d40bb11",
+    "bytes": 471204
   },
   "files": [
     {
@@ -139,7 +139,7 @@
     {
       "mode": "100644",
       "path": "src/physics/slope_motion.inc",
-      "sha256": "b6cdf3497a8b953f74feb30e19414e8e45a5bcce0c7180e20a31b61390bf908b"
+      "sha256": "fcbb6d0c0dadf65855ce958830753915a095dbd3731fa34f310a99eead2b0c1e"
     },
     {
       "mode": "100644",
@@ -149,7 +149,7 @@
     {
       "mode": "100644",
       "path": "src/physics/tick.inc",
-      "sha256": "35116662fc55ef7948a5584f8ca61958722bed529fc845d0ac04991342132f57"
+      "sha256": "7c36e662dbc02541bfc754f9f746c1a799a9da851b62cfdef2af3ac7c34daab5"
     },
     {
       "mode": "100644",
@@ -164,7 +164,7 @@
     {
       "mode": "100644",
       "path": "src/search.cpp",
-      "sha256": "3e10409ec18ca36d927521ae4b8d6b24e09934dcffeab00e911b82e2c342126b"
+      "sha256": "06fb0cf92fc068afc68358b634e4738d5413e3a353f223bb838b7f6e738dec18"
     },
     {
       "mode": "100644",
@@ -175,6 +175,11 @@
       "mode": "100644",
       "path": "tests/audit-regressions.test.mjs",
       "sha256": "2e2a905573c978bceb78e9a6599a65d3da155812ab5af12f5121016aa22cf57a"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/clone-vacancy.test.mjs",
+      "sha256": "7004b5161e27bb7d1f58756757a04c6c4c45f6f2110bd985e4f4a65341152500"
     },
     {
       "mode": "100644",
@@ -193,8 +198,23 @@
     },
     {
       "mode": "100644",
+      "path": "tests/helpers/clone-vacancy-fixtures.mjs",
+      "sha256": "0ccff180d2df3f970ee3ab0410e3479ab462f988c6f23728a28165d2db3761ef"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/helpers/interlocked-fixtures.mjs",
+      "sha256": "46fa1b65cda7e62f148cbe32d6f5b4aeac63b90d62e5c4ae9975851755be6277"
+    },
+    {
+      "mode": "100644",
       "path": "tests/helpers/project-engine.mjs",
       "sha256": "841f8855e09f3983395b5d2ebdf6569b5b4637c89b17d93b4ab548da120d4234"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/interlocked-momentum.test.mjs",
+      "sha256": "f3c1870995255c7a8e4481f03a21754415055f7233d2ec15715fd055c7034a3a"
     },
     {
       "mode": "100644",
@@ -209,7 +229,7 @@
     {
       "mode": "100644",
       "path": "tests/physics_tests.cpp",
-      "sha256": "02e7b3e909196c70c6db7ab8f2ed38cc90da9509cd555e18a28eb0895d08ae36"
+      "sha256": "b7632056d4d93bdf56e233c8c0e0d345366ec1cf190c1ddf95d9c5c30768ba6c"
     },
     {
       "mode": "100644",
@@ -220,6 +240,16 @@
       "mode": "100644",
       "path": "tests/puncher-search.test.mjs",
       "sha256": "5e5677994400c5a5529c863f3305a4e412a69d73681c2ee5ba1aec4ef56f8eae"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/remote-terrain.test.mjs",
+      "sha256": "da2881181aa52930b4b124201a31af3cf2a13fd616c365b67fe91a6974a359d7"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/search-oracle.test.mjs",
+      "sha256": "7b3f734dac1e892348926cf553caa3d1be7ef339afa05dce15c771f2de9d17e0"
     },
     {
       "mode": "100644",

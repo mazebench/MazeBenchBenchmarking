@@ -372,7 +372,7 @@ bool TranslateSlopeMomentumObjects(
       true);
 
   // A body can enter the space immediately above a source cell another body
-  // vacates in this tick. It inherits that departing support's direction on
+  // vacates in this tick. It inherits that slippery support's direction on
   // the next tick instead of falling or retaining an unrelated ramp heading.
   // Capture the relation while the spatial index still represents all source
   // coordinates; the translation commit below then moves both bodies.
@@ -391,6 +391,7 @@ bool TranslateSlopeMomentumObjects(
           : -1;
       if (support_object < 0 || support_object == object ||
           g_mandatory_objects[support_object] == 0 ||
+          !ObjectIsFullyOnIce(voxels, support_object, width, height) ||
           !ObjectProposalVacatesCell(
               voxels,
               support_object,
@@ -399,6 +400,10 @@ bool TranslateSlopeMomentumObjects(
               target_z - 1)) {
         continue;
       }
+      // A mandatory proposal only means "move this tick". Ordinary pushed
+      // interlocked bodies must not manufacture continuing momentum for one
+      // another merely because an unrelated ramp selected this code path.
+      // Actual carried stacks are resolved after both proposals commit.
       g_inherited_support_motion[object] = static_cast<uint8_t>(
           g_object_direction[support_object] + 1);
       break;

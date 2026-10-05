@@ -677,7 +677,7 @@ test("the benchmark library links to dedicated model records with colored ASCII 
     readFile(path.join(projectRoot, "benchmarking", "v1", "styles.css"), "utf8"),
     readFile(path.join(projectRoot, "server.mjs"), "utf8")
   ]);
-  assert.match(index, /Evaluation library/);
+  assert.match(index, /<h2 id="runs-title">Runs<\/h2>/);
   assert.doesNotMatch(index, /id="board"/);
   assert.match(main, /\.\/run\.html\?id=/);
   assert.match(runPage, /id="model-hero"/);

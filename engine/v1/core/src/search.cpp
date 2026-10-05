@@ -77,6 +77,8 @@ struct SearchNode {
   uint16_t orange_depth;
   int16_t approach_coordinates[3];
   uint8_t direction;
+  // Uses the existing padding byte; settled gates are derived from positions.
+  bool authored_gates;
 };
 
 struct SearchEdge {
@@ -113,6 +115,9 @@ struct SearchData {
   uint64_t candidate_collected_goals;
   uint64_t candidate_lift_states;
   uint16_t candidate_orange_depth;
+  bool candidate_authored_gates;
+  int32_t gate_count;
+  int32_t gate_indices[kSearchVoxelCapacity];
   int32_t heap_nodes[kSearchNodeCapacity];
   int32_t heap_positions[kSearchNodeCapacity];
   int32_t heap_size;
@@ -180,43 +185,43 @@ bool IsDynamic(uint32_t role) {
       role == kOrangeButtonRole || role == kFloatingFloorRole;
 }
 
-bool SearchGateBlockingActor(uint32_t role) {
-  return role == kPushableRole || IsWeightlessObjectRole(role);
+bool SearchGateShouldBeRaised(const SearchData* data, int32_t gate_index) {
+  const Voxel& gate = data->scene[gate_index];
+  const auto active = [&](const Voxel& voxel) {
+    return voxel.x >= 0 && voxel.x < data->search_width &&
+        voxel.y >= 0 && voxel.y < data->search_height && voxel.z != INT32_MIN;
+  };
+  bool same_level_block = false;
+  for (int32_t index = 0; index < data->dynamic_voxel_count; ++index) {
+    const Voxel& candidate = data->scene[index];
+    if (!active(candidate) || (candidate.role != kPushableRole &&
+        candidate.role != kFloatingFloorRole &&
+        !IsWeightlessObjectRole(candidate.role))) continue;
+    same_level_block |= candidate.x == gate.x && candidate.y == gate.y &&
+        candidate.z == gate.z;
+  }
+  for (int32_t index = 0; index < data->dynamic_voxel_count; ++index) {
+    const Voxel& actor = data->scene[index];
+    if (!active(actor) || (actor.role != kPlayerRole &&
+        !IsCloneObjectRole(actor.role))) continue;
+    const int64_t delta_x = static_cast<int64_t>(actor.x) - gate.x;
+    const int64_t delta_y = static_cast<int64_t>(actor.y) - gate.y;
+    const int64_t distance = (delta_x < 0 ? -delta_x : delta_x) +
+        (delta_y < 0 ? -delta_y : delta_y);
+    const int64_t height = static_cast<int64_t>(actor.z) - gate.z;
+    if (distance <= 1 && height >= 0 && height <= 1 &&
+        !(distance == 0 && height == 0) &&
+        (height != 0 || !same_level_block)) return true;
+  }
+  return false;
 }
 
-bool IsSearchPlayerGateTrigger(uint32_t role) {
-  return role == kPlayerRole || IsCloneObjectRole(role);
-}
-
-void RefreshSearchPlayerGates(Voxel* voxels, int32_t count) {
-  for (int32_t gate_index = 0; gate_index < count; ++gate_index) {
-    Voxel& gate = voxels[gate_index];
-    if (gate.role != kPlayerGateRole) continue;
-    bool same_level_block = false;
-    for (int32_t index = 0; index < count; ++index) {
-      const Voxel& candidate = voxels[index];
-      if (!SearchGateBlockingActor(candidate.role) || candidate.x < 0) continue;
-      same_level_block |= candidate.x == gate.x && candidate.y == gate.y &&
-          candidate.z == gate.z;
-    }
-    bool raised = false;
-    for (int32_t index = 0; index < count && !raised; ++index) {
-      const Voxel& actor = voxels[index];
-      if (!IsSearchPlayerGateTrigger(actor.role) || actor.x < 0) continue;
-      const int64_t delta_x = static_cast<int64_t>(actor.x) - gate.x;
-      const int64_t delta_y = static_cast<int64_t>(actor.y) - gate.y;
-      const int64_t distance =
-          (delta_x < 0 ? -delta_x : delta_x) +
-          (delta_y < 0 ? -delta_y : delta_y);
-      const int64_t height_above_gate =
-          static_cast<int64_t>(actor.z) - gate.z;
-      const bool overlaps_lowered_plate =
-          distance == 0 && height_above_gate == 0;
-      raised = distance <= 1 && height_above_gate >= 0 &&
-          height_above_gate <= 1 && !overlaps_lowered_plate &&
-          (height_above_gate != 0 || !same_level_block);
-    }
-    gate.generic_id = raised ? 1 : 0;
+void RestoreSearchPlayerGates(SearchData* data, bool authored) {
+  for (int32_t i = 0; i < data->gate_count; ++i) {
+    const int32_t index = data->gate_indices[i];
+    data->scene[index].generic_id = authored
+        ? data->base_offsets[index][0]
+        : (SearchGateShouldBeRaised(data, index) ? 1 : 0);
   }
 }
 
@@ -239,7 +244,8 @@ uint64_t HashState(
     int32_t entity_count,
     uint64_t collected_goals,
     uint64_t lift_states,
-    uint16_t orange_depth) {
+    uint16_t orange_depth,
+    bool authored_gates) {
   uint64_t hash = 0xcbf29ce484222325ULL;
   for (int32_t entity = 0; entity < entity_count; ++entity) {
     for (int32_t axis = 0; axis < 3; ++axis) {
@@ -257,6 +263,10 @@ uint64_t HashState(
     hash ^= orange_depth;
     hash *= 0x100000001b3ULL;
   }
+  if (authored_gates) {
+    hash ^= 0xa17e6a7eULL;
+    hash *= 0x100000001b3ULL;
+  }
   return Mix64(hash);
 }
 
@@ -266,10 +276,12 @@ bool CoordinatesEqual(
     int32_t entity_count,
     uint64_t collected_goals,
     uint64_t lift_states,
-    uint16_t orange_depth) {
+    uint16_t orange_depth,
+    bool authored_gates) {
   if (node.collected_goals != collected_goals ||
       node.lift_states != lift_states ||
-      node.orange_depth != orange_depth) return false;
+      node.orange_depth != orange_depth ||
+      node.authored_gates != authored_gates) return false;
   for (int32_t entity = 0; entity < entity_count; ++entity) {
     for (int32_t axis = 0; axis < 3; ++axis) {
       if (node.coordinates[entity][axis] != coordinates[entity][axis]) {
@@ -295,7 +307,8 @@ int32_t FindState(
     const int16_t coordinates[kSearchDynamicEntityCapacity][3],
     uint64_t collected_goals,
     uint64_t lift_states,
-    uint16_t orange_depth) {
+    uint16_t orange_depth,
+    bool authored_gates) {
   int32_t slot = static_cast<int32_t>(hash) & kHashMask;
   for (;;) {
     if (data->hash_stamps[slot] != data->hash_generation) return -1;
@@ -307,7 +320,8 @@ int32_t FindState(
             data->entity_count,
             collected_goals,
             lift_states,
-            orange_depth)) {
+            orange_depth,
+            authored_gates)) {
       return node;
     }
     slot = (slot + 1) & kHashMask;
@@ -330,7 +344,8 @@ void StoreNodeCoordinates(
     int32_t entity_count,
     uint64_t collected_goals,
     uint64_t lift_states,
-    uint16_t orange_depth) {
+    uint16_t orange_depth,
+    bool authored_gates) {
   for (int32_t entity = 0; entity < entity_count; ++entity) {
     for (int32_t axis = 0; axis < 3; ++axis) {
       node->coordinates[entity][axis] = coordinates[entity][axis];
@@ -339,6 +354,7 @@ void StoreNodeCoordinates(
   node->collected_goals = collected_goals;
   node->lift_states = lift_states;
   node->orange_depth = orange_depth;
+  node->authored_gates = authored_gates;
 }
 
 uint64_t LocalCoordinateKey(const int16_t coordinates[3]) {
@@ -481,12 +497,28 @@ void LoadNode(SearchData* data, const SearchNode& node) {
     voxel.y = data->goal_coordinates[goal][1];
     voxel.z = data->goal_coordinates[goal][2];
   }
-  RefreshSearchPlayerGates(data->scene, data->count);
 }
 
 bool CaptureCandidate(SearchData* data) {
   data->candidate_lift_states = 0;
   data->candidate_orange_depth = 0;
+  data->candidate_authored_gates = false;
+  for (int32_t i = 0; i < data->gate_count; ++i) {
+    const int32_t index = data->gate_indices[i];
+    if (data->scene[index].generic_id !=
+        (SearchGateShouldBeRaised(data, index) ? 1 : 0)) {
+      data->candidate_authored_gates = true;
+    }
+  }
+  // Completed commands settle all gates; only an authored root (or its cycle
+  // rollback) can retain a non-equilibrium gate state. Keep that state exact
+  // without charging every fixed gate against the moving-entity limit.
+  if (data->candidate_authored_gates) {
+    for (int32_t i = 0; i < data->gate_count; ++i) {
+      const int32_t index = data->gate_indices[i];
+      if (data->scene[index].generic_id != data->base_offsets[index][0]) return false;
+    }
+  }
   for (int32_t entity = 0; entity < data->entity_count; ++entity) {
     const Voxel& anchor = data->scene[data->entity_anchors[entity]];
     if ((anchor.role == kPlayerLiftRole || anchor.role == kPuncherRole) &&
@@ -561,6 +593,7 @@ void BuildPassiveCandidate(
   data->candidate_collected_goals = collected_goals;
   data->candidate_lift_states = parent.lift_states;
   data->candidate_orange_depth = parent.orange_depth;
+  data->candidate_authored_gates = parent.authored_gates;
 }
 
 bool CandidatePlayerIsActive(
@@ -634,6 +667,7 @@ bool SceneIsSettled(const SearchData* data, int32_t width, int32_t height) {
 bool DynamicObjectsChangedExceptPlayer(
     const SearchData* data,
     const SearchNode& parent) {
+  if (data->candidate_authored_gates != parent.authored_gates) return true;
   if (data->candidate_lift_states != parent.lift_states) return true;
   if (data->candidate_orange_depth != parent.orange_depth) return true;
   for (int32_t entity = 0; entity < data->entity_count; ++entity) {
@@ -664,14 +698,16 @@ bool AddGeneralNode(
       data->entity_count,
       data->candidate_collected_goals,
       data->candidate_lift_states,
-      data->candidate_orange_depth);
+      data->candidate_orange_depth,
+      data->candidate_authored_gates);
   const int32_t existing = FindState(
       data,
       hash,
       data->candidate,
       data->candidate_collected_goals,
       data->candidate_lift_states,
-      data->candidate_orange_depth);
+      data->candidate_orange_depth,
+      data->candidate_authored_gates);
   if (existing >= 0) {
     ++*transpositions;
     SearchNode& node = data->nodes[existing];
@@ -699,7 +735,8 @@ bool AddGeneralNode(
       data->entity_count,
       data->candidate_collected_goals,
       data->candidate_lift_states,
-      data->candidate_orange_depth);
+      data->candidate_orange_depth,
+      data->candidate_authored_gates);
   child.parent = static_cast<uint32_t>(parent);
   child.cost = cost;
   child.approach_coordinates[0] = approach[0];
@@ -743,6 +780,8 @@ bool LoadLocalCommandSource(
   player.x = DecodeCoordinate(data->local_coordinates[local_state][0]);
   player.y = DecodeCoordinate(data->local_coordinates[local_state][1]);
   player.z = DecodeCoordinate(data->local_coordinates[local_state][2]);
+  // Derive settled gates only after restoring this local player coordinate.
+  RestoreSearchPlayerGates(data, parent.authored_gates);
   return player.x >= 0;
 }
 
@@ -1168,6 +1207,7 @@ bool InitializeSearch(
   data->player_index = -1;
   data->player_entity = -1;
   data->goal_count = 0;
+  data->gate_count = 0;
   int32_t static_count = 0;
 
   // Dynamic entities first enables the physics engine's compact hot paths.
@@ -1214,6 +1254,10 @@ bool InitializeSearch(
     const int32_t target = data->dynamic_voxel_count++;
     data->scene[target] = voxels[source];
     data->voxel_entities[target] = -1;
+    if (voxels[source].role == kPlayerGateRole) {
+      data->gate_indices[data->gate_count++] = target;
+      data->base_offsets[target][0] = voxels[source].generic_id;
+    }
   }
   static_count = data->dynamic_voxel_count;
   for (int32_t source = 0; source < count; ++source) {
@@ -1260,7 +1304,8 @@ bool InitializeSearch(
       data->entity_count,
       data->candidate_collected_goals,
       data->candidate_lift_states,
-      data->candidate_orange_depth);
+      data->candidate_orange_depth,
+      data->candidate_authored_gates);
   root.parent = 0;
   root.cost = 0;
   root.approach_coordinates[0] = root.coordinates[data->player_entity][0];
@@ -1273,7 +1318,8 @@ bool InitializeSearch(
       data->entity_count,
       root.collected_goals,
       root.lift_states,
-      root.orange_depth), 0);
+      root.orange_depth,
+      root.authored_gates), 0);
   return true;
 }
 

@@ -1,6 +1,8 @@
 #include "voxelbench/physics.hpp"
 #include "voxelbench/search.hpp"
 
+#include <algorithm>
+#include <vector>
 #include <cstring>
 #include <cstdlib>
 #include <iostream>
@@ -9,10 +11,18 @@
 namespace {
 
 int failures = 0;
+int tests_run = 0;
+const char* current_test = "";
+
+void Run(void (*test)(), const char* name) {
+  current_test = name;
+  ++tests_run;
+  test();
+}
 
 void Check(bool condition, const char* message) {
   if (!condition) {
-    std::cerr << "FAIL: " << message << '\n';
+    std::cerr << "FAIL [" << current_test << "]: " << message << '\n';
     ++failures;
   }
 }
@@ -316,6 +326,59 @@ void TestSparseStackCarryIgnoresUnrelatedSlopes() {
                     voxels[index].y == before[index].y -
                         (index < dynamic_count ? 1 : 0),
                 "the shared player/box support should carry every rider cell once");
+        }
+      }
+    }
+  }
+}
+
+void TestInterlockedPushDoesNotInventMomentum() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  const char* ramp_roles[] = {"solid", "ice-slope-up", "ice-slope-right",
+                              "ice-slope-down", "ice-slope-left"};
+  for (const char* ramp_role : ramp_roles) {
+    for (const bool blocked : {false, true}) {
+      for (const bool reverse_order : {false, true}) {
+        std::vector<voxelbench::Voxel> voxels;
+        for (int32_t x = 0; x < 8; ++x) {
+          for (int32_t y = 0; y < 10; ++y) {
+            voxels.push_back({x, y, 0, Role("floor"), -1});
+          }
+        }
+        for (int32_t x = 1; x <= 3; ++x) {
+          for (int32_t y = 2; y <= 4; ++y) {
+            voxels.push_back({x, y, 1, Role("solid"), -1});
+            for (int32_t z = 2; z <= 4; ++z) {
+              if (y != 3 || z != 3) {
+                voxels.push_back({x, y, z, Role("weightless-pushable"), 17});
+              }
+            }
+          }
+        }
+        for (int32_t x = 1; x <= 5; ++x) {
+          voxels.push_back({x, 3, 3, Role("weightless-pushable"), 39});
+        }
+        voxels.push_back({5, 3, 1, Role("solid"), -1});
+        voxels.push_back({5, 4, 1, Role("solid"), -1});
+        voxels.push_back({5, 3, 2, Role("weightless-pushable"), 39});
+        voxels.push_back({5, 4, 2, Role("player"), -1});
+        voxels.push_back({2, 3, 5, Role("weightless-pushable"), 91});
+        voxels.push_back({7, 9, 1, Role(ramp_role), -1});
+        if (blocked) voxels.push_back({1, 1, 4, Role("solid"), -1});
+        if (reverse_order) std::reverse(voxels.begin(), voxels.end());
+        const auto before = voxels;
+        const int32_t count = static_cast<int32_t>(voxels.size());
+        // Reuse the same workspace across changing object orders and scenes.
+        Check(voxelbench::simulate_command(&workspace, &state, voxels.data(),
+                  count, 8, 10, 0) == 0 && state.tick == 1,
+              "interlocked bodies must finish their ordinary push in one tick");
+        for (size_t i = 0; i < voxels.size(); ++i) {
+          const bool dynamic = before[i].role == Role("player") ||
+              before[i].role == Role("weightless-pushable");
+          Check(voxels[i].x == before[i].x && voxels[i].z == before[i].z &&
+                    voxels[i].y == before[i].y - (dynamic && !blocked ? 1 : 0),
+                "a remote ramp cannot add translation or make the stack fall");
         }
       }
     }
@@ -2451,21 +2514,24 @@ void TestFloatingFloorIsNotWalkableOrPushableIntoHighVoid() {
 }
 
 void TestCloneDoesNotEnterPlayerCellWhenPlayerPushIsBlocked() {
-  voxelbench::Voxel voxels[] = {
-      {0, 4, 1, Role("player"), -1},
-      {0, 5, 1, Role("clone"), 0},
-      {0, 3, 1, Role("floating-floor"), -1},
-      {0, 2, 1, Role("floating-floor"), -1},
-      {0, 2, 0, Role("floor"), -1},
-      {0, 3, 0, Role("floor"), -1},
-      {0, 4, 0, Role("floor"), -1},
-      {0, 5, 0, Role("floor"), -1},
-  };
-  Check(voxelbench::simulate_turn(voxels, 8, 6, 6, 0) == 0,
-        "a blocked player and trailing clone command should run");
-  Check(voxels[0].y == 4 && voxels[1].y == 5 &&
-            voxels[2].y == 3 && voxels[3].y == 2,
-        "the clone must retain its cell when the player cannot vacate");
+  for (const bool remote_slope : {false, true}) {
+    voxelbench::Voxel voxels[9] = {
+        {0, 4, 1, Role("player"), -1},
+        {0, 5, 1, Role("clone"), 0},
+        {0, 3, 1, Role("floating-floor"), -1},
+        {0, 2, 1, Role("floating-floor"), -1},
+        {0, 2, 0, Role("floor"), -1},
+        {0, 3, 0, Role("floor"), -1},
+        {0, 4, 0, Role("floor"), -1},
+        {0, 5, 0, Role("floor"), -1},
+    };
+    if (remote_slope) voxels[8] = {5, 5, 1, Role("ice-slope-right"), -1};
+    Check(voxelbench::simulate_turn(voxels, remote_slope ? 9 : 8, 6, 6, 0) == 0,
+          "a blocked player and trailing clone command should run");
+    Check(voxels[0].y == 4 && voxels[1].y == 5 &&
+              voxels[2].y == 3 && voxels[3].y == 2,
+          "the clone must retain its cell when the player cannot vacate");
+  }
 }
 
 void TestAuthoredFloatingFloorHoversAndSlopeJamReflectsPlayer() {
@@ -2552,6 +2618,59 @@ void TestSearchTracksFilledFloatingFloorState() {
         "search should cross the filled hole and collect the gem");
 }
 
+void TestSearchPreservesAuthoredGateTiming() {
+  static voxelbench::PhysicsWorkspace physics_workspace;
+  static voxelbench::SearchWorkspace search_workspace;
+  for (const int32_t raised : {0, 1}) {
+    voxelbench::Voxel voxels[20] = {
+        {1, 3, 1, Role("player"), -1},
+        {1, 0, 1, Role("goal"), -1},
+        {1, 2, 1, Role("player-gate"), raised},
+    };
+    int32_t count = 3;
+    for (int32_t x = 0; x < 4; ++x) {
+      for (int32_t y = 0; y < 4; ++y) {
+        voxels[count++] = {x, y, 0, Role("floor"), -1};
+      }
+    }
+    const auto result = voxelbench::search_shortest(&search_workspace,
+        &physics_workspace, voxels, count, 4, 4, 1000);
+    Check(result.status == voxelbench::SearchStatus::kSolved &&
+              result.moves == (raised == 0 ? 3 : 5),
+          "exact search must preserve authored gate state before the first input");
+    for (int32_t i = 0; i < result.solution_length; ++i) {
+      Check(voxelbench::simulate_turn(voxels, count, 4, 4,
+                result.solution[i]) == 0, "gate solution commands must replay");
+    }
+    Check(voxels[1].x < 0, "the shortest gate witness must collect its gem");
+  }
+}
+
+void TestSearchManyFixedGatesDoNotConsumeEntityBudget() {
+  static voxelbench::PhysicsWorkspace physics_workspace;
+  static voxelbench::SearchWorkspace search_workspace;
+  std::vector<voxelbench::Voxel> voxels = {
+      {0, 3, 1, Role("player"), -1},
+      {0, 0, 1, Role("goal"), -1},
+  };
+  for (int32_t x = 0; x < 10; ++x) {
+    for (int32_t y = 0; y < 10; ++y) {
+      voxels.push_back({x, y, 0, Role("floor"), -1});
+      if (x >= 2) voxels.push_back({x, y, 1, Role("player-gate"), (x + y) % 2});
+    }
+  }
+  const int32_t count = static_cast<int32_t>(voxels.size());
+  const auto result = voxelbench::search_shortest(&search_workspace,
+      &physics_workspace, voxels.data(), count, 10, 10, 1000);
+  Check(result.status == voxelbench::SearchStatus::kSolved && result.moves == 3,
+        "80 fixed gates must retain their states without exhausting the entity budget");
+  for (int32_t i = 0; i < result.solution_length; ++i) {
+    Check(voxelbench::simulate_turn(voxels.data(), count, 10, 10,
+              result.solution[i]) == 0, "many-gate witness must replay");
+  }
+  Check(voxels[1].x < 0, "many-gate witness must collect the gem");
+}
+
 void TestReachableEdgesWithoutGems() {
   static voxelbench::PhysicsWorkspace physics_workspace;
   static voxelbench::SearchWorkspace search_workspace;
@@ -2597,109 +2716,112 @@ void TestReachableEdgesWithoutGems() {
 }  // namespace
 
 int main() {
-  TestSimplePush();
-  TestPlayerGateRisesWhenPlayerApproaches();
-  TestPlayerGateBlockedByEveryPushableFamily();
-  TestPlayerIceSlide();
-  TestApproachingIceFromWallDoesNotStartSlidingEarly();
-  TestSlidingMomentumEntersRampSide();
-  TestWalkingCannotEnterRampSide();
-  TestRampSideSlideStillCollidesWithSolids();
-  TestRampCrestPushesOnlyUnblockedWeightlessChains();
-  TestSparseStackCarryIgnoresUnrelatedSlopes();
-  TestCarrierMomentumCannotLeakIntoNextScene();
-  TestBlockedPassengersDoNotAnchorTheirCarrier();
-  TestPushableIceSlide();
-  TestPlayerAndPushedBodySlideTogetherOnIce();
-  TestIceStopsAtObstacle();
-  TestUnknownRoleBlocks();
-  TestIndependentCloneCommands();
-  TestBlueSlopeAndBoxShareTheirGenericBody();
-  TestYellowSlopeAndCloneShareTheirGenericBody();
-  TestInterlockingCloneCommandComponent();
-  TestExactSearchTracksCloneActors();
-  TestPlayerPolycubeMovesAndFallsRigidly();
-  TestExactSearchTracksPlayerPolycube();
-  TestEveryBoundary();
-  TestTickTraceAndWorkspaceIsolation();
-  TestObserverReceivesNoMovementCompletionFrame();
-  TestPreparedMotionStateClearsImmutableSuffix();
-  TestPreparedSceneRejectsMovableStaticSuffix();
-  TestPreparedIndexesDoNotLeakToDifferentSceneShape();
-  TestInvalidQuiescentCallDoesNotLeakItsAssumption();
-  TestPlayerGetsVisibleRowZeroVoidFrame();
-  TestPushableGetsVisibleRowZeroVoidFrame();
-  TestTallPolycubeDisappearsOnlyAfterItsTopPassesRowZero();
-  TestPolycubeAbyssUsesLowestOtherWorldGeometry();
-  TestPlayerAbyssUsesLowestOtherWorldGeometry();
-  TestFallingRiderDoesNotExtendItsCarriersAbyss();
-  TestObjectAboveDescendingPlayerFallsInSameTick();
-  TestExactSearchFindsShortestCommands();
-  TestFlatIceSearchKeepsExactCommandSemantics();
-  TestGeneralSearchSupportsBoardsWiderThanSixteen();
-  TestGeneralSearchCollapsesWalkingBeforePushes();
-  TestGeneralSearchMatchesMazeBenchEngine3LongRoom();
-  TestSearchInitializesFreshWorkspace();
-  TestSearchPrunesPlayerGameOverBranches();
-  TestPlayerCollectsGemOnlyAtCommandEnd();
-  TestBoxMayOverlapGemWithoutCollectingIt();
-  TestSlidingAcrossGemDoesNotCollectIt();
-  TestPlayerSettlesBeforeHorizontalInput();
-  TestPolycubeSettlesAsOneBodyBeforeHorizontalInput();
-  TestSearchRequiresACommandToCollectStartingGem();
-  TestPushCannotWalkPlayerOffWallSupport();
-  TestEnteringBeneathSupportedWeightlessBodyDoesNotCarryIt();
-  TestPlayerDepartureDoesNotCarryMultiplySupportedBody();
-  TestSearchCollectsEveryGem();
-  TestSearchStoresLargePolycubeAsOneEntity();
-  TestGeneralSearchChecksRaisedPolycubeCollisions();
-  TestCappedSearchDoesNotClaimAnOptimalProof();
-  TestSlopeCarrierMovesStationaryRider();
-  TestRemotePolycubeMemberCarriesPerpendicularSlopeRider();
-  TestSlopeAndFlatIceBridgeNeedsDeliberatePush();
-  TestOpposingSlopeLandingCancelsStoredMomentum();
-  TestPlayerEnteringLoweredLiftRaisesAndRides();
-  TestPlayerEnteringRaisedLiftLowersAndRides();
-  TestPlayerLiftToggleUsesItsOwnAnimationTick();
-  TestLeavingAuthoredLoweredLiftKeepsItLowered();
-  TestBlockedLoweredLiftRetriesAfterRiderLeaves();
-  TestLiftRidesWeightlessCarrierWithStatefulCollision();
-  TestBlockedPlayerLiftRefusesToRaise();
-  TestOverlappingPlayerLiftsDoNotDependOnVoxelOrder();
-  TestOpposingPlayerLiftsRecoilMountedBodies();
-  TestSearchTracksPlayerLiftState();
-  TestOrangeButtonUsesASeparateWallTick();
-  TestOrangeWallCarriesItsMountedButtonInTheSameTick();
-  TestOrangeWallCarriesItsMountedLiftInTheSameTick();
-  TestLoweredWallMountedLiftMayOverlapTerrain();
-  TestWallMountedLiftCannotDescendIntoFloor();
-  TestOrangeWallDeliversPlayerOntoMountedLift();
-  TestOrangeButtonRidesTopLiftAndChangesVisibility();
-  TestMovingPolycubeCarriesButtonsMountedOnEveryFace();
-  TestReleasedOrangeColumnRaisesEveryVoxelAfterJoining();
-  TestHeldButtonsPreserveOrangeWallAnchors();
-  TestOrangeControlScopesRemainIndependent();
-  TestOrangeWallsCountEveryPressedButton();
-  TestFlattenedOrangeWallIsPassThroughOnFloor();
-  TestFloatingOrangeWallLowersAsACube();
-  TestProjectedOrangeFaceTransitionsWithDepth();
-  TestSearchTracksOrangeWallDepth();
-  TestPuncherRedirectsPlayerAndResetsVisually();
-  TestSearchSolvesAndReplaysPuncherCommands();
-  TestPuncherMomentumMovesAWholeWeightlessConvoy();
-  TestFloatingFloorHasOneBoxPushWeight();
-  TestFloatingFloorFillsHoleOnFollowingTick();
-  TestFloatingFloorSharesOneWeightBudgetWithWeightlessChains();
-  TestFloatingFloorIsNotWalkableOrPushableIntoHighVoid();
-  TestCloneDoesNotEnterPlayerCellWhenPlayerPushIsBlocked();
-  TestAuthoredFloatingFloorHoversAndSlopeJamReflectsPlayer();
-  TestSlopeMomentumPushesSupportedFloatingFloor();
-  TestSearchTracksFilledFloatingFloorState();
-  TestReachableEdgesWithoutGems();
+  Run(TestSimplePush, "TestSimplePush");
+  Run(TestPlayerGateRisesWhenPlayerApproaches, "TestPlayerGateRisesWhenPlayerApproaches");
+  Run(TestPlayerGateBlockedByEveryPushableFamily, "TestPlayerGateBlockedByEveryPushableFamily");
+  Run(TestPlayerIceSlide, "TestPlayerIceSlide");
+  Run(TestApproachingIceFromWallDoesNotStartSlidingEarly, "TestApproachingIceFromWallDoesNotStartSlidingEarly");
+  Run(TestSlidingMomentumEntersRampSide, "TestSlidingMomentumEntersRampSide");
+  Run(TestWalkingCannotEnterRampSide, "TestWalkingCannotEnterRampSide");
+  Run(TestRampSideSlideStillCollidesWithSolids, "TestRampSideSlideStillCollidesWithSolids");
+  Run(TestRampCrestPushesOnlyUnblockedWeightlessChains, "TestRampCrestPushesOnlyUnblockedWeightlessChains");
+  Run(TestSparseStackCarryIgnoresUnrelatedSlopes, "TestSparseStackCarryIgnoresUnrelatedSlopes");
+  Run(TestInterlockedPushDoesNotInventMomentum, "TestInterlockedPushDoesNotInventMomentum");
+  Run(TestCarrierMomentumCannotLeakIntoNextScene, "TestCarrierMomentumCannotLeakIntoNextScene");
+  Run(TestBlockedPassengersDoNotAnchorTheirCarrier, "TestBlockedPassengersDoNotAnchorTheirCarrier");
+  Run(TestPushableIceSlide, "TestPushableIceSlide");
+  Run(TestPlayerAndPushedBodySlideTogetherOnIce, "TestPlayerAndPushedBodySlideTogetherOnIce");
+  Run(TestIceStopsAtObstacle, "TestIceStopsAtObstacle");
+  Run(TestUnknownRoleBlocks, "TestUnknownRoleBlocks");
+  Run(TestIndependentCloneCommands, "TestIndependentCloneCommands");
+  Run(TestBlueSlopeAndBoxShareTheirGenericBody, "TestBlueSlopeAndBoxShareTheirGenericBody");
+  Run(TestYellowSlopeAndCloneShareTheirGenericBody, "TestYellowSlopeAndCloneShareTheirGenericBody");
+  Run(TestInterlockingCloneCommandComponent, "TestInterlockingCloneCommandComponent");
+  Run(TestExactSearchTracksCloneActors, "TestExactSearchTracksCloneActors");
+  Run(TestPlayerPolycubeMovesAndFallsRigidly, "TestPlayerPolycubeMovesAndFallsRigidly");
+  Run(TestExactSearchTracksPlayerPolycube, "TestExactSearchTracksPlayerPolycube");
+  Run(TestEveryBoundary, "TestEveryBoundary");
+  Run(TestTickTraceAndWorkspaceIsolation, "TestTickTraceAndWorkspaceIsolation");
+  Run(TestObserverReceivesNoMovementCompletionFrame, "TestObserverReceivesNoMovementCompletionFrame");
+  Run(TestPreparedMotionStateClearsImmutableSuffix, "TestPreparedMotionStateClearsImmutableSuffix");
+  Run(TestPreparedSceneRejectsMovableStaticSuffix, "TestPreparedSceneRejectsMovableStaticSuffix");
+  Run(TestPreparedIndexesDoNotLeakToDifferentSceneShape, "TestPreparedIndexesDoNotLeakToDifferentSceneShape");
+  Run(TestInvalidQuiescentCallDoesNotLeakItsAssumption, "TestInvalidQuiescentCallDoesNotLeakItsAssumption");
+  Run(TestPlayerGetsVisibleRowZeroVoidFrame, "TestPlayerGetsVisibleRowZeroVoidFrame");
+  Run(TestPushableGetsVisibleRowZeroVoidFrame, "TestPushableGetsVisibleRowZeroVoidFrame");
+  Run(TestTallPolycubeDisappearsOnlyAfterItsTopPassesRowZero, "TestTallPolycubeDisappearsOnlyAfterItsTopPassesRowZero");
+  Run(TestPolycubeAbyssUsesLowestOtherWorldGeometry, "TestPolycubeAbyssUsesLowestOtherWorldGeometry");
+  Run(TestPlayerAbyssUsesLowestOtherWorldGeometry, "TestPlayerAbyssUsesLowestOtherWorldGeometry");
+  Run(TestFallingRiderDoesNotExtendItsCarriersAbyss, "TestFallingRiderDoesNotExtendItsCarriersAbyss");
+  Run(TestObjectAboveDescendingPlayerFallsInSameTick, "TestObjectAboveDescendingPlayerFallsInSameTick");
+  Run(TestExactSearchFindsShortestCommands, "TestExactSearchFindsShortestCommands");
+  Run(TestFlatIceSearchKeepsExactCommandSemantics, "TestFlatIceSearchKeepsExactCommandSemantics");
+  Run(TestGeneralSearchSupportsBoardsWiderThanSixteen, "TestGeneralSearchSupportsBoardsWiderThanSixteen");
+  Run(TestGeneralSearchCollapsesWalkingBeforePushes, "TestGeneralSearchCollapsesWalkingBeforePushes");
+  Run(TestGeneralSearchMatchesMazeBenchEngine3LongRoom, "TestGeneralSearchMatchesMazeBenchEngine3LongRoom");
+  Run(TestSearchInitializesFreshWorkspace, "TestSearchInitializesFreshWorkspace");
+  Run(TestSearchPrunesPlayerGameOverBranches, "TestSearchPrunesPlayerGameOverBranches");
+  Run(TestPlayerCollectsGemOnlyAtCommandEnd, "TestPlayerCollectsGemOnlyAtCommandEnd");
+  Run(TestBoxMayOverlapGemWithoutCollectingIt, "TestBoxMayOverlapGemWithoutCollectingIt");
+  Run(TestSlidingAcrossGemDoesNotCollectIt, "TestSlidingAcrossGemDoesNotCollectIt");
+  Run(TestPlayerSettlesBeforeHorizontalInput, "TestPlayerSettlesBeforeHorizontalInput");
+  Run(TestPolycubeSettlesAsOneBodyBeforeHorizontalInput, "TestPolycubeSettlesAsOneBodyBeforeHorizontalInput");
+  Run(TestSearchRequiresACommandToCollectStartingGem, "TestSearchRequiresACommandToCollectStartingGem");
+  Run(TestPushCannotWalkPlayerOffWallSupport, "TestPushCannotWalkPlayerOffWallSupport");
+  Run(TestEnteringBeneathSupportedWeightlessBodyDoesNotCarryIt, "TestEnteringBeneathSupportedWeightlessBodyDoesNotCarryIt");
+  Run(TestPlayerDepartureDoesNotCarryMultiplySupportedBody, "TestPlayerDepartureDoesNotCarryMultiplySupportedBody");
+  Run(TestSearchCollectsEveryGem, "TestSearchCollectsEveryGem");
+  Run(TestSearchStoresLargePolycubeAsOneEntity, "TestSearchStoresLargePolycubeAsOneEntity");
+  Run(TestGeneralSearchChecksRaisedPolycubeCollisions, "TestGeneralSearchChecksRaisedPolycubeCollisions");
+  Run(TestCappedSearchDoesNotClaimAnOptimalProof, "TestCappedSearchDoesNotClaimAnOptimalProof");
+  Run(TestSlopeCarrierMovesStationaryRider, "TestSlopeCarrierMovesStationaryRider");
+  Run(TestRemotePolycubeMemberCarriesPerpendicularSlopeRider, "TestRemotePolycubeMemberCarriesPerpendicularSlopeRider");
+  Run(TestSlopeAndFlatIceBridgeNeedsDeliberatePush, "TestSlopeAndFlatIceBridgeNeedsDeliberatePush");
+  Run(TestOpposingSlopeLandingCancelsStoredMomentum, "TestOpposingSlopeLandingCancelsStoredMomentum");
+  Run(TestPlayerEnteringLoweredLiftRaisesAndRides, "TestPlayerEnteringLoweredLiftRaisesAndRides");
+  Run(TestPlayerEnteringRaisedLiftLowersAndRides, "TestPlayerEnteringRaisedLiftLowersAndRides");
+  Run(TestPlayerLiftToggleUsesItsOwnAnimationTick, "TestPlayerLiftToggleUsesItsOwnAnimationTick");
+  Run(TestLeavingAuthoredLoweredLiftKeepsItLowered, "TestLeavingAuthoredLoweredLiftKeepsItLowered");
+  Run(TestBlockedLoweredLiftRetriesAfterRiderLeaves, "TestBlockedLoweredLiftRetriesAfterRiderLeaves");
+  Run(TestLiftRidesWeightlessCarrierWithStatefulCollision, "TestLiftRidesWeightlessCarrierWithStatefulCollision");
+  Run(TestBlockedPlayerLiftRefusesToRaise, "TestBlockedPlayerLiftRefusesToRaise");
+  Run(TestOverlappingPlayerLiftsDoNotDependOnVoxelOrder, "TestOverlappingPlayerLiftsDoNotDependOnVoxelOrder");
+  Run(TestOpposingPlayerLiftsRecoilMountedBodies, "TestOpposingPlayerLiftsRecoilMountedBodies");
+  Run(TestSearchTracksPlayerLiftState, "TestSearchTracksPlayerLiftState");
+  Run(TestOrangeButtonUsesASeparateWallTick, "TestOrangeButtonUsesASeparateWallTick");
+  Run(TestOrangeWallCarriesItsMountedButtonInTheSameTick, "TestOrangeWallCarriesItsMountedButtonInTheSameTick");
+  Run(TestOrangeWallCarriesItsMountedLiftInTheSameTick, "TestOrangeWallCarriesItsMountedLiftInTheSameTick");
+  Run(TestLoweredWallMountedLiftMayOverlapTerrain, "TestLoweredWallMountedLiftMayOverlapTerrain");
+  Run(TestWallMountedLiftCannotDescendIntoFloor, "TestWallMountedLiftCannotDescendIntoFloor");
+  Run(TestOrangeWallDeliversPlayerOntoMountedLift, "TestOrangeWallDeliversPlayerOntoMountedLift");
+  Run(TestOrangeButtonRidesTopLiftAndChangesVisibility, "TestOrangeButtonRidesTopLiftAndChangesVisibility");
+  Run(TestMovingPolycubeCarriesButtonsMountedOnEveryFace, "TestMovingPolycubeCarriesButtonsMountedOnEveryFace");
+  Run(TestReleasedOrangeColumnRaisesEveryVoxelAfterJoining, "TestReleasedOrangeColumnRaisesEveryVoxelAfterJoining");
+  Run(TestHeldButtonsPreserveOrangeWallAnchors, "TestHeldButtonsPreserveOrangeWallAnchors");
+  Run(TestOrangeControlScopesRemainIndependent, "TestOrangeControlScopesRemainIndependent");
+  Run(TestOrangeWallsCountEveryPressedButton, "TestOrangeWallsCountEveryPressedButton");
+  Run(TestFlattenedOrangeWallIsPassThroughOnFloor, "TestFlattenedOrangeWallIsPassThroughOnFloor");
+  Run(TestFloatingOrangeWallLowersAsACube, "TestFloatingOrangeWallLowersAsACube");
+  Run(TestProjectedOrangeFaceTransitionsWithDepth, "TestProjectedOrangeFaceTransitionsWithDepth");
+  Run(TestSearchTracksOrangeWallDepth, "TestSearchTracksOrangeWallDepth");
+  Run(TestPuncherRedirectsPlayerAndResetsVisually, "TestPuncherRedirectsPlayerAndResetsVisually");
+  Run(TestSearchSolvesAndReplaysPuncherCommands, "TestSearchSolvesAndReplaysPuncherCommands");
+  Run(TestPuncherMomentumMovesAWholeWeightlessConvoy, "TestPuncherMomentumMovesAWholeWeightlessConvoy");
+  Run(TestFloatingFloorHasOneBoxPushWeight, "TestFloatingFloorHasOneBoxPushWeight");
+  Run(TestFloatingFloorFillsHoleOnFollowingTick, "TestFloatingFloorFillsHoleOnFollowingTick");
+  Run(TestFloatingFloorSharesOneWeightBudgetWithWeightlessChains, "TestFloatingFloorSharesOneWeightBudgetWithWeightlessChains");
+  Run(TestFloatingFloorIsNotWalkableOrPushableIntoHighVoid, "TestFloatingFloorIsNotWalkableOrPushableIntoHighVoid");
+  Run(TestCloneDoesNotEnterPlayerCellWhenPlayerPushIsBlocked, "TestCloneDoesNotEnterPlayerCellWhenPlayerPushIsBlocked");
+  Run(TestAuthoredFloatingFloorHoversAndSlopeJamReflectsPlayer, "TestAuthoredFloatingFloorHoversAndSlopeJamReflectsPlayer");
+  Run(TestSlopeMomentumPushesSupportedFloatingFloor, "TestSlopeMomentumPushesSupportedFloatingFloor");
+  Run(TestSearchTracksFilledFloatingFloorState, "TestSearchTracksFilledFloatingFloorState");
+  Run(TestSearchPreservesAuthoredGateTiming, "TestSearchPreservesAuthoredGateTiming");
+  Run(TestSearchManyFixedGatesDoNotConsumeEntityBudget, "TestSearchManyFixedGatesDoNotConsumeEntityBudget");
+  Run(TestReachableEdgesWithoutGems, "TestReachableEdgesWithoutGems");
   if (failures != 0) {
     std::cerr << failures << " C++ physics test(s) failed\n";
     return EXIT_FAILURE;
   }
-  std::cout << "all 99 C++ physics/search tests passed\n";
+  std::cout << "all " << tests_run << " C++ physics/search tests passed\n";
   return EXIT_SUCCESS;
 }
