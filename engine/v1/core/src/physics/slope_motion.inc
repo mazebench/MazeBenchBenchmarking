@@ -334,21 +334,17 @@ bool TranslateSlopeMomentumObjects(
       }
       bool had_departing_support = false;
       bool has_stable_support = false;
-      for (int32_t member = g_object_head[object]; member >= 0;
-           member = g_next_object_voxel[member]) {
-        const Voxel& voxel = voxels[member];
-        const int32_t support = FindVoxelAt(
-            voxels, voxel.x, voxel.y, voxel.z - 1, width, height);
-        if (support < 0) continue;
+      const auto consider_support = [&](int32_t support, int32_t support_z) {
+        if (support < 0) return;
         const int32_t support_object = g_voxel_object[support];
-        if (support_object == object) continue;
+        if (support_object == object) return;
         if (support_object >= 0 && g_mandatory_objects[support_object] != 0 &&
             ObjectProposalVacatesCell(
                 voxels,
                 support_object,
-                voxel.x,
-                voxel.y,
-                voxel.z - 1)) {
+                voxels[support].x,
+                voxels[support].y,
+                support_z)) {
           if (g_mandatory_objects[object] != 0 &&
               g_object_dx[object] == g_object_dx[support_object] &&
               g_object_dy[object] == g_object_dy[support_object] &&
@@ -357,18 +353,32 @@ bool TranslateSlopeMomentumObjects(
             // directly beneath the rider at the destination even if the
             // carrier-parent marker was cleared after momentum resolution.
             has_stable_support = true;
-            break;
+            return;
           }
           had_departing_support = true;
-          continue;
+          return;
         }
         if (support_object >= 0 &&
             g_component_objects[support_object] != 0) {
           had_departing_support = true;
-          continue;
+          return;
         }
         has_stable_support = true;
-        break;
+      };
+      // A face fixture remains supported by its mount when a different body
+      // leaves the cell beneath it. Apply the same departure rules to both
+      // kinds of support before scheduling an immediate fall.
+      const int32_t attachment = MechanismAttachmentVoxel(voxels, object, width, height);
+      if (attachment >= 0) {
+        consider_support(attachment, VoxelPhysicalZ(voxels, count, attachment));
+      }
+      for (int32_t member = g_object_head[object];
+           member >= 0 && !has_stable_support;
+           member = g_next_object_voxel[member]) {
+        const Voxel& voxel = voxels[member];
+        if (voxel.z == INT32_MIN) continue;
+        consider_support(FindVoxelAt(
+            voxels, voxel.x, voxel.y, voxel.z - 1, width, height), voxel.z - 1);
       }
       if (had_departing_support && !has_stable_support) {
         // A horizontal proposal cannot remain suspended above a support

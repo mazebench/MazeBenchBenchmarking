@@ -39,4 +39,29 @@ for (const path of [
     }
     assert.deepEqual(result.frames.map(frame => frame.objects[4].stateId), [0, 1, 0, 0, 0]);
   });
+
+  test(`${path} keeps an elevated puncher mounted when the punched body departs`, async () => {
+    const engine = await instantiateMazeBenchEngineV1(await readFile(new URL(path, import.meta.url)));
+    const room = {
+      width: 6, height: 6,
+      objects: [
+        { x: 3, y: 3, z: 0, blockId: 'player' },
+        { x: 3, y: 1, z: 1, blockId: 'puncher', orientation: 'down' },
+        ...[0, 1].map(z => ({ x: 3, y: 2, z, blockId: 'box', groupId: 17 })),
+        ...[0, 1].map(z => ({ x: 3, y: 0, z, blockId: 'wall' })),
+        { x: 3, y: 5, z: 0, blockId: 'wall' },
+        ...Array.from({ length: 36 }, (_, i) =>
+          ({ x: i % 6, y: Math.floor(i / 6), z: 0, blockId: 'floor' }))
+      ]
+    };
+    const result = await engine.simulateCommand(room, 'up', blocks);
+    assert.equal(result.cycle, null);
+    assert.deepEqual(result.frames.map(frame => frame.objects[0].y), [2, 3, 4]);
+    assert.deepEqual(result.frames.map(frame => frame.objects[1].stateId), [0, 1, 0]);
+    for (const frame of result.frames) {
+      const { x, y, z } = frame.objects[1];
+      assert.deepEqual({ x, y, z }, { x: 3, y: 1, z: 1 });
+      assert(frame.objects.slice(2, 4).every(box => box.y === frame.objects[0].y - 1));
+    }
+  });
 }

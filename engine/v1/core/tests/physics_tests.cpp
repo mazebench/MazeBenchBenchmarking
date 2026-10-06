@@ -2537,6 +2537,50 @@ void TestPunchedCarrierKeepsMountedFixtureAcrossGap() {
         "a mounted puncher must remain attached across the unsupported span");
 }
 
+void TestWallMountedPuncherRetainsHeightAcrossWorkspaceResume() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  for (const int32_t mount_z : {2, 3}) {
+    std::vector<voxelbench::Voxel> voxels = {
+        {3, 3, 1, Role("player"), -1},
+        {3, 1, mount_z, Role("puncher"), 4},
+        {3, 5, 1, Role("solid"), -1},
+    };
+    for (int32_t z = 1; z <= mount_z; ++z) {
+      voxels.push_back({3, 2, z, Role("weightless-pushable"), 17});
+      voxels.push_back({3, 0, z, Role("solid"), -1});
+    }
+    for (int32_t y = 0; y < 6; ++y) {
+      for (int32_t x = 0; x < 6; ++x) {
+        voxels.push_back({x, y, 0, Role("floor"), -1});
+      }
+    }
+    voxelbench::reset_motion_state(&state);
+    bool complete = false;
+    for (int32_t call = 0; call < 6; ++call) {
+      voxelbench::reset_workspace(&workspace);
+      const auto result = voxelbench::step_tick(&workspace, &state, voxels.data(),
+          static_cast<int32_t>(voxels.size()), 6, 6, 0);
+      Check(result == voxelbench::TickResult::kMore ||
+                result == voxelbench::TickResult::kComplete,
+            "a resumed elevated punch must remain valid");
+      Check(voxels[1].x == 3 && voxels[1].y == 1 && voxels[1].z == mount_z,
+            "a wall-mounted puncher must not fall when the body beneath departs");
+      if (state.tick == 2) {
+        Check(voxels[1].generic_id == 5 && voxels[0].y == 3 && voxels[3].y == 2,
+              "the elevated fixture must punch the body and player together");
+      }
+      if (result == voxelbench::TickResult::kComplete) {
+        complete = true;
+        break;
+      }
+    }
+    Check(complete && state.tick == 3 && voxels[0].y == 4 && voxels[3].y == 3 &&
+              voxels[1].generic_id == 4,
+          "the elevated punch must stop and rearm without extra falling ticks");
+  }
+}
+
 void TestSearchSolvesAndReplaysPuncherCommands() {
   static voxelbench::PhysicsWorkspace physics_workspace;
   static voxelbench::SearchWorkspace search_workspace;
@@ -2988,6 +3032,7 @@ int main() {
   Run(TestBlockedPunchRearmsForNextCommand, "TestBlockedPunchRearmsForNextCommand");
   Run(TestPunchedBodyTransfersPlayerImpulseAcrossWorkspaceResume, "TestPunchedBodyTransfersPlayerImpulseAcrossWorkspaceResume");
   Run(TestPunchedCarrierKeepsMountedFixtureAcrossGap, "TestPunchedCarrierKeepsMountedFixtureAcrossGap");
+  Run(TestWallMountedPuncherRetainsHeightAcrossWorkspaceResume, "TestWallMountedPuncherRetainsHeightAcrossWorkspaceResume");
   Run(TestSearchSolvesAndReplaysPuncherCommands, "TestSearchSolvesAndReplaysPuncherCommands");
   Run(TestPuncherMomentumMovesAWholeWeightlessConvoy, "TestPuncherMomentumMovesAWholeWeightlessConvoy");
   Run(TestFloatingFloorHasOneBoxPushWeight, "TestFloatingFloorHasOneBoxPushWeight");
