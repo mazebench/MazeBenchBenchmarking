@@ -13,10 +13,10 @@ self.onmessage=({data})=>{
     const {id,type,payload={}}=data;
     const progress=value=>self.postMessage({id,type:'progress',value});
     try {
-      let value;
+      let value;const frames=[],capture=frame=>frames.push(frame);
       if(type==='init') {sourceWorld=payload.world;[engine,fingerprint]=await Promise.all([loadMazeBenchEngineV1(),worldFingerprint(sourceWorld)]);model=new SolutionsModel(engine,sourceWorld,fingerprint);value={fingerprint,snapshot:model.snapshot()};}
       else if(type==='restore') {const restored=new SolutionsModel(engine,sourceWorld,fingerprint);await restored.restore(payload.saved,(done,total)=>progress({restoring:true,done,total}));model=restored;await model.refreshCurrentGems();value={snapshot:model.snapshot()};}
-      else if(type==='move')value=await model.move(payload.direction);
+      else if(type==='move')value={...await model.move(payload.direction,capture),frames};
       else if(type==='undo'){value=await model.undo();await model.refreshCurrentGems();value.snapshot=model.snapshot();}
       else if(type==='clear-runs')value=model.clearRuns();
       else if(type==='import')value=await model.importJSON(await payload.file.text(),(done,total)=>progress({restoring:true,done,total}),{allowWorldChange:payload.allowWorldChange===true,allowEngineChange:payload.allowEngineChange===true});
@@ -26,13 +26,13 @@ self.onmessage=({data})=>{
         const options={maximumNodes:payload.maximumNodes??20000,maximumMs:payload.maximumMs??60000,onProgress:progress,cancelled:()=>cancelled};
         const native=await nativeEngine().catch(()=>null);
         const result=native?await planRoute(model,native,payload.goal,options):await searchRoute(model,payload.goal,options);
-        if(result.status==='found'&&result.actions.length)await model.applyRoute(result.actions,payload.goal.kind==='location'?'Location route':payload.goal.kind==='gem'?'Gem route':'New room route');
-        value={snapshot:model.snapshot(),search:result};
+        if(result.status==='found'&&result.actions.length)await model.applyRoute(result.actions,payload.goal.kind==='location'?'Location route':payload.goal.kind==='gem'?'Gem route':'New room route',capture);
+        value={snapshot:model.snapshot(),search:result,frames};
       }
       else if(type==='replay') {
         const route=model.routes.find(r=>r.id===payload.id);if(!route)throw new Error('Unknown route.');
-        let node=model.sourceNode(route.from,route.start??null);const frames=[{room:node.room,state:node.state}];
-        for(const action of route.actions){node=await model.step(node,action);frames.push({room:node.room,state:node.state});}
+        let node=model.sourceNode(route.from,route.start??null);frames.push({room:node.room,state:node.state,command:0});
+        for(const [i,action] of route.actions.entries())node=await model.step(node,action,frame=>capture({...frame,command:i+1}));
         value={frames,actions:route.actions};
       }
       else if(type==='moves') {

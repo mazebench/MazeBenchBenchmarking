@@ -13,3 +13,4 @@ dialog{width:min(580px,calc(100vw - 32px));padding:24px;border:1px solid #ffffff
 @media(max-width:600px){.topbar{flex-wrap:wrap;gap:8px}.top-actions{width:100%;justify-content:flex-end}}
 
 #import-world-file{margin:14px 0 10px;font-size:13px;overflow-wrap:anywhere}#import-world-description{font-size:13px;line-height:1.7;color:var(--muted);margin-bottom:24px}
+.import-notice{font-size:12px;line-height:1.6;color:#ffd166;background:#ffd1660a;border:1px solid #ffd16620;border-radius:10px;padding:10px 12px;margin-bottom:16px}

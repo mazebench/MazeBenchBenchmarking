@@ -7,11 +7,52 @@ import { searchRoute } from '../solutions/v1/search.mjs';
 import { planRoute } from '../solutions/v1/route-search.mjs';
 import { createNativeRoomSearch } from '../solutions/v1/native-search.mjs';
 import { compileFullSolution, setupCommands } from '../solutions/v1/full-solution.mjs';
+import { playSolutionFrames } from '../solutions/v1/animation.mjs';
+import { DEFAULT_PLAY_FRAME_DELAY_MS } from '../play/v1/play-session.mjs';
 const blocks=[{id:'floor',roleId:'floor',visual:{kind:'floor'}},{id:'wall',roleId:'solid',visual:{kind:'cube'}},{id:'player',roleId:'player',visual:{kind:'cube'}},{id:'gem',roleId:'goal',visual:{kind:'model'}},{id:'block',roleId:'movable',visual:{kind:'cube'}},{id:'ice',roleId:'ice',visual:{kind:'floor'}}];
 function room(fileName,position,columnIndex,objects=[]){return {fileName,position,columnIndex,rowIndex:0,width:4,height:3,objects:[...Array.from({length:12},(_,i)=>({blockId:'floor',x:i%4,y:Math.floor(i/4),z:0})),{blockId:'player',x:1,y:1,z:0},...objects]};}
 function world(){return {rooms:[room('a.json',['H','I'],0,[{blockId:'gem',x:2,y:1,z:0}]),room('b.json',['I','I'],1,[{blockId:'gem',x:2,y:1,z:0}])],blocks,columns:['H','I'],rows:['I'],roomWidth:4,roomHeight:3};}
 async function create(w=world()){const engine=await instantiateMazeBenchEngineV1(await readFile(new URL('../engine/v1/voxel_physics.wasm',import.meta.url)));return new SolutionsModel(engine,w,await worldFingerprint(w));}
 async function nativeEngine(){return instantiateMazeBenchEngineV1(await readFile(new URL('../solutions/v1/solutions-solver.wasm',import.meta.url)));}
+
+test('Solutions animates every Ice tick across rooms without retaining traces in saved history',async()=>{
+ const w=world();w.rooms.push(room('c.json',['J','I'],2));
+ for(const r of w.rooms){r.objects=r.objects.filter(o=>o.blockId!=='gem');for(const o of r.objects)if(o.blockId==='floor'&&o.y===1)o.blockId='ice';}
+ w.rooms[2].objects.push({blockId:'wall',x:3,y:1,z:0});
+ for(const route of [false,true]){
+  const m=await create(w),before=m.save(),frames=[];
+  m.physics.collected=new Set();
+  const simulation=await m.physics.simulateCommand(m.current.state,m.root,'right');
+  if(route)await m.applyRoute(['right'],'A* route',frame=>frames.push(frame));
+  else await m.move('right',frame=>frames.push(frame));
+  assert(frames.length>3,'one direction must show intermediate sliding ticks');
+  assert.deepEqual(frames.map(({room,state})=>({room,state})),simulation.animationFrames.map(({room,state})=>({room:room.fileName,state})));
+  assert.deepEqual([...new Set(frames.map(f=>f.room))],['a.json','b.json','c.json']);
+  assert.deepEqual(frames.at(-1).state,m.current.state);
+  assert(m.routeTrace.steps.every(step=>!('frames' in step)&&!('animationFrames' in step)));
+  assert(!JSON.stringify(m.save()).includes('animationFrames'));
+  await m.undo();assert.deepEqual(m.save(),before);
+ }
+});
+
+test('route animation labels ticks by command and blocked moves produce no playback',async()=>{
+ const m=await create(),frames=[];
+ await m.applyRoute(['right','right','right'],'Location route',frame=>frames.push(frame));
+ assert.deepEqual([...new Set(frames.map(f=>f.command))],[1,2,3]);
+ assert.equal(frames.at(-1).room,'b.json');
+ m.resume('start:a.json');await m.move('up');const before=m.save(),blocked=[];
+ await m.move('up',frame=>blocked.push(frame));assert.deepEqual(blocked,[]);assert.deepEqual(m.save(),before);
+});
+
+test('Solutions playback uses Play’s 20 ms per tick and can skip the remaining animation',async()=>{
+ const frames=[{tick:1},{tick:2},{tick:3}],events=[];
+ assert.equal(DEFAULT_PLAY_FRAME_DELAY_MS,20);
+ assert.equal(await playSolutionFrames(frames,frame=>events.push(frame.tick),{delay:async ms=>events.push(`wait ${ms}`)}),true);
+ assert.deepEqual(events,[1,'wait 20',2,'wait 20',3,'wait 20']);
+ let stopped=false;const shown=[];
+ assert.equal(await playSolutionFrames(frames,frame=>shown.push(frame.tick),{cancelled:()=>stopped,delay:async()=>{stopped=true;}}),false);
+ assert.deepEqual(shown,[1]);
+});
 
 test('legacy local branches do not unlock rooms before a physical visit',async()=>{
  const m=await create();assert.equal(m.snapshot().room,'a.json');assert.equal(m.spots.size,2);assert.deepEqual(m.snapshot().verifiedRooms,['a.json']);
@@ -367,16 +408,14 @@ test('import is allowed only when saved runs and unfinished moves are both empty
  target.clearRuns();await target.importJSON(json);assert.equal(target.routes.length,1);assert.equal(target.collectedGems.size,1);
 });
 
-test('bad JSON, mismatched files and failed replay never leave a partial import',async()=>{
+test('bad JSON, mismatched files and oversized runs never leave a partial import',async()=>{
  const source=await create();await source.applyRoute(['right']);const exported=source.export();
  const target=await create(),before=target.save();
  for(const [json,reason]of [
   ['{broken',/valid JSON/],['null',/Solutions JSON/],['{}',/Solutions JSON/],
   [JSON.stringify({...exported,fingerprint:'other'}),{code:'WORLD_MISMATCH'}],
   [JSON.stringify({...exported,engine:'other'}),{code:'ENGINE_MISMATCH'}],
-  [JSON.stringify({...exported,draft:{from:'start:a.json',actions:['teleport']}}),/invalid runs or moves/],
-  [JSON.stringify({...exported,routes:[...exported.routes,{from:'missing',actions:['up']}]}),/Unknown spawn/],
-  [JSON.stringify({...exported,routes:[...exported.routes,{from:'start:a.json',actions:['up','up']}]}),/falls|blocked/]
+  [JSON.stringify({...exported,routes:[...exported.routes,{from:'start:a.json',actions:Array(100001).fill('up')}]}),/100,000-move limit/]
  ]){await assert.rejects(target.importJSON(json),reason);assert.deepEqual(target.save(),before);assert.equal(target.collectedGems.size,0);}
  await target.importJSON(JSON.stringify(exported));assert.equal(target.routes.length,1);
 });
@@ -393,11 +432,15 @@ test('world override replays untouched routes and rebuilds gem IDs after an unre
  assert.equal((await compileFullSolution(target)).complete,true);
 });
 
-test('world override rejects broken routes atomically and does not bypass engine compatibility',async()=>{
+test('world override removes blocked moves and continues later runs without bypassing engine compatibility',async()=>{
  const source=await create();await source.applyRoute(['up']);source.resume('start:a.json');await source.applyRoute(['right']);
  const exported=source.export(),edited=world();edited.rooms[0].objects.push({blockId:'wall',x:2,y:1,z:0});const target=await create(edited),before=target.save();
- await assert.rejects(target.importJSON(JSON.stringify(exported),()=>{},{allowWorldChange:true}),/Run 2 could not be replayed/);assert.deepEqual(target.save(),before);
  await assert.rejects(target.importJSON(JSON.stringify({...exported,engine:'other'}),()=>{},{allowWorldChange:true}),{code:'ENGINE_MISMATCH'});assert.deepEqual(target.save(),before);
+ exported.routes.push({from:'start:a.json',actions:['down'],label:'After blocked move'});delete exported.draft;
+ const result=await target.importJSON(JSON.stringify(exported),()=>{},{allowWorldChange:true});
+ assert(result.warnings.count>=1);assert.deepEqual(target.routes.map(r=>r.actions),[['up'],['down']]);
+ assert.deepEqual(target.position(target.current.state),{x:1,y:2,z:0});assert.equal(target.collectedGems.size,0);
+ const restored=await create(edited);await restored.restore(target.save());assert.deepEqual(restored.snapshot(),target.snapshot());
 });
 
 test('older engine exports import by replay, save with current provenance, and survive reload and undo',async()=>{
@@ -425,12 +468,61 @@ test('engine override also rebases gem IDs when rooms changed',async()=>{
  assert(!target.routes[1].start.collected.includes(source.goalIds.get('a.json')[0]));
 });
 
-test('engine override rejects failed replay or shifted spawns without partially importing',async()=>{
+test('engine override repairs failed moves and outdated spawns while preserving valid progress',async()=>{
  const source=await create();await source.applyRoute(['right','right','right']);const exported={...source.export(),engine:'older-engine'};
- const target=await create(),before=target.save(),options={allowWorldChange:true,allowEngineChange:true};
+ const target=await create(),options={allowWorldChange:true,allowEngineChange:true};
  const broken={...exported,routes:[...exported.routes,{from:source.source,actions:['up','up']}]};
- await assert.rejects(target.importJSON(JSON.stringify(broken),()=>{},options),/Run 2 could not be replayed/);assert.deepEqual(target.save(),before);
+ const result=await target.importJSON(JSON.stringify(broken),()=>{},options);
+ assert.equal(result.warnings.count,1);assert.deepEqual(target.routes.map(r=>r.actions),[['right','right','right'],['up']]);
  const shifted=structuredClone(exported);shifted.spawnSetups.find(s=>s.id===source.source).position.y++;
- await assert.rejects(target.importJSON(JSON.stringify(shifted),()=>{},options),/saved spawn no longer matches/);assert.deepEqual(target.save(),before);
- assert.equal(target.collectedGems.size,0);assert.equal(target.visitedRooms.size,1);
+ const repaired=await create(),original=JSON.stringify(shifted);
+ const shiftedResult=await repaired.importJSON(original,()=>{},options);
+ assert(shiftedResult.warnings.count>=1);assert.equal(repaired.collectedGems.size,1);assert.equal(repaired.visitedRooms.size,2);
+ assert.deepEqual(repaired.export().spawnSetups.find(s=>s.id===repaired.source).position,{x:0,y:1,z:0});
+ assert.equal(JSON.stringify(shifted),original,'the input file is not rewritten');
+ const restored=await create();await restored.restore(repaired.save());assert.deepEqual(restored.snapshot(),repaired.snapshot());
+ await restored.undo();assert.equal(restored.current.room,'a.json');assert.equal(restored.visitedRooms.size,1);
+ assert.equal((await compileFullSolution(repaired)).complete,true);
+});
+
+test('invalid spawns and individual actions are removed from runs and drafts without granting fake visits',async()=>{
+ const target=await create(),saved={...target.export(),routes:[
+  {from:'start:b.json',actions:['teleport','right','up','up','down'],label:'Repaired run'},
+  {from:'missing',actions:['right','right'],label:'Continue after bad spawn'},
+ ],draft:{from:'missing',actions:['up','up','down']}};
+ const result=await target.importJSON(JSON.stringify(saved));
+ assert.equal(result.warnings.count,6);assert.equal(result.warnings.examples.length,5);
+ assert.deepEqual(target.routes.map(r=>r.actions),[['right','up','down'],['right','right']]);
+ assert.equal(target.routes[0].from,'start:a.json');assert.equal(target.routes[1].from,target.routes[0].to);
+ assert.deepEqual(target.pending,['up','down']);assert.equal(target.current.room,'b.json');
+ assert.equal(target.collectedGems.size,1,'the unvisited room spawn cannot collect its gem');
+ const restored=await create();await restored.restore(target.save());assert.deepEqual(restored.snapshot(),target.snapshot());
+ const again=await create();assert.equal((await again.importJSON(JSON.stringify(target.export()))).warnings.count,0);
+ assert.equal((await compileFullSolution(target)).complete,true);
+ await target.undo();assert.deepEqual(target.pending,['up']);
+});
+
+for(const legacy of [false,true])test(`deleted runs do not confuse later spawn IDs (${legacy?'legacy':'explicit'} references)`,async()=>{
+ const source=await create();await source.applyRoute(['up']);source.resume('start:a.json');
+ await source.applyRoute(['right']);await source.applyRoute(['right','right']);
+ source.resume(source.source);await source.applyRoute(['right']);
+ const saved=source.export();if(legacy)for(const route of saved.routes){delete route.to;delete route.spawns;}
+ const edited=world();edited.rooms[0].objects.push({blockId:'wall',x:1,y:0,z:0});
+ const target=await create(edited),result=await target.importJSON(JSON.stringify(saved),()=>{},{allowWorldChange:true});
+ assert(result.warnings.count>=1);assert.deepEqual(target.routes.map(r=>r.actions),[['right'],['right','right'],['right']]);
+ assert.equal(target.current.room,'b.json');assert.deepEqual(target.position(target.current.state),{x:1,y:1,z:0});
+ assert.equal(target.collectedGems.size,1);assert.equal(target.visitedRooms.size,2);
+ const restored=await create(edited);await restored.restore(target.save());assert.deepEqual(restored.snapshot(),target.snapshot());
+ assert.equal((await compileFullSolution(target)).complete,true);
+});
+
+test('large repairs keep diagnostics bounded and never save invalid actions',async()=>{
+ const target=await create(),saved={...target.export(),routes:[
+  {from:'start:a.json',actions:[...Array(5000).fill('invalid'),'right'],label:'Large damaged run'},
+ ],draft:{from:'missing',actions:['right','right']}};
+ const progress=[],result=await target.importJSON(JSON.stringify(saved),(done,total)=>progress.push([done,total]));
+ assert.equal(result.warnings.count,5001);assert.equal(result.warnings.examples.length,5);
+ assert.deepEqual(progress,[[1,1]]);assert.deepEqual(target.routes[0].actions,['right']);
+ assert.deepEqual(target.pending,['right','right']);assert.equal(target.current.room,'b.json');
+ const restored=await create();await restored.restore(target.save());assert.deepEqual(restored.snapshot(),target.snapshot());
 });

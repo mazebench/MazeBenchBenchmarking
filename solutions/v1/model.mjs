@@ -1,6 +1,7 @@
 import { ConnectedWorldSessionV1 } from '../../play/v1/connected-world-session.mjs';
 import { engineRoleIdForObject, engineGenericIdForObject } from '../../engine/v1/adapter.mjs';
 import { ENGINE_WASM_SHA256 } from '../../engine/v1/upstream.mjs';
+import { replaySolutionImport } from './import-replay.mjs';
 
 export const DIRECTIONS = ['up', 'right', 'down', 'left'];
 export const FORMAT = 'mazebench-solutions-v1';
@@ -66,13 +67,14 @@ export class SolutionsModel {
     return JSON.stringify([node.room, [...node.collected].sort(), node.state.width, node.state.height,
       node.state.objects.map(o => [o.x,o.y,o.z,o.blockId,this.role(o),engineGenericIdForObject(o,this.blocks)])]);
   }
-  async step(node, direction) {
+  async step(node, direction, onFrame=null) {
     if (!DIRECTIONS.includes(direction)) throw new Error('Unknown move.');
     const room = this.rooms.get(node.room), collected = new Set(node.collected);
     this.physics.collected = collected;
     const simulation = await this.physics.simulateCommand(node.state, room, direction);
     if (simulation.cycle || !this.player(simulation.final)) return { ...node, changed: false, rejected: simulation.cycle ? 'The move cycles back to its start.' : 'That move falls out of the room.', crossings: [], gained: [] };
-    const frames = simulation.animationFrames || [{room, state: simulation.final}];
+    const frames = simulation.animationFrames?.length ? simulation.animationFrames
+      : (simulation.frames?.length ? simulation.frames : [simulation.final]).map(state=>({room,state}));
     for (const id of simulation.collected || []) if (id) collected.add(id);
     const crossings = []; let prior = room.fileName;
     for (const frame of frames) {
@@ -84,6 +86,9 @@ export class SolutionsModel {
     const result = { room: (simulation.room || room).fileName, state: simulation.final, collected: [...collected].sort(), crossings,
       gained: [...collected].filter(id => !node.collected.includes(id)) };
     result.changed = this.key(node) !== this.key(result);
+    // Only interactive playback opts in. Search nodes, undo history and saved
+    // routes must not retain full animation traces for every attempted move.
+    if(result.changed&&onFrame)for(const frame of frames)onFrame({room:frame.room.fileName,state:frame.state});
     return result;
   }
   sourceNode(id=this.source,start=this.sourceOptions) {
@@ -121,8 +126,8 @@ export class SolutionsModel {
     for(const direction of this.pending){node=await this.step(node,direction);if(!node.changed)throw new Error('Current moves could not be restored.');steps.push(node);}
     this.sourceOptions=start;this.current=node;this.pendingSteps=steps;
   }
-  async move(direction) {
-    const result = await this.step(this.current, direction);
+  async move(direction,onFrame=null) {
+    const result = await this.step(this.current, direction,onFrame);
     if (!result.changed) return { snapshot: this.snapshot(), message: result.rejected || 'No change.' };
     this.current = result; this.pending.push(direction); this.pendingSteps.push(result);
     if (result.crossings.length || result.gained.length) this.commit(result.gained.length ? 'Gem route' : 'Room crossing');
@@ -216,11 +221,11 @@ export class SolutionsModel {
     this.commit(route.label);
     return {snapshot:this.snapshot(),message:'Last move deleted from the solution.'};
   }
-  async applyRoute(actions, label='A* route') {
+  async applyRoute(actions, label='A* route',onFrame=null) {
     if (!Array.isArray(actions) || actions.length > 100000 || actions.some(d=>!DIRECTIONS.includes(d))) throw new Error('Invalid route.');
     // Replay before committing. A failed route cannot partially change the project.
     let node=this.current; const steps=[];
-    for (const action of actions) { const step=await this.step(node,action); if (!step.changed) throw new Error(step.rejected || 'Route contains a blocked move.'); steps.push(step); node=step; }
+    for (const [i,action] of actions.entries()) { const step=await this.step(node,action,onFrame?frame=>onFrame({...frame,command:i+1}):null); if (!step.changed) throw new Error(step.rejected || 'Route contains a blocked move.'); steps.push(step); node=step; }
     this.current=node; this.pending.push(...actions); this.pendingSteps.push(...steps);
     return this.commit(label);
   }
@@ -277,25 +282,13 @@ export class SolutionsModel {
     if(engineChanged&&!allowEngineChange)throw Object.assign(new Error('The engine has changed since this solution was saved. You can import it and recheck its moves with the current engine.'),{code:'ENGINE_MISMATCH'});
     if(worldChanged&&!allowWorldChange)throw Object.assign(new Error('The rooms or engine have changed since this solution was saved. You can import it and recheck its moves.'),{code:'WORLD_MISMATCH'});
     const changed=worldChanged||engineChanged;
-    const goals=new Set([...this.goalIds.values()].flat());
-    const validSegment=segment=>segment&&typeof segment.from==='string'&&Array.isArray(segment.actions)
-      &&segment.actions.length<=100000&&segment.actions.every(direction=>DIRECTIONS.includes(direction))
-      &&(segment.label===undefined||typeof segment.label==='string')
-      &&(segment.start==null||(typeof segment.start==='object'&&!Array.isArray(segment.start)
-        &&(segment.start.reset===undefined||typeof segment.start.reset==='boolean')
-        &&(segment.start.collected===undefined||(Array.isArray(segment.start.collected)&&segment.start.collected.every(id=>typeof id==='string'&&(changed||goals.has(id)))))));
-    if(!saved.routes.every(validSegment)||(saved.draft!==undefined&&!validSegment(saved.draft)))throw new Error('This solution contains invalid runs or moves.');
-    // Replay into a separate collection. A bad move or missing source must not
-    // replace the current solution or leave a partially imported collection.
+    // Keep only successful actions, with all IDs and progress rebuilt by replay.
+    // Unexpected engine errors still leave the current collection untouched.
     const imported=new SolutionsModel(this.engine,this.world,this.fingerprint);
-    await imported.restore({...saved,fingerprint:this.fingerprint},progress,{rebaseLedger:changed});
-    if(changed)for(const spawn of saved.spawnSetups||[]) {
-      const spot=imported.spots.get(spawn.id),position=spot&&imported.position(spot.state);
-      if(!spot||spot.room!==spawn.room||!position||['x','y','z'].some(axis=>position[axis]!==spawn.position?.[axis]))throw new Error('A saved spawn no longer matches its original room or position. The import was not saved.');
-    }
+    const warnings=await replaySolutionImport(imported,saved,progress,{directions:DIRECTIONS,rebaseLedger:changed});
     await imported.refreshCurrentGems();
     Object.assign(this,imported);
-    return {snapshot:this.snapshot(),message:`Imported ${this.routes.length} run${this.routes.length===1?'':'s'}${changed?engineChanged?' and rechecked them with the current engine and rooms':' and rechecked them against the edited world':''}.`};
+    return {snapshot:this.snapshot(),warnings,message:`Imported ${this.routes.length} run${this.routes.length===1?'':'s'}${changed?engineChanged?' and rechecked them with the current engine and rooms':' and rechecked them against the edited world':''}.`};
   }
   snapshot() {
     const source=this.spots.get(this.source),progress=this.collectionProgress();
@@ -309,7 +302,8 @@ export class SolutionsModel {
       roomCount:this.rooms.size, gemCount:[...this.goalIds.values()].reduce((n,ids)=>n+ids.length,0) };
   }
   save() { return {format:FORMAT, fingerprint:this.fingerprint, routes:this.routes.map(({from,actions,label,start})=>({from,actions:[...actions],label,...(start?{start:clone(start)}:{})})), draft:{from:this.source,actions:[...this.pending],...(this.sourceOptions?{start:clone(this.sourceOptions)}:{})}}; }
-  export() { return {...this.save(), engine:ENGINE_WASM_SHA256, exportedAt:new Date().toISOString(),
+  export() { const saved=this.save();return {...saved, engine:ENGINE_WASM_SHA256, exportedAt:new Date().toISOString(),
+    routes:saved.routes.map((route,i)=>({...route,to:this.routes[i].to,spawns:clone(this.routes[i].spawns)})),
     spawnSetups:[...this.spots.values()].filter(spot=>['start','entrance'].includes(spot.kind)&&this.canResume(spot.id)).map(spot=>({id:spot.id,room:spot.room,position:this.position(spot.state),setup:this.spawnRecipe(spot.id)})),
     roomProofs:Object.fromEntries(this.roomProofs), gemProofs:Object.fromEntries(this.gemProofs),
     currentPath:this.spots.get(this.source).proven ? [...this.spots.get(this.source).path,...this.pending] : null}; }

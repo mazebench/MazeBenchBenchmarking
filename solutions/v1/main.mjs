@@ -5,6 +5,7 @@ import { roomFromEngineStateV1 } from '../../engine/v1/adapter.mjs';
 import { bindCameraHold } from '../../render/v1/camera-controls.mjs';
 import { cameraRelativeMoveDirection } from '../../play/v1/camera-relative-input.mjs';
 import { readProject, saveProject } from './storage.mjs';
+import { playSolutionFrames } from './animation.mjs';
 
 const $=id=>document.getElementById(id), label=r=>r.position.join('×'), number=n=>Number(n).toLocaleString();
 let world, renderer, snapshot, inspected, target=null, fingerprint, busy=false, sequence=0, replayGeneration=0, routeLimit=30;
@@ -28,6 +29,12 @@ worker.onmessage=async({data})=>{
 worker.onerror=event=>{for(const job of jobs.values())job.reject(new Error(event.message||'The solver stopped. Reload to restore saved routes.'));jobs.clear();setBusy(false);};
 function request(type,payload={},progress){return new Promise((resolve,reject)=>{const id=++sequence;jobs.set(id,{resolve,reject,progress});worker.postMessage({id,type,payload});});}
 function message(text){$('status').textContent=text;}
+function importNotice(warnings){
+  const notice=$('import-notice'),count=warnings?.count||0;
+  notice.hidden=!count;
+  notice.textContent=count?`Import repaired · ${number(count)} invalid action${count===1?' or saved spawn':'s or saved spawns'} skipped. Valid progress kept.`:'';
+  notice.title=warnings?.examples?.join('\n')||'';
+}
 function setBusy(value){busy=value;document.querySelectorAll('[data-direction],#search-time,#find-gem,#find-room,#find-target,#export,#full-solution,.spot,.spawn-setup,.route-row button').forEach(b=>b.disabled=value);$('undo').disabled=value||!snapshot?.canUndo;for(const [id,button]of mapButtons)button.disabled=value||!snapshot?.visitedRooms.includes(id);$('clear-runs').disabled=value||!(snapshot?.routes.length||snapshot?.pending.length);$('import').disabled=value||!snapshot||Boolean(snapshot.routes.length||snapshot.pending.length);$('import').title=snapshot&&(snapshot.routes.length||snapshot.pending.length)?'Clear all runs to import a solution':'Import a saved solution JSON';$('cancel').hidden=!value;}
 async function action(type,payload={},success){
   if(busy)return;
@@ -39,14 +46,17 @@ async function action(type,payload={},success){
       else if(progress.compiling)message(`Verifying full solution · ${progress.done} / ${progress.total} runs · ${number(progress.commands)} commands`);
       else message(`Finding a route… ${number(progress.expanded)} states explored · ${(progress.elapsedMs/1000).toFixed(1)}s`);
     });
+    if(result.frames?.length)await animateFrames(result.frames);
     if(result.snapshot){snapshot=result.snapshot;inspected=snapshot.room;render();}
+    if(type==='import')importNotice(result.warnings);
+    if(type==='clear-runs')importNotice(null);
     if(success)success(result);else message(result.message||'Resume spot saved.');
   }catch(error){
     message(error.message);
     if(type==='import'&&['WORLD_MISMATCH','ENGINE_MISMATCH'].includes(error.code)){
       pendingImport=payload.file;$('import-world-file').textContent=payload.file.name;
       $('import-world-title').textContent=error.code==='ENGINE_MISMATCH'?'Recheck with the current engine?':'Recheck with the current world?';
-      $('import-world-description').textContent=`${error.code==='ENGINE_MISMATCH'?'The engine has':'The rooms or engine have'} changed since this file was saved. Replay the saved moves with the current engine and rooms to rebuild visited rooms, entrances, and collected gems. If a move fails or a saved entrance no longer matches, the import will stop without changing your solution.`;
+      $('import-world-description').textContent=`${error.code==='ENGINE_MISMATCH'?'The engine has':'The rooms or engine have'} changed since this file was saved. Replay the saved moves with the current engine and rooms to rebuild visited rooms, entrances, and collected gems. Invalid moves or saved spawns will be skipped, and replay will continue from the last valid position. A small notice will show what was removed.`;
       $('import-world-dialog').showModal();
     }
   }
@@ -156,11 +166,19 @@ async function find(goal){
   });
 }
 async function replayRoute(id){
-  if(busy)return;setBusy(true);$('cancel').textContent='Stop replay';const generation=++replayGeneration;let outcome='Replay finished. Your current spot is unchanged.';
-  try{const result=await request('replay',{id});for(const [i,frame]of result.frames.entries()){
-    if(generation!==replayGeneration){outcome='Replay stopped. Your current spot is unchanged.';break;}
-    showBoard(frame.room,frame.state);$('room-name').textContent=label(roomById(frame.room));$('source-label').textContent=`Saved route replay · ${i} / ${result.actions.length}`;message(`Replaying saved route · ${i} / ${result.actions.length}`);await new Promise(resolve=>setTimeout(resolve,120));
-  }}catch(error){outcome=error.message;}finally{inspected=snapshot.room;render();setBusy(false);$('cancel').textContent='Cancel search';message(outcome);}
+  if(busy)return;setBusy(true);$('cancel').hidden=true;let outcome='Replay finished. Your current spot is unchanged.';
+  try{const result=await request('replay',{id});if(!await animateFrames(result.frames,{replay:true,total:result.actions.length}))outcome='Replay stopped. Your current spot is unchanged.';}
+  catch(error){outcome=error.message;}finally{inspected=snapshot.room;render();setBusy(false);message(outcome);}
+}
+async function animateFrames(frames,{replay=false,total=0}={}){
+  const generation=++replayGeneration;
+  $('cancel').textContent=replay?'Stop replay':'Skip animation';$('cancel').hidden=frames.length<2;
+  try{return await playSolutionFrames(frames,frame=>{
+    showBoard(frame.room,frame.state);$('room-name').textContent=label(roomById(frame.room));
+    $('source-label').textContent=replay?`Saved route replay · ${frame.command} / ${total}`:'Playing move…';
+    message(replay?`Replaying saved route · ${frame.command} / ${total}`:'Playing moves…');
+  },{cancelled:()=>generation!==replayGeneration});}
+  finally{$('cancel').textContent='Cancel search';$('cancel').hidden=true;}
 }
 
 function renderMoves(){
