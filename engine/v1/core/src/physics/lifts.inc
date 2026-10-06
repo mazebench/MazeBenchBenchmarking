@@ -205,7 +205,8 @@ bool TranslateSlopeMomentumObjects(
     bool allow_downhill_contact_push,
     bool player_moves_horizontally,
     bool& player_was_pushed,
-    int32_t required_player_carrier = -1);
+    int32_t required_player_carrier = -1,
+    MotionState* punch_state = nullptr);
 
 // Several pass-through fixtures may deliberately share a voxel. An overlap
 // is not an ordering rule: incompatible lifts cancel instead of allowing the

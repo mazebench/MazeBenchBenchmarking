@@ -317,6 +317,7 @@ struct WorkspaceData {
   int8_t object_dy[kVoxelCapacity];
   int8_t object_dz[kVoxelCapacity];
   uint8_t object_redirected[kVoxelCapacity];
+  uint64_t punch_activated[kVoxelCapacity / 64];
   uint8_t deferred_slope_objects[kVoxelCapacity];
   uint8_t inherited_support_motion[kVoxelCapacity];
   uint8_t carried_objects[kVoxelCapacity];
@@ -411,6 +412,7 @@ WorkspaceData& ActiveWorkspace() {
 #define g_object_dy ActiveWorkspace().object_dy
 #define g_object_dz ActiveWorkspace().object_dz
 #define g_object_redirected ActiveWorkspace().object_redirected
+#define g_punch_activated ActiveWorkspace().punch_activated
 #define g_deferred_slope_objects ActiveWorkspace().deferred_slope_objects
 #define g_inherited_support_motion ActiveWorkspace().inherited_support_motion
 #define g_carried_objects ActiveWorkspace().carried_objects

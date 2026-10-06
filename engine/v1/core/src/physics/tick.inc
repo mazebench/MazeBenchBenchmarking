@@ -417,6 +417,9 @@ TickResult step_tick(
   // must not permanently disable the fixture across command boundaries.
   bool puncher_visual_advanced = ResetSprungPunchers(voxels);
   bool player_punch_activated_this_tick = false;
+  for (int32_t word = 0; word < (g_object_count + 63) / 64; ++word) {
+    g_punch_activated[word] = 0;
+  }
   // A ready command starts from a resting board, which may already overlap a
   // blocked puncher. Let the input move first; store_and_finish discovers the
   // resulting contact and schedules its punch on the following tick.
@@ -980,6 +983,7 @@ TickResult step_tick(
         : MovingObjectSlopeVerticalDelta(
               voxels, state->direction, width, height);
     const bool player_has_ice_momentum = !player_is_rigid_object &&
+        !IsPunchMomentum(state->horizontal_momentum[player_index]) &&
         state->reserved[1] == 0 &&
         IsSupportedByIce(voxels, voxels[player_index], width, height);
     const RiderSnapshot rider =
@@ -1056,7 +1060,9 @@ TickResult step_tick(
               true,
               player_has_ice_momentum || rider.object >= 0 ||
                   player_vacates_vertically,
-              player_was_pushed)
+              player_was_pushed,
+              -1,
+              punch_object_momentum ? state : nullptr)
         : TranslateMovingObjects(
               voxels,
               count,
@@ -1096,8 +1102,17 @@ TickResult step_tick(
       // blocked. This also gives simultaneous horizontal and vertical motion
       // a deterministic priority: the punch owns the cell first.
       for (int32_t object = 0; object < g_object_count; ++object) {
-        if (!IsPunchMomentum(ReadObjectMomentum(
-                state->horizontal_momentum, object))) {
+        int32_t carrier = object;
+        bool follows_punch = false;
+        for (int32_t depth = 0; depth < g_object_count && carrier >= 0; ++depth) {
+          if (IsPunchMomentum(ReadObjectMomentum(
+                  state->horizontal_momentum, carrier))) {
+            follows_punch = true;
+            break;
+          }
+          carrier = g_carrier_parent[carrier];
+        }
+        if (!follows_punch) {
           continue;
         }
         g_object_falling[object] = 0;
@@ -1118,9 +1133,9 @@ TickResult step_tick(
           height);
     }
 
-    const bool player_rode_object =
+    const bool player_rode_object = !player_was_pushed &&
         MovePlayerWithRider(voxels, player_index, rider, width, height);
-    const bool player_fell_with_objects = !player_rode_object &&
+    const bool player_fell_with_objects = !player_was_pushed && !player_rode_object &&
         player_vacates_vertically &&
         resolve_player_gravity(false, false, true);
     bool player_moved_after_translation =
@@ -1178,7 +1193,7 @@ TickResult step_tick(
       ClearHorizontalMomentum(state, count);
       return store_and_finish(kMotionPlayerLift, true, true);
     }
-    if (player_was_pushed) {
+    if (player_was_pushed && !punch_object_momentum) {
       // A returning ramp convoy may finish its mandatory descent by nudging
       // the stationary player out of the destination. Contact spends the
       // convoy's remaining Ice momentum; it must not immediately begin the

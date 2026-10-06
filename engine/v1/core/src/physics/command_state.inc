@@ -165,11 +165,16 @@ bool StoreSupportedMandatoryMomentum(
   // can land on a lower slope during the gravity half of this very tick; it
   // is no longer marked falling or mandatory by then, but its saved direction
   // must resume on the newly reached ramp.
+  const uint8_t player_punch = g_voxel_object[state->player_index] < 0
+      ? state->horizontal_momentum[state->player_index] : 0;
   for (int32_t object = 0; object < g_object_count; ++object) {
     g_object_redirected[object] = ReadObjectMomentum(
         state->horizontal_momentum, object);
   }
   ClearHorizontalMomentum(state, count);
+  if (IsPunchMomentum(player_punch)) {
+    state->horizontal_momentum[state->player_index] = player_punch;
+  }
   bool stored = false;
   for (int32_t object = 0; object < g_object_count; ++object) {
     if (g_object_kind[object] == kMechanismObject ||

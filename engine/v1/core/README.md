@@ -84,6 +84,13 @@ box carrying that puncher before being punched back, or step away from it.
 The sprung flag lasts only until the next tick, including across command
 boundaries when the preceding punch was blocked. It never disables later hits.
 
+A punch into a body transmits its initial impulse through the touching push
+chain and into the player. Those bodies then move simultaneously, retaining
+their own momentum until obstructed. One stopped body does not stop another
+that is moving away, and a later collision does not start a new stationary
+body. Mounted fixtures share their carrier's full motion, including a punch
+across a gap. Collision checks finish before any proposed position is committed.
+
 Floating Floors prevent a same-level player or clone from raising a gate
 occupied by that floor, just like crates and weightless boxes. Pushing the
 floor into or through the lowered plate adds no mechanism tick. Once the

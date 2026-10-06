@@ -2464,6 +2464,79 @@ void TestBlockedPunchRearmsForNextCommand() {
         "the new punch should finish with the fixture rearmed");
 }
 
+void TestPunchedBodyTransfersPlayerImpulseAcrossWorkspaceResume() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  for (const int32_t stop_y : {6, 9}) {
+    std::vector<voxelbench::Voxel> voxels = {
+        {3, 5, 1, Role("player"), -1},
+        {3, 4, 1, Role("weightless-pushable"), 17},
+        {4, 4, 1, Role("weightless-pushable"), 17},
+        {5, 4, 1, Role("weightless-pushable"), 17},
+        {5, 3, 1, Role("puncher"), 4},
+        {5, 2, 1, Role("solid"), -1},
+        {3, stop_y, 1, Role("solid"), -1},
+    };
+    for (int32_t y = 0; y < 10; ++y) {
+      for (int32_t x = 0; x < 10; ++x) {
+        voxels.push_back({x, y, 0, Role("floor"), -1});
+      }
+    }
+    voxelbench::reset_motion_state(&state);
+    bool complete = false;
+    for (int32_t call = 0; call < 10; ++call) {
+      // Scratch workspace contents are disposable between ticks. Only the
+      // board and public MotionState may carry a transferred impulse forward.
+      voxelbench::reset_workspace(&workspace);
+      const auto result = voxelbench::step_tick(&workspace, &state, voxels.data(),
+          static_cast<int32_t>(voxels.size()), 10, 10, 0);
+      Check(result == voxelbench::TickResult::kMore ||
+                result == voxelbench::TickResult::kComplete,
+            "resumed punched convoy must remain valid");
+      Check(voxels[0].y == voxels[1].y + 1,
+            "the body and player must advance together without overlapping");
+      if (state.tick == 2) {
+        Check(voxels[0].y == 5 && voxels[1].y == 4 && voxels[4].generic_id == 5,
+              "the initial body impulse must punch the player on the same tick");
+      }
+      if (result == voxelbench::TickResult::kComplete) {
+        complete = true;
+        break;
+      }
+    }
+    Check(complete && voxels[0].y == stop_y - 1 && voxels[1].y == stop_y - 2 &&
+              voxels[2].y == voxels[1].y && voxels[3].y == voxels[1].y &&
+              voxels[4].generic_id == 4,
+          "a wall behind the player must stop the complete contact chain");
+  }
+}
+
+void TestPunchedCarrierKeepsMountedFixtureAcrossGap() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  std::vector<voxelbench::Voxel> voxels = {
+      {0, 5, 1, Role("player"), -1},
+      {0, 4, 1, Role("weightless-pushable"), 17},
+      {1, 3, 1, Role("weightless-pushable"), 53},
+      {1, 4, 1, Role("puncher"), 2},
+      {1, 4, 1, Role("puncher"), 4},
+      {5, 3, 1, Role("solid"), -1},
+  };
+  for (int32_t y = 0; y < 6; ++y) {
+    for (int32_t x = 0; x < 6; ++x) {
+      if ((x == 3 && y == 3) || ((x == 3 || x == 4) && y == 4)) continue;
+      voxels.push_back({x, y, 0, Role("floor"), -1});
+    }
+  }
+  voxelbench::reset_workspace(&workspace);
+  Check(voxelbench::simulate_command(&workspace, &state, voxels.data(),
+            static_cast<int32_t>(voxels.size()), 6, 6, 0) == 0 && state.tick == 4,
+        "crossing the gap must not insert a fixture-falling timeline");
+  Check(voxels[2].x == 4 && voxels[2].y == 3 &&
+            voxels[4].x == 4 && voxels[4].y == 4 && voxels[4].z == 1,
+        "a mounted puncher must remain attached across the unsupported span");
+}
+
 void TestSearchSolvesAndReplaysPuncherCommands() {
   static voxelbench::PhysicsWorkspace physics_workspace;
   static voxelbench::SearchWorkspace search_workspace;
@@ -2913,6 +2986,8 @@ int main() {
   Run(TestPuncherRedirectsPlayerAndResetsVisually, "TestPuncherRedirectsPlayerAndResetsVisually");
   Run(TestInitialPuncherContactWaitsForCommand, "TestInitialPuncherContactWaitsForCommand");
   Run(TestBlockedPunchRearmsForNextCommand, "TestBlockedPunchRearmsForNextCommand");
+  Run(TestPunchedBodyTransfersPlayerImpulseAcrossWorkspaceResume, "TestPunchedBodyTransfersPlayerImpulseAcrossWorkspaceResume");
+  Run(TestPunchedCarrierKeepsMountedFixtureAcrossGap, "TestPunchedCarrierKeepsMountedFixtureAcrossGap");
   Run(TestSearchSolvesAndReplaysPuncherCommands, "TestSearchSolvesAndReplaysPuncherCommands");
   Run(TestPuncherMomentumMovesAWholeWeightlessConvoy, "TestPuncherMomentumMovesAWholeWeightlessConvoy");
   Run(TestFloatingFloorHasOneBoxPushWeight, "TestFloatingFloorHasOneBoxPushWeight");

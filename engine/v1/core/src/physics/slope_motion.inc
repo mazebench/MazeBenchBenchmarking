@@ -3,6 +3,14 @@
 // with a reflected body propagates that reflection through a touching convoy.
 // This keeps separated bodies independent while preventing them from swapping
 // through one another when the lead body bounces off a ramp obstruction.
+void PreparePunchContactProposals(
+    MotionState* state, Voxel* voxels, int32_t player_index,
+    int32_t width, int32_t height, int32_t& player_direction);
+void ResolvePunchProposals(
+    MotionState* state, Voxel* voxels, int32_t player_index,
+    int32_t width, int32_t height, bool player_is_vacating,
+    int32_t& player_direction);
+
 bool TranslateSlopeMomentumObjects(
     Voxel* voxels,
     int32_t count,
@@ -14,8 +22,10 @@ bool TranslateSlopeMomentumObjects(
     bool allow_downhill_contact_push,
     bool player_moves_horizontally,
     bool& player_was_pushed,
-    int32_t required_player_carrier) {
+    int32_t required_player_carrier,
+    MotionState* punch_state) {
   player_was_pushed = false;
+  int32_t punched_player_direction = -1;
   g_moving_objects_fell = false;
   for (int32_t object = 0; object < g_object_count; ++object) {
     g_fell_objects[object] = 0;
@@ -216,14 +226,25 @@ bool TranslateSlopeMomentumObjects(
       height,
       player_moves_horizontally);
 
+  if (punch_state != nullptr) {
+    PreparePunchContactProposals(
+        punch_state, voxels, player_index, width, height,
+        punched_player_direction);
+  }
+
   // Slope proposals can have a different vertical delta per object, so the
   // ordinary uniform-delta carrier path cannot be used directly. Discover
   // the same support graph, then copy each carrier's exact 3D proposal to its
   // riders before validating the transaction.
   AddSlopeCarriedObjects(
       voxels, player_index, width, height, !allow_push,
-      player_moves_horizontally);
-  if (!ResolveSlopeCarriedCollisions(
+      player_moves_horizontally || punched_player_direction >= 0);
+  if (punch_state != nullptr) {
+    ResolvePunchProposals(
+        punch_state, voxels, player_index, width, height,
+        player_moves_horizontally, punched_player_direction);
+    player_moves_horizontally |= punched_player_direction >= 0;
+  } else if (!ResolveSlopeCarriedCollisions(
           voxels, player_index, width, height, player_moves_horizontally)) {
     return false;
   }
@@ -244,15 +265,16 @@ bool TranslateSlopeMomentumObjects(
             height)) {
       return false;
     }
-    if (!SlopeObjectDestinationIsClear(
+    if (punch_state == nullptr && !SlopeObjectDestinationIsClear(
             voxels, object, player_index, width, height,
             player_moves_horizontally)) {
       return false;
     }
   }
 
-  // Two independent bodies may not claim the same destination.
-  for (int32_t first = 0; first < g_object_count; ++first) {
+  // Punch proposals already resolved shared destinations independently.
+  // Other slope transactions still reject the complete conflicting move.
+  for (int32_t first = 0; punch_state == nullptr && first < g_object_count; ++first) {
     if (g_mandatory_objects[first] == 0) continue;
     for (int32_t second = first + 1; second < g_object_count; ++second) {
       if (g_mandatory_objects[second] == 0) continue;
@@ -419,7 +441,7 @@ bool TranslateSlopeMomentumObjects(
     }
   }
 
-  bool moved = false;
+  bool moved = punched_player_direction >= 0;
   TranslateHiddenOrangeWallsWithProposals(
       voxels, count, false, 0, 0, 0, false);
   for (int32_t object = 0; object < g_object_count; ++object) {
@@ -435,6 +457,13 @@ bool TranslateSlopeMomentumObjects(
       g_object_direction[object] = static_cast<uint8_t>(
           g_inherited_support_motion[object] - 1);
     }
+  }
+  if (punched_player_direction >= 0) {
+    constexpr int32_t kDx[] = {0, 1, 0, -1};
+    constexpr int32_t kDy[] = {-1, 0, 1, 0};
+    voxels[player_index].x += kDx[punched_player_direction];
+    voxels[player_index].y += kDy[punched_player_direction];
+    player_was_pushed = true;
   }
   if (!moved) {
     // A latent-momentum body may have advanced only along gravity and landed
