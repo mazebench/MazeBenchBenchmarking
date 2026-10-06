@@ -78,6 +78,10 @@ push chain also moves that supporting body. The complete push must validate
 before anything moves; a stationary support still forbids stepping off its
 ledge, and an obstruction anywhere in the chain blocks the push.
 
+A resting player may already overlap a puncher. A new command moves first;
+remaining puncher contacts fire on the next tick. This lets the player push a
+box carrying that puncher before being punched back, or step away from it.
+
 Floating Floors prevent a same-level player or clone from raising a gate
 occupied by that floor, just like crates and weightless boxes. Pushing the
 floor into or through the lowered plate adds no mechanism tick. Once the

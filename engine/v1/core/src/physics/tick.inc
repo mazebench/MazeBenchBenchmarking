@@ -417,8 +417,10 @@ TickResult step_tick(
   if (!initialized_this_call) {
     puncher_visual_advanced = ResetSprungPunchers(voxels);
   }
-  if (state->phase == kMotionReady ||
-      IsPlayerPunchPhase(state->phase) ||
+  // A ready command starts from a resting board, which may already overlap a
+  // blocked puncher. Let the input move first; store_and_finish discovers the
+  // resulting contact and schedules its punch on the following tick.
+  if (IsPlayerPunchPhase(state->phase) ||
       state->phase == kMotionObjectIce) {
     const PuncherContact activated = ActivatePunchers(
         state, voxels, state->player_index, width, height);

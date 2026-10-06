@@ -2392,6 +2392,41 @@ void TestPuncherRedirectsPlayerAndResetsVisually() {
         "a puncher should expose its sprung frame and reset before completion");
 }
 
+void TestInitialPuncherContactWaitsForCommand() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  std::vector<voxelbench::Voxel> voxels = {
+      {2, 1, 1, Role("weightless-pushable"), 17},
+      {2, 2, 1, Role("player"), -1},
+      {2, 2, 1, Role("puncher"), 4},  // Down-facing, mounted to the front box.
+      {2, 3, 1, Role("weightless-pushable"), 53},
+      {2, 4, 1, Role("solid"), -1},
+  };
+  for (int32_t y = 0; y < 6; ++y) {
+    for (int32_t x = 0; x < 6; ++x) {
+      voxels.push_back({x, y, 0, Role("floor"), -1});
+    }
+  }
+  voxelbench::reset_workspace(&workspace);
+  voxelbench::reset_motion_state(&state);
+  const auto tick = [&]() {
+    return voxelbench::step_tick(
+        &workspace, &state, voxels.data(), static_cast<int32_t>(voxels.size()), 6, 6, 0);
+  };
+  Check(tick() == voxelbench::TickResult::kMore && state.tick == 1,
+        "the commanded push should precede the punch");
+  Check(voxels[0].y == 0 && voxels[1].y == 1 && voxels[2].y == 1 &&
+            voxels[2].generic_id == 4,
+        "the player, box and mounted unsprung puncher should move together");
+  Check(tick() == voxelbench::TickResult::kMore && state.tick == 2 &&
+            voxels[1].y == 2 && voxels[2].generic_id == 5,
+        "the puncher should fire on the following tick");
+  Check(tick() == voxelbench::TickResult::kComplete && state.tick == 3 &&
+            voxels[1].y == 2 && voxels[2].y == 1 && voxels[2].generic_id == 4 &&
+            voxels[3].y == 3,
+        "the blocked punch should stop the player and reset the fixture visually");
+}
+
 void TestSearchSolvesAndReplaysPuncherCommands() {
   static voxelbench::PhysicsWorkspace physics_workspace;
   static voxelbench::SearchWorkspace search_workspace;
@@ -2839,6 +2874,7 @@ int main() {
   Run(TestProjectedOrangeFaceTransitionsWithDepth, "TestProjectedOrangeFaceTransitionsWithDepth");
   Run(TestSearchTracksOrangeWallDepth, "TestSearchTracksOrangeWallDepth");
   Run(TestPuncherRedirectsPlayerAndResetsVisually, "TestPuncherRedirectsPlayerAndResetsVisually");
+  Run(TestInitialPuncherContactWaitsForCommand, "TestInitialPuncherContactWaitsForCommand");
   Run(TestSearchSolvesAndReplaysPuncherCommands, "TestSearchSolvesAndReplaysPuncherCommands");
   Run(TestPuncherMomentumMovesAWholeWeightlessConvoy, "TestPuncherMomentumMovesAWholeWeightlessConvoy");
   Run(TestFloatingFloorHasOneBoxPushWeight, "TestFloatingFloorHasOneBoxPushWeight");
