@@ -81,6 +81,8 @@ ledge, and an obstruction anywhere in the chain blocks the push.
 A resting player may already overlap a puncher. A new command moves first;
 remaining puncher contacts fire on the next tick. This lets the player push a
 box carrying that puncher before being punched back, or step away from it.
+The sprung flag lasts only until the next tick, including across command
+boundaries when the preceding punch was blocked. It never disables later hits.
 
 Floating Floors prevent a same-level player or clone from raising a gate
 occupied by that floor, just like crates and weightless boxes. Pushing the

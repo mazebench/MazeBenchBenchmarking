@@ -32,14 +32,14 @@ for (const sprung of [0, 1]) {
     assert.equal(engine.search_solve(voxels.length, 5, 5, 1000), 1);
     const route = Array.from({ length: engine.search_solution_length() },
       (_, i) => engine.search_solution_step(i));
-    // An already-sprung authored fixture does not fire; normal physics takes
-    // Up, Right, Right. The armed fixture punches across in one Up command.
-    assert.deepEqual(route, sprung === 0 ? [0] : [0, 1, 1]);
+    // A sprung frame may be the end of a previous blocked punch. The next
+    // command rearms it and can use the same one-command route.
+    assert.deepEqual(route, [0]);
     const buffer = writeScene(engine, voxels);
     for (const direction of route) assert.equal(engine.simulate_turn(voxels.length, 5, 5, direction), 0);
     assert.deepEqual(Array.from(buffer.slice(0, 3)), [3, 2, 1]);
     assert.equal(buffer[9 * 5], -1, 'the replay must actually collect the gem');
-    assert.equal(buffer[1 * 5 + 4], 2 + sprung, 'the replay must preserve the correct fixture state');
+    assert.equal(buffer[1 * 5 + 4], 2, 'the replay must finish with the fixture rearmed');
   });
 }
 

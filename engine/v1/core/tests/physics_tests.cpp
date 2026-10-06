@@ -2427,6 +2427,43 @@ void TestInitialPuncherContactWaitsForCommand() {
         "the blocked punch should stop the player and reset the fixture visually");
 }
 
+void TestBlockedPunchRearmsForNextCommand() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  std::vector<voxelbench::Voxel> voxels = {
+      {2, 1, 1, Role("weightless-pushable"), 17},
+      {3, 2, 1, Role("player"), -1},
+      {2, 2, 1, Role("puncher"), 4},
+      {2, 3, 1, Role("weightless-pushable"), 53},
+      {2, 4, 1, Role("solid"), -1},
+  };
+  for (int32_t y = 0; y < 6; ++y) {
+    for (int32_t x = 0; x < 6; ++x) {
+      voxels.push_back({x, y, 0, Role("floor"), -1});
+    }
+  }
+  const auto count = static_cast<int32_t>(voxels.size());
+  voxelbench::reset_workspace(&workspace);
+  Check(voxelbench::simulate_command(
+            &workspace, &state, voxels.data(), count, 6, 6, 3) == 0 &&
+            voxels[1].x == 2 && voxels[1].y == 2 && voxels[2].generic_id == 5,
+        "approaching from the side should end on a blocked sprung punch");
+  voxelbench::reset_motion_state(&state);
+  const auto tick = [&]() {
+    return voxelbench::step_tick(&workspace, &state, voxels.data(), count, 6, 6, 0);
+  };
+  Check(tick() == voxelbench::TickResult::kMore && state.tick == 1 &&
+            voxels[0].y == 0 && voxels[1].y == 1 && voxels[2].y == 1 &&
+            voxels[2].generic_id == 4,
+        "the next commanded push should rearm and carry the puncher");
+  Check(tick() == voxelbench::TickResult::kMore && state.tick == 2 &&
+            voxels[1].y == 2 && voxels[2].generic_id == 5,
+        "a punch blocked last command must still fire after the next push");
+  Check(tick() == voxelbench::TickResult::kComplete && state.tick == 3 &&
+            voxels[1].y == 2 && voxels[2].generic_id == 4,
+        "the new punch should finish with the fixture rearmed");
+}
+
 void TestSearchSolvesAndReplaysPuncherCommands() {
   static voxelbench::PhysicsWorkspace physics_workspace;
   static voxelbench::SearchWorkspace search_workspace;
@@ -2447,14 +2484,14 @@ void TestSearchSolvesAndReplaysPuncherCommands() {
     const auto result = voxelbench::search_shortest(
         &search_workspace, &physics_workspace, voxels, 10, 5, 5, 1000);
     Check(result.status == voxelbench::SearchStatus::kSolved &&
-              result.moves == (sprung == 0 ? 1 : 3) && result.solution[0] == 0,
-          "search should preserve whether the authored puncher can fire");
+              result.moves == 1 && result.solution[0] == 0,
+          "search should rearm a sprung puncher at the start of a new command");
     for (int32_t move = 0; move < result.solution_length; ++move) {
       Check(voxelbench::simulate_turn(voxels, 10, 5, 5, result.solution[move]) == 0,
             "a searched puncher command should replay in ordinary physics");
     }
     Check(voxels[0].x == 3 && voxels[0].y == 2 && voxels[9].x < 0 &&
-              voxels[1].generic_id == 2 + sprung,
+              voxels[1].generic_id == 2,
           "replayed puncher solution should collect the gem with the correct fixture state");
   }
 }
@@ -2875,6 +2912,7 @@ int main() {
   Run(TestSearchTracksOrangeWallDepth, "TestSearchTracksOrangeWallDepth");
   Run(TestPuncherRedirectsPlayerAndResetsVisually, "TestPuncherRedirectsPlayerAndResetsVisually");
   Run(TestInitialPuncherContactWaitsForCommand, "TestInitialPuncherContactWaitsForCommand");
+  Run(TestBlockedPunchRearmsForNextCommand, "TestBlockedPunchRearmsForNextCommand");
   Run(TestSearchSolvesAndReplaysPuncherCommands, "TestSearchSolvesAndReplaysPuncherCommands");
   Run(TestPuncherMomentumMovesAWholeWeightlessConvoy, "TestPuncherMomentumMovesAWholeWeightlessConvoy");
   Run(TestFloatingFloorHasOneBoxPushWeight, "TestFloatingFloorHasOneBoxPushWeight");

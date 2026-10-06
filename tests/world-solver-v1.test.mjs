@@ -136,12 +136,13 @@ test("editor A* and exact search preserve puncher state and replay valid routes"
       let result = session.snapshot();
       for (let chunk = 0; chunk < 16 && result.statusCode === 0; chunk++) result = session.runChunk(16);
       assert.equal(result.status, heuristicWeight ? "solved-unproven" : "solved");
-      assert.deepEqual(result.solution, stateId ? ["up", "right", "right"] : ["up"]);
+      assert.deepEqual(result.solution, ["up"], 'a new command rearms a previously sprung puncher');
       let state = room;
       for (const direction of result.solution) state = (await native.simulateCommand(state, direction, definitions)).final;
       assert.equal(state.objects.find(o => o.blockId === "gem").x, -1);
       const player = state.objects.find(o => o.blockId === "player");
       assert.deepEqual([player.x, player.y, player.z], [3, 2, 0]);
+      assert.equal(state.objects.find(o => o.blockId === "puncher").stateId, 0);
     }
   }
 });

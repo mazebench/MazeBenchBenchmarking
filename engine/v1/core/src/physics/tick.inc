@@ -412,11 +412,11 @@ TickResult step_tick(
     BuildSpatialIndex(voxels, count, width, height);
     LoadObjectMotion(state);
   }
-  bool puncher_visual_advanced = false;
+  // A blocked punch can complete on its sprung frame. Rearm it on the next
+  // tick, including the first tick of the next command; that visual state
+  // must not permanently disable the fixture across command boundaries.
+  bool puncher_visual_advanced = ResetSprungPunchers(voxels);
   bool player_punch_activated_this_tick = false;
-  if (!initialized_this_call) {
-    puncher_visual_advanced = ResetSprungPunchers(voxels);
-  }
   // A ready command starts from a resting board, which may already overlap a
   // blocked puncher. Let the input move first; store_and_finish discovers the
   // resulting contact and schedules its punch on the following tick.
