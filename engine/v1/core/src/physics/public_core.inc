@@ -182,7 +182,7 @@ bool prepare_quiescent_snapshot(
     // Filling a hole changes a Floating Floor entity into static Floor. Search
     // restores both forms into the same prepared buffer, so rebuild the small
     // dynamic object map before each restored candidate.
-    BuildObjects(voxels, count);
+    BuildObjects(voxels, ActiveWorkspace().prepared_dynamic_voxel_count);
   }
   BuildSpatialIndex(voxels, count, width, height);
   return true;

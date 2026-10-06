@@ -115,3 +115,16 @@ the two dynamic voxels in a prepared eight-voxel scene, calls the public
 `simulate_turn` API, and consumes the result. A second
 `prepared_passive_floor_step` workload measures the generalized player-only
 evaluator used by exact search. Neither is an empty engine-only loop.
+
+`node engine/benchmarks/puncher_search_benchmark.mjs [saved-wasm-path]`
+measures a puncher-assisted gem route and a fixed-budget search in the authored
+DxL room. It reports median command throughput and full-physics transitions;
+DxL's capped workload is not a claim that the room was solved. Pass a saved
+pre-change WASM to compare identical search work.
+
+Prepared search can evaluate ordinary walks in rooms with punchers, ramps,
+and Floating Floors without advancing unrelated mechanisms. Contact with a
+puncher, travel on a ramp, remote ramp-body motion, carrying, and ambiguous
+dynamic collisions retain the full tick kernel. Every declined fast path
+leaves the scene untouched. Prepared cycle hashes skip immutable terrain, but
+hash matches still replay and compare the complete state before rollback.

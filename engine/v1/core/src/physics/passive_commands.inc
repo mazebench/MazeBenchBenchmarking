@@ -8,13 +8,8 @@ int32_t TrySimulatePassiveQuiescentTurn(
     int32_t direction,
     bool rebuild_spatial_index) {
   if (!IsPreparedScene(voxels, count, width, height)) return 0;
-  // Directional slopes can change both the motion vector and elevation. They
-  // stay on the generalized command kernel, including exact cycle handling.
-  if (ActiveWorkspace().prepared_has_ice_slopes ||
-      ActiveWorkspace().prepared_has_player_lifts ||
+  if (ActiveWorkspace().prepared_has_player_lifts ||
       ActiveWorkspace().prepared_has_orange_mechanisms ||
-      ActiveWorkspace().prepared_has_punchers ||
-      ActiveWorkspace().prepared_has_floating_floors ||
       ActiveWorkspace().prepared_has_clones ||
       ActiveWorkspace().prepared_has_player_polycube ||
       ActiveWorkspace().scene_has_player_gates) return 0;
@@ -35,6 +30,47 @@ int32_t TrySimulatePassiveQuiescentTurn(
   } else if (!ActiveWorkspace().prepared_index_active) {
     return 0;
   }
+  const bool has_slopes = ActiveWorkspace().prepared_has_ice_slopes;
+  const bool has_floating_floors =
+      ActiveWorkspace().prepared_has_floating_floors;
+  if (has_slopes || has_floating_floors) {
+    for (int32_t object = 0; object < g_object_count; ++object) {
+      if (!ObjectIsActive(voxels, object, width, height)) continue;
+      // A command can awaken a remote ramp body or settle an unsupported
+      // Floating Floor. Neither is a player-only transition.
+      if (!ObjectHasDirectSupport(voxels, object, width, height)) return 0;
+      if (g_object_kind[object] == kMechanismObject) continue;
+      for (int32_t member = g_object_head[object]; member >= 0;
+           member = g_next_object_voxel[member]) {
+        if (has_slopes && SlopeSupportingVoxel(
+                voxels, voxels[member], width, height) >= 0) return 0;
+      }
+    }
+  }
+  const bool has_punchers = ActiveWorkspace().prepared_has_punchers;
+  if (has_punchers) {
+    for (int32_t fixture = 0; fixture < g_object_count; ++fixture) {
+      if (g_object_kind[fixture] != kMechanismObject) continue;
+      const Voxel& puncher = voxels[g_object_head[fixture]];
+      if (puncher.role != kPuncherRole) continue;
+      // Passive commands never change fixtures. Sprung, unsupported, carried,
+      // or already-contacting punchers must use the full tick kernel.
+      if (puncher.generic_id < 0 || (puncher.generic_id & 1) != 0) return 0;
+      const int32_t attachment = MechanismAttachmentVoxel(
+          voxels, fixture, width, height);
+      if (attachment < 0 || attachment == player_index ||
+          g_voxel_object[attachment] >= 0) return 0;
+      for (int32_t object = 0; object < g_object_count; ++object) {
+        if (g_object_kind[object] == kMechanismObject) continue;
+        for (int32_t member = g_object_head[object]; member >= 0;
+             member = g_next_object_voxel[member]) {
+          if (voxels[member].x == puncher.x &&
+              voxels[member].y == puncher.y &&
+              voxels[member].z == puncher.z) return 0;
+        }
+      }
+    }
+  }
   g_ignored_support_voxel = player_index;
   constexpr int32_t kDx[4] = {0, 1, 0, -1};
   constexpr int32_t kDy[4] = {-1, 0, 1, 0};
@@ -45,10 +81,25 @@ int32_t TrySimulatePassiveQuiescentTurn(
   int32_t z = player.z;
   bool automatic_ice_motion = false;
 
+  auto touches_puncher = [&]() {
+    if (!has_punchers) return false;
+    for (int32_t fixture = 0; fixture < g_object_count; ++fixture) {
+      if (g_object_kind[fixture] != kMechanismObject) continue;
+      const Voxel& puncher = voxels[g_object_head[fixture]];
+      if (puncher.role == kPuncherRole && puncher.x == x &&
+          puncher.y == y && puncher.z == z) return true;
+    }
+    return false;
+  };
+
   auto support_at = [&](int32_t support_x, int32_t support_y, int32_t support_z) {
     const int32_t support = FindVoxelAt(
         voxels, support_x, support_y, support_z, width, height);
     return support == player_index ? -1 : support;
+  };
+  auto special_support = [&](int32_t support) {
+    return support >= 0 && (IsIceSlopeRole(voxels[support].role) ||
+        voxels[support].role == kFloatingFloorRole);
   };
   auto has_carried_body = [&]() {
     if (z == INT32_MAX) return false;
@@ -59,30 +110,36 @@ int32_t TrySimulatePassiveQuiescentTurn(
     for (;;) {
       if (z == INT32_MIN) {
         x = -1;
-        return;
+        return true;
       }
-      if (support_at(x, y, z - 1) >= 0) return;
+      const int32_t support = support_at(x, y, z - 1);
+      if (special_support(support)) return false;
+      if (support >= 0) return true;
       const int32_t lower_support = FindNearestVoxelBelow(
           voxels, count, x, y, z, -1, width);
       const int32_t previous_z = z;
       --z;
+      if (touches_puncher()) return false;
       if (lower_support < 0 && previous_z < LowestOtherActiveZ(
               voxels, count, width, height, -1, player_index, false, true)) {
         x = -1;
-        return;
+        return true;
       }
     }
   };
 
   for (;;) {
-    if (has_carried_body()) {
+    if (touches_puncher() || has_carried_body()) {
       g_ignored_support_voxel = -1;
       return 0;
     }
-    const bool started_on_ice = [&]() {
-      const int32_t support = support_at(x, y, z - 1);
-      return support >= 0 && IsIceRole(voxels[support].role);
-    }();
+    const int32_t support = support_at(x, y, z - 1);
+    if (special_support(support)) {
+      g_ignored_support_voxel = -1;
+      return 0;
+    }
+    const bool started_on_ice =
+        support >= 0 && IsIceRole(voxels[support].role);
     const int32_t target_x = x + dx;
     const int32_t target_y = y + dy;
     if (!IsInsideRoom(target_x, target_y, width, height)) break;
@@ -91,6 +148,11 @@ int32_t TrySimulatePassiveQuiescentTurn(
         voxels, target_x, target_y, z, width, height);
     if (target >= 0 && target != player_index) {
       const int32_t target_object = g_voxel_object[target];
+      if (IsIceSlopeRole(voxels[target].role) ||
+          (target_object >= 0 && (has_slopes || has_floating_floors))) {
+        g_ignored_support_voxel = -1;
+        return 0;
+      }
       if (!automatic_ice_motion && target_object >= 0) {
         // Reject only collisions that no carrier/chain rule can rescue. This
         // avoids entering the full multi-body kernel for pushes directly into
@@ -128,6 +190,10 @@ int32_t TrySimulatePassiveQuiescentTurn(
     }
 
     const int32_t direct_support = support_at(target_x, target_y, z - 1);
+    if (special_support(direct_support)) {
+      g_ignored_support_voxel = -1;
+      return 0;
+    }
     if (direct_support < 0) {
       const int32_t lower_support = FindNearestVoxelBelow(
           voxels, count, target_x, target_y, z, -1, width);
@@ -140,8 +206,17 @@ int32_t TrySimulatePassiveQuiescentTurn(
 
     x = target_x;
     y = target_y;
+    // This also catches a puncher partway through an Ice slide. Coordinates
+    // stay local until success, so a declined fast path is transactional.
+    if (touches_puncher()) {
+      g_ignored_support_voxel = -1;
+      return 0;
+    }
     if (direct_support < 0) {
-      fall_until_settled();
+      if (!fall_until_settled()) {
+        g_ignored_support_voxel = -1;
+        return 0;
+      }
       break;
     }
 

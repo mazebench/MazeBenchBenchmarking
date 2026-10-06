@@ -360,6 +360,8 @@ bool PlayerLiftCanToggleOnEntry(
     int32_t from_y,
     int32_t width,
     int32_t height) {
+  if (IsPreparedScene(voxels, count, width, height) &&
+      !ActiveWorkspace().prepared_has_player_lifts) return false;
   const Voxel& player = voxels[player_index];
   if (player.x == from_x && player.y == from_y) return false;
   const int32_t lift_count = PlayerLiftCountAtPlayer(
@@ -395,6 +397,9 @@ bool RaiseVacatedUpwardPlayerLift(
     int32_t from_y,
     int32_t from_z,
     bool allow_top_lift) {
+  if (ActiveWorkspace().prepared_voxels == voxels &&
+      ActiveWorkspace().prepared_count == count &&
+      !ActiveWorkspace().prepared_has_player_lifts) return false;
   const Voxel& player = voxels[player_index];
   if (player.x == from_x && player.y == from_y && player.z == from_z) {
     return false;
@@ -439,6 +444,8 @@ bool VacatedUpwardPlayerLiftNeedsRetry(
     int32_t player_index,
     int32_t width,
     int32_t height) {
+  if (IsPreparedScene(voxels, count, width, height) &&
+      !ActiveWorkspace().prepared_has_player_lifts) return false;
   const Voxel& player = voxels[player_index];
   int32_t lift_index = -1;
   for (int32_t index = 0; index < count; ++index) {

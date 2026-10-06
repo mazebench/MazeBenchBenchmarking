@@ -47,12 +47,13 @@ uint64_t CycleHashMix(uint64_t hash, uint32_t value) {
 
 void BuildCanonicalPunchCycleDirections(
     const Voxel* voxels,
-    int32_t count,
     int32_t* directions) {
   for (int32_t object = 0; object < g_object_count; ++object) {
     directions[object] = -1;
   }
-  for (int32_t puncher_index = 0; puncher_index < count; ++puncher_index) {
+  for (int32_t fixture = 0; fixture < g_object_count; ++fixture) {
+    if (g_object_kind[fixture] != kMechanismObject) continue;
+    const int32_t puncher_index = g_object_head[fixture];
     const Voxel& puncher = voxels[puncher_index];
     const int32_t direction = PuncherDirection(puncher);
     if (direction < 0 || PuncherIsSprung(puncher)) continue;
@@ -89,9 +90,18 @@ uint64_t CycleStateHash(
     int32_t count,
     const MotionState* state) {
   BuildCanonicalPunchCycleDirections(
-      voxels, count, g_component_indegree);
+      voxels, g_component_indegree);
+  // Prepared search scenes keep all moving bodies/mechanisms in a prefix.
+  // Immutable terrain need not be rehashed at every tick. Hash matches still
+  // replay and compare EVERY voxel and motion flag in SameCycleState, including
+  // static goals, so this changes cost rather than cycle equivalence.
+  const WorkspaceData& workspace = ActiveWorkspace();
+  const int32_t hash_count = workspace.prepared_voxels == voxels &&
+          workspace.prepared_count == count && workspace.prepared_index_active
+      ? workspace.prepared_dynamic_voxel_count
+      : count;
   uint64_t hash = UINT64_C(1469598103934665603);
-  for (int32_t index = 0; index < count; ++index) {
+  for (int32_t index = 0; index < hash_count; ++index) {
     hash = CycleHashMix(hash, static_cast<uint32_t>(voxels[index].x));
     hash = CycleHashMix(hash, static_cast<uint32_t>(voxels[index].y));
     hash = CycleHashMix(hash, static_cast<uint32_t>(voxels[index].z));
@@ -105,7 +115,7 @@ uint64_t CycleStateHash(
   hash = CycleHashMix(hash, state->player_falling);
   hash = CycleHashMix(hash, state->reserved[0]);
   hash = CycleHashMix(hash, state->reserved[1]);
-  for (int32_t index = 0; index < count; ++index) {
+  for (int32_t index = 0; index < hash_count; ++index) {
     const int32_t object = g_voxel_object[index];
     const int32_t punch_direction = object >= 0
         ? g_component_indegree[object]
@@ -128,9 +138,9 @@ bool SameCycleState(
     const MotionState* right_state,
     int32_t count) {
   BuildCanonicalPunchCycleDirections(
-      left_voxels, count, g_component_indegree);
+      left_voxels, g_component_indegree);
   BuildCanonicalPunchCycleDirections(
-      right_voxels, count, g_object_queue);
+      right_voxels, g_object_queue);
   for (int32_t index = 0; index < count; ++index) {
     const Voxel& left = left_voxels[index];
     const Voxel& right = right_voxels[index];

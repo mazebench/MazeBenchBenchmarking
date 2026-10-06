@@ -15,9 +15,11 @@ bool PuncherIsSprung(const Voxel& puncher) {
       (puncher.generic_id & 1) != 0;
 }
 
-bool ResetSprungPunchers(Voxel* voxels, int32_t count) {
+bool ResetSprungPunchers(Voxel* voxels) {
   bool changed = false;
-  for (int32_t index = 0; index < count; ++index) {
+  for (int32_t object = 0; object < g_object_count; ++object) {
+    if (g_object_kind[object] != kMechanismObject) continue;
+    const int32_t index = g_object_head[object];
     if (!PuncherIsSprung(voxels[index])) continue;
     --voxels[index].generic_id;
     changed = true;
@@ -35,7 +37,6 @@ bool ObjectCanBePunched(int32_t object) {
 
 PuncherContact FindPuncherContacts(
     Voxel* voxels,
-    int32_t count,
     int32_t player_index,
     int32_t width,
     int32_t height,
@@ -44,7 +45,11 @@ PuncherContact FindPuncherContacts(
   const int32_t player_object = player_index >= 0
       ? g_voxel_object[player_index]
       : -1;
-  for (int32_t puncher_index = 0; puncher_index < count; ++puncher_index) {
+  // Mechanisms retain source order, including overlapping punchers. Skip
+  // immutable terrain rather than rescanning every voxel on every tick.
+  for (int32_t fixture = 0; fixture < g_object_count; ++fixture) {
+    if (g_object_kind[fixture] != kMechanismObject) continue;
+    const int32_t puncher_index = g_object_head[fixture];
     const Voxel& puncher = voxels[puncher_index];
     const int32_t punch_direction = PuncherDirection(puncher);
     if (punch_direction < 0 ||
@@ -84,7 +89,6 @@ PuncherContact FindPuncherContacts(
 PuncherContact ActivatePunchers(
     MotionState* state,
     Voxel* voxels,
-    int32_t count,
     int32_t player_index,
     int32_t width,
     int32_t height) {
@@ -92,7 +96,11 @@ PuncherContact ActivatePunchers(
   const int32_t player_object = player_index >= 0
       ? g_voxel_object[player_index]
       : -1;
-  for (int32_t puncher_index = 0; puncher_index < count; ++puncher_index) {
+  // Mechanisms retain source order, including overlapping punchers. Skip
+  // immutable terrain rather than rescanning every voxel on every tick.
+  for (int32_t fixture = 0; fixture < g_object_count; ++fixture) {
+    if (g_object_kind[fixture] != kMechanismObject) continue;
+    const int32_t puncher_index = g_object_head[fixture];
     Voxel& puncher = voxels[puncher_index];
     const int32_t punch_direction = PuncherDirection(puncher);
     if (punch_direction < 0 || PuncherIsSprung(puncher) ||

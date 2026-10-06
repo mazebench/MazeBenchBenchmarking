@@ -576,6 +576,10 @@ int32_t editor_solver_run(int32_t maximum_expansions) {
       if (simulation > 0) {
         voxelbench::BuildPassiveCandidate(
             g_editor_data, parent, player_coordinates, collected_goals);
+        // Passive walking can also fall out of the room. Apply the same
+        // survivor check used for full physics before queuing an A* node.
+        if (!voxelbench::CandidatePlayerIsActive(
+                g_editor_data, g_editor_width, g_editor_height)) continue;
       }
       ++g_editor_generated;
       const uint32_t interaction_delta = simulation > 0

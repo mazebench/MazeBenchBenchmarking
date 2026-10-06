@@ -415,13 +415,13 @@ TickResult step_tick(
   bool puncher_visual_advanced = false;
   bool player_punch_activated_this_tick = false;
   if (!initialized_this_call) {
-    puncher_visual_advanced = ResetSprungPunchers(voxels, count);
+    puncher_visual_advanced = ResetSprungPunchers(voxels);
   }
   if (state->phase == kMotionReady ||
       IsPlayerPunchPhase(state->phase) ||
       state->phase == kMotionObjectIce) {
     const PuncherContact activated = ActivatePunchers(
-        state, voxels, count, state->player_index, width, height);
+        state, voxels, state->player_index, width, height);
     puncher_visual_advanced |= activated.player || activated.object;
     if (activated.player) {
       player_punch_activated_this_tick = true;
@@ -491,7 +491,6 @@ TickResult step_tick(
     }
     const PuncherContact pending_punch = FindPuncherContacts(
         voxels,
-        count,
         state->player_index,
         width,
         height,
