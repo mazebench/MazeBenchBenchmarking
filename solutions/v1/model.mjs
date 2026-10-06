@@ -267,14 +267,16 @@ export class SolutionsModel {
     Object.assign(this,new SolutionsModel(this.engine,this.world,this.fingerprint));
     return {snapshot:this.snapshot(),deleted,message:'All runs cleared. Start again in H×I.'};
   }
-  async importJSON(json,progress=()=>{},{allowWorldChange=false}={}) {
+  async importJSON(json,progress=()=>{},{allowWorldChange=false,allowEngineChange=false}={}) {
     if(this.routes.length||this.pending.length)throw new Error('Clear all runs before importing a solution.');
     let saved;
     try{saved=JSON.parse(json);}catch{throw new Error('This file is not valid JSON.');}
     if(!saved||saved.format!==FORMAT||!Array.isArray(saved.routes))throw new Error('Choose a MazeBench Solutions JSON file exported from this page.');
-    if(saved.engine&&saved.engine!==ENGINE_WASM_SHA256)throw new Error('This solution uses a different engine version.');
-    const changed=saved.fingerprint!==this.fingerprint;
-    if(changed&&!allowWorldChange)throw Object.assign(new Error('The rooms have changed since this solution was saved. You can import it and recheck its moves.'),{code:'WORLD_MISMATCH'});
+    const engineChanged=Boolean(saved.engine&&saved.engine!==ENGINE_WASM_SHA256);
+    const worldChanged=saved.fingerprint!==this.fingerprint;
+    if(engineChanged&&!allowEngineChange)throw Object.assign(new Error('The engine has changed since this solution was saved. You can import it and recheck its moves with the current engine.'),{code:'ENGINE_MISMATCH'});
+    if(worldChanged&&!allowWorldChange)throw Object.assign(new Error('The rooms or engine have changed since this solution was saved. You can import it and recheck its moves.'),{code:'WORLD_MISMATCH'});
+    const changed=worldChanged||engineChanged;
     const goals=new Set([...this.goalIds.values()].flat());
     const validSegment=segment=>segment&&typeof segment.from==='string'&&Array.isArray(segment.actions)
       &&segment.actions.length<=100000&&segment.actions.every(direction=>DIRECTIONS.includes(direction))
@@ -293,7 +295,7 @@ export class SolutionsModel {
     }
     await imported.refreshCurrentGems();
     Object.assign(this,imported);
-    return {snapshot:this.snapshot(),message:`Imported ${this.routes.length} run${this.routes.length===1?'':'s'}${changed?' and rechecked them against the edited world':''}.`};
+    return {snapshot:this.snapshot(),message:`Imported ${this.routes.length} run${this.routes.length===1?'':'s'}${changed?engineChanged?' and rechecked them with the current engine and rooms':' and rechecked them against the edited world':''}.`};
   }
   snapshot() {
     const source=this.spots.get(this.source),progress=this.collectionProgress();

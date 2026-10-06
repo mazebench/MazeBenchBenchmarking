@@ -19,7 +19,7 @@ self.onmessage=({data})=>{
       else if(type==='move')value=await model.move(payload.direction);
       else if(type==='undo'){value=await model.undo();await model.refreshCurrentGems();value.snapshot=model.snapshot();}
       else if(type==='clear-runs')value=model.clearRuns();
-      else if(type==='import')value=await model.importJSON(await payload.file.text(),(done,total)=>progress({restoring:true,done,total}),{allowWorldChange:payload.allowWorldChange===true});
+      else if(type==='import')value=await model.importJSON(await payload.file.text(),(done,total)=>progress({restoring:true,done,total}),{allowWorldChange:payload.allowWorldChange===true,allowEngineChange:payload.allowEngineChange===true});
       else if(type==='resume')value={snapshot:model.resume(payload.id),message:'Room reset to this spawn. Collected gems stay collected.'};
       else if(type==='search'){
         cancelled=false;

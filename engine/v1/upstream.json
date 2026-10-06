@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "f33f68ff188c6432a1deded214c628544d417194",
-  "sourceTree": "fe92fa013c5d5bf0089d71bf08f4013c4a8d66a1",
+  "sourceCommit": "a69a7d1cbd2840cbcf9dec44b0008154dbeab0d6",
+  "sourceTree": "054bdb2f24e6b531aa8b461fba15cbcbad6b5411",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
@@ -213,6 +213,11 @@
     },
     {
       "mode": "100644",
+      "path": "tests/helpers/sloped-entity-fixtures.mjs",
+      "sha256": "1dbadfa2583b4abe0cca5e5d05167abb0df69a5c436db8934077a2d89ce65591"
+    },
+    {
+      "mode": "100644",
       "path": "tests/interlocked-momentum.test.mjs",
       "sha256": "f3c1870995255c7a8e4481f03a21754415055f7233d2ec15715fd055c7034a3a"
     },
@@ -255,6 +260,11 @@
       "mode": "100644",
       "path": "tests/slope-crest.test.mjs",
       "sha256": "4ca12f40afce60440c3d9b44793a50b172d5aec4bfa896d8399aad5383cc78c0"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/sloped-entities.test.mjs",
+      "sha256": "c4b5a58a2ad7238fc4bc0ddb29c7a24cb4814b8db78eb5a71cbd1081779a10be"
     },
     {
       "mode": "100644",

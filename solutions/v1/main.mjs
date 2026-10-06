@@ -43,8 +43,11 @@ async function action(type,payload={},success){
     if(success)success(result);else message(result.message||'Resume spot saved.');
   }catch(error){
     message(error.message);
-    if(type==='import'&&error.code==='WORLD_MISMATCH'){
-      pendingImport=payload.file;$('import-world-file').textContent=payload.file.name;$('import-world-dialog').showModal();
+    if(type==='import'&&['WORLD_MISMATCH','ENGINE_MISMATCH'].includes(error.code)){
+      pendingImport=payload.file;$('import-world-file').textContent=payload.file.name;
+      $('import-world-title').textContent=error.code==='ENGINE_MISMATCH'?'Recheck with the current engine?':'Recheck with the current world?';
+      $('import-world-description').textContent=`${error.code==='ENGINE_MISMATCH'?'The engine has':'The rooms or engine have'} changed since this file was saved. Replay the saved moves with the current engine and rooms to rebuild visited rooms, entrances, and collected gems. If a move fails or a saved entrance no longer matches, the import will stop without changing your solution.`;
+      $('import-world-dialog').showModal();
     }
   }
   finally{setBusy(false);}
@@ -219,13 +222,13 @@ $('import-file').onchange=()=>{
   message('Reading and checking your solution…');
   importFile(file);
 };
-function importFile(file,allowWorldChange=false){
-  action('import',{file,allowWorldChange},result=>{target=null;shownMoves=null;routeLimit=30;showTarget();message(result.message);});
+function importFile(file,allowChanges=false){
+  action('import',{file,allowWorldChange:allowChanges,allowEngineChange:allowChanges},result=>{target=null;shownMoves=null;routeLimit=30;showTarget();message(result.message);});
 }
 $('cancel-import-world').onclick=()=>{pendingImport=null;$('import-world-dialog').close();};
 $('confirm-import-world').onclick=()=>{
   const file=pendingImport;pendingImport=null;$('import-world-dialog').close();
-  if(file){message('Rechecking your moves against the edited world…');importFile(file,true);}
+  if(file){message('Rechecking your moves with the current engine and rooms…');importFile(file,true);}
 };
 $('import-world-dialog').addEventListener('cancel',()=>{pendingImport=null;});
 $('export').onclick=()=>action('export',{},data=>{

@@ -48,12 +48,14 @@ Start the site with `node server.mjs` from the repository root if needed.
   starting rooms have not been discovered wait until discovery; any runs that
   still cannot be included are listed separately, not reported as solved.
 - **Import JSON** loads a previously exported Solutions JSON when there are no
-  saved runs or unfinished moves. If rooms were edited, choose **Import and
-  recheck** to override the world mismatch. Every run is replayed against the
-  current rooms; entrances must still reach their saved positions. Gem IDs and
+  saved runs or unfinished moves. If rooms were edited or the engine was
+  updated, choose **Import and recheck** to check compatibility by replaying
+  the moves with the current engine and rooms. Entrances must still reach
+  their saved positions. Gem IDs and
   progress are rebuilt from that replay. An invalid route leaves the empty
-  solution unchanged. The engine version must still match. The imported
-  collection saves automatically under the current world; the original file
+  solution unchanged. A different engine version is allowed when the replay
+  succeeds. The imported collection saves automatically under the current
+  world and future exports record the current engine; the original file
   and saves belonging to older worlds remain intact.
 - Progress is stored in this browser using IndexedDB. **Export routes** saves
   the run collection, spawn setups, existing reachability witnesses, and a

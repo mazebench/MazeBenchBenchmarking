@@ -372,8 +372,8 @@ test('bad JSON, mismatched files and failed replay never leave a partial import'
  const target=await create(),before=target.save();
  for(const [json,reason]of [
   ['{broken',/valid JSON/],['null',/Solutions JSON/],['{}',/Solutions JSON/],
-  [JSON.stringify({...exported,fingerprint:'other'}),/rooms have changed/],
-  [JSON.stringify({...exported,engine:'other'}),/different engine version/],
+  [JSON.stringify({...exported,fingerprint:'other'}),{code:'WORLD_MISMATCH'}],
+  [JSON.stringify({...exported,engine:'other'}),{code:'ENGINE_MISMATCH'}],
   [JSON.stringify({...exported,draft:{from:'start:a.json',actions:['teleport']}}),/invalid runs or moves/],
   [JSON.stringify({...exported,routes:[...exported.routes,{from:'missing',actions:['up']}]}),/Unknown spawn/],
   [JSON.stringify({...exported,routes:[...exported.routes,{from:'start:a.json',actions:['up','up']}]}),/falls|blocked/]
@@ -397,5 +397,40 @@ test('world override rejects broken routes atomically and does not bypass engine
  const source=await create();await source.applyRoute(['up']);source.resume('start:a.json');await source.applyRoute(['right']);
  const exported=source.export(),edited=world();edited.rooms[0].objects.push({blockId:'wall',x:2,y:1,z:0});const target=await create(edited),before=target.save();
  await assert.rejects(target.importJSON(JSON.stringify(exported),()=>{},{allowWorldChange:true}),/Run 2 could not be replayed/);assert.deepEqual(target.save(),before);
- await assert.rejects(target.importJSON(JSON.stringify({...exported,engine:'other'}),()=>{},{allowWorldChange:true}),/different engine version/);assert.deepEqual(target.save(),before);
+ await assert.rejects(target.importJSON(JSON.stringify({...exported,engine:'other'}),()=>{},{allowWorldChange:true}),{code:'ENGINE_MISMATCH'});assert.deepEqual(target.save(),before);
+});
+
+test('older engine exports import by replay, save with current provenance, and survive reload and undo',async()=>{
+ const source=await create();await source.applyRoute(['right','right','right']);source.resume('start:b.json');await source.applyRoute(['right']);await source.move('up');
+ const original=source.export(),exported={...original,engine:'older-engine',fingerprint:'older-world-and-engine',roomProofs:{fake:[]},gemProofs:{fake:[]}};
+ const target=await create(),before=target.save(),progress=[],json=JSON.stringify(exported);
+ await assert.rejects(target.importJSON(json),{code:'ENGINE_MISMATCH'});assert.deepEqual(target.save(),before);
+ const result=await target.importJSON(json,(done,total)=>progress.push([done,total]),{allowWorldChange:true,allowEngineChange:true});
+ assert.match(result.message,/current engine and rooms/);assert.deepEqual(progress,[[1,2],[2,2]]);
+ assert.deepEqual(target.snapshot(),source.snapshot());assert.deepEqual(target.save(),source.save());
+ assert.equal(target.export().engine,original.engine);assert.equal(target.export().fingerprint,original.fingerprint);
+ const restored=await create();await restored.restore(target.save());assert.deepEqual(restored.snapshot(),target.snapshot());
+ await restored.undo();await source.undo();assert.deepEqual(restored.save(),source.save());
+ assert.equal((await compileFullSolution(target)).complete,true);
+ assert.equal(JSON.parse(json).engine,'older-engine','the original export is never rewritten');
+});
+
+test('engine override also rebases gem IDs when rooms changed',async()=>{
+ const source=await create();await source.applyRoute(['right','right','right']);source.resume('start:b.json');await source.applyRoute(['right']);
+ const edited=world();edited.rooms[0].objects.unshift({blockId:'wall',x:0,y:0,z:1});
+ const target=await create(edited);
+ await target.importJSON(JSON.stringify({...source.export(),engine:'older-engine'}),()=>{},{allowWorldChange:true,allowEngineChange:true});
+ assert.equal(target.collectedGems.size,2);assert.equal(target.visitedRooms.size,2);
+ assert(target.routes[1].start.collected.includes(target.goalIds.get('a.json')[0]));
+ assert(!target.routes[1].start.collected.includes(source.goalIds.get('a.json')[0]));
+});
+
+test('engine override rejects failed replay or shifted spawns without partially importing',async()=>{
+ const source=await create();await source.applyRoute(['right','right','right']);const exported={...source.export(),engine:'older-engine'};
+ const target=await create(),before=target.save(),options={allowWorldChange:true,allowEngineChange:true};
+ const broken={...exported,routes:[...exported.routes,{from:source.source,actions:['up','up']}]};
+ await assert.rejects(target.importJSON(JSON.stringify(broken),()=>{},options),/Run 2 could not be replayed/);assert.deepEqual(target.save(),before);
+ const shifted=structuredClone(exported);shifted.spawnSetups.find(s=>s.id===source.source).position.y++;
+ await assert.rejects(target.importJSON(JSON.stringify(shifted),()=>{},options),/saved spawn no longer matches/);assert.deepEqual(target.save(),before);
+ assert.equal(target.collectedGems.size,0);assert.equal(target.visitedRooms.size,1);
 });
