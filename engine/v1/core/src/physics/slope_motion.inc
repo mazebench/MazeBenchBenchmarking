@@ -13,7 +13,8 @@ bool TranslateSlopeMomentumObjects(
     bool pushed_targets_require_ice,
     bool allow_downhill_contact_push,
     bool player_moves_horizontally,
-    bool& player_was_pushed) {
+    bool& player_was_pushed,
+    int32_t required_player_carrier) {
   player_was_pushed = false;
   g_moving_objects_fell = false;
   for (int32_t object = 0; object < g_object_count; ++object) {
@@ -359,6 +360,14 @@ bool TranslateSlopeMomentumObjects(
         support_loss_changed = true;
       }
     }
+  }
+  // Do not allow a ledge push unless its original player support survived
+  // contact closure, carry validation, and support-loss resolution as a mover.
+  if (required_player_carrier >= 0 &&
+      (g_mandatory_objects[required_player_carrier] == 0 ||
+       (g_object_dx[required_player_carrier] == 0 &&
+        g_object_dy[required_player_carrier] == 0))) {
+    return false;
   }
   AdvanceUnmovedGravityOneStep(
       voxels,

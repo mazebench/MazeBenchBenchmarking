@@ -72,6 +72,39 @@ void TestSimplePush() {
         "pushable should move one cell without changing Z");
 }
 
+void TestWrappingPushMovesPlayerSupport() {
+  for (const bool remote_slope : {false, true}) {
+    for (const bool wrapped : {false, true}) {
+      std::vector<voxelbench::Voxel> voxels = {
+          {2, 3, 2, Role("player"), -1},
+          {2, 3, 1, Role("weightless-pushable"), 53},
+          {1, 2, 1, Role("weightless-pushable"), 17},
+          {1, 3, 1, Role("weightless-pushable"), 17},
+          {1, 4, 1, Role("weightless-pushable"), 17},
+          {2, 2, 1, Role("weightless-pushable"), 17},
+          {2, 2, 2, Role("weightless-pushable"), 17},
+      };
+      if (wrapped) voxels.push_back({2, 4, 1, Role("weightless-pushable"), 17});
+      const size_t dynamic_count = voxels.size();
+      for (int32_t y = 0; y < 6; ++y) {
+        for (int32_t x = 0; x < 6; ++x) {
+          voxels.push_back({x, y, 0,
+              Role(remote_slope && x == 5 && y == 5 ? "ice-slope-up" : "floor"), -1});
+        }
+      }
+      const auto initial = voxels;
+      Check(voxelbench::simulate_turn(
+                voxels.data(), static_cast<int32_t>(voxels.size()), 6, 6, 0) == 0,
+            "wrapping push command should complete");
+      for (size_t i = 0; i < voxels.size(); ++i) {
+        Check(voxels[i].x == initial[i].x && voxels[i].z == initial[i].z &&
+                  voxels[i].y == initial[i].y - (wrapped && i < dynamic_count ? 1 : 0),
+              "player and both bodies move together only when the support joins the push");
+      }
+    }
+  }
+}
+
 void TestPlayerGateRisesWhenPlayerApproaches() {
   static voxelbench::PhysicsWorkspace workspace;
   static voxelbench::MotionState state;
@@ -2717,6 +2750,7 @@ void TestReachableEdgesWithoutGems() {
 
 int main() {
   Run(TestSimplePush, "TestSimplePush");
+  Run(TestWrappingPushMovesPlayerSupport, "TestWrappingPushMovesPlayerSupport");
   Run(TestPlayerGateRisesWhenPlayerApproaches, "TestPlayerGateRisesWhenPlayerApproaches");
   Run(TestPlayerGateBlockedByEveryPushableFamily, "TestPlayerGateBlockedByEveryPushableFamily");
   Run(TestPlayerIceSlide, "TestPlayerIceSlide");

@@ -1467,6 +1467,7 @@ TickResult step_tick(
         voxels, target_x, target_y, target_z - 1, width, height);
     const bool target_support_stays = target_support >= 0 &&
         g_voxel_object[target_support] != object;
+    int32_t required_player_carrier = -1;
     if (!target_support_stays) {
       const int32_t current_support = player.z == INT32_MIN ? -1 : FindVoxelAt(
           voxels, player.x, player.y, player.z - 1, width, height);
@@ -1475,10 +1476,14 @@ TickResult step_tick(
            (voxels[current_support].role == kFloorRole ||
             g_voxel_object[current_support] == object));
       if (!may_leave_support) {
-        // Pushing a body must not bypass the normal ledge rule. Floor is the
-        // deliberate walk-off surface; a player standing on a wall or another
-        // non-Ice support cannot push into the body's unsupported old cell.
-        return store_and_finish(kMotionComplete, records_initial_tick);
+        // A wrapping push chain can move the separate body under the player.
+        // Defer that case until collision closure proves the support moves;
+        // stationary terrain still obeys the normal ledge restriction.
+        required_player_carrier = current_support >= 0
+            ? g_voxel_object[current_support] : -1;
+        if (required_player_carrier < 0) {
+          return store_and_finish(kMotionComplete, records_initial_tick);
+        }
       }
     }
     rider = CapturePlayerRider(voxels, player_index, width, height);
@@ -1569,7 +1574,8 @@ TickResult step_tick(
               diagonal_slope_contact,
               false,
               true,
-              player_was_pushed)
+              player_was_pushed,
+              required_player_carrier)
         : TranslateMovingObjects(
               voxels,
               count,
@@ -1581,9 +1587,15 @@ TickResult step_tick(
               height,
               true,
               true,
-              true));
+              true,
+              true,
+              true,
+              required_player_carrier));
     if (!object_translated) {
       g_ignored_support_voxel = -1;
+      if (required_player_carrier >= 0) {
+        return store_and_finish(kMotionComplete, records_initial_tick);
+      }
       if (raised_side_lift_inward_contact &&
           raised_side_lift_contact >= 0) {
         ClearMovingObjects();

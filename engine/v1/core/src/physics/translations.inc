@@ -11,13 +11,14 @@ bool TranslateMovingObjects(
     bool allow_push,
     bool player_moves_horizontally,
     bool advance_unmoved_gravity = true,
-    bool commit_translation = true) {
+    bool commit_translation = true,
+    int32_t required_player_carrier = -1) {
   g_moving_objects_fell = false;
   for (int32_t object = 0; object < g_object_count; ++object) {
     g_fell_objects[object] = 0;
   }
 
-  if (commit_translation && g_object_count == 1 &&
+  if (commit_translation && required_player_carrier < 0 && g_object_count == 1 &&
       g_mandatory_objects[0] != 0 &&
       ObjectIsActive(voxels, 0, width, height)) {
     // The overwhelmingly common Sokoban push has no carrier graph, object
@@ -195,6 +196,14 @@ bool TranslateMovingObjects(
             voxels, object, dx, dy, dz, width, height)) {
       return false;
     }
+  }
+
+  // A player pushing from another body may stay aboard only if the complete
+  // collision closure also pushes that support. Check before any scene change
+  // so an unrelated stationary pedestal cannot bypass the ledge rule.
+  if (required_player_carrier >= 0 &&
+      g_mandatory_objects[required_player_carrier] == 0) {
+    return false;
   }
 
   bool found_moving = false;

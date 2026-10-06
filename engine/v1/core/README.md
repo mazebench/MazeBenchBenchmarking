@@ -73,6 +73,11 @@ carrier completely vacates its support, the blocked passenger starts descending
 on the next tick, not during the push. A blocked rigid mounted fixture still
 anchors its carrier. Unrelated ramps do not change these collision rules.
 
+A player standing on a separate body may push a wrapping polycube when the
+push chain also moves that supporting body. The complete push must validate
+before anything moves; a stationary support still forbids stepping off its
+ledge, and an obstruction anywhere in the chain blocks the push.
+
 Floating Floors prevent a same-level player or clone from raising a gate
 occupied by that floor, just like crates and weightless boxes. Pushing the
 floor into or through the lowered plate adds no mechanism tick. Once the
