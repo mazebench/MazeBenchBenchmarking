@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "aa75d64414ab9f75dad7ee06f6fda3101a3d9d6e",
-  "sourceTree": "efe17c65f03dde3a9dbab197138985acacd860f5",
+  "sourceCommit": "cd4789bf939939160be1dacc2ef349e2e64ae16b",
+  "sourceTree": "cfbc72a07656d3bdbc8360d11a5b93c48bc8f3b8",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "sourcePath": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "0300351f0bb78fe78aa96f7c003f20b738c381215faf85719e53f306278b820b",
-    "bytes": 488378
+    "sha256": "1a2f67caa4e2d254e41aa494f77b699625cc1150dfb6eed4cf25e8361459a3f7",
+    "bytes": 488383
   },
   "files": [
     {
@@ -154,7 +154,7 @@
     {
       "mode": "100644",
       "path": "src/physics/tick.inc",
-      "sha256": "dfc2b7bdc439e488ecbce9eb1478acabe403d26719b7fbd1d1cc0ae5f743e288"
+      "sha256": "2d54d84740fee8ee04b7450ef7332a829aff2a7ae207734db905bac487ff58cb"
     },
     {
       "mode": "100644",

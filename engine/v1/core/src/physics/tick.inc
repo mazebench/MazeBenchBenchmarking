@@ -188,9 +188,9 @@ bool AdvanceCloneCommandObjects(
     }
 
     // Like the player, a clone may deliberately walk off Floor or Ice but not
-    // step away from the top of a wall into unsupported space. A polycube is
-    // anchored only by external rigid terrain; support from the player or a
-    // movable body participates in the normal simultaneous carrier rules.
+    // step away from the top of a wall or stationary body into unsupported
+    // space. Blocking its own command still lets a later player push carry
+    // the clone together with the body beneath it.
     bool ledge_blocked = false;
     for (int32_t object = 0; object < g_object_count; ++object) {
       if (g_component_objects[object] == 0) continue;
@@ -204,7 +204,6 @@ bool AdvanceCloneCommandObjects(
             voxels, voxel.x, voxel.y, voxel.z - 1, width, height);
         if (support >= 0 && support != player_index &&
             g_voxel_object[support] != object &&
-            g_voxel_object[support] < 0 &&
             !IsIceRole(voxels[support].role) &&
             voxels[support].role != kFloorRole) {
           has_rigid_foothold = true;
