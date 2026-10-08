@@ -485,7 +485,7 @@ bool TranslateSlopeMomentumObjects(
     }
     return false;
   }
-  ArmTranslatedFloatingFloors(voxels);
+  ArmTranslatedHoveringObjects(voxels);
   BuildSpatialIndex(voxels, count, width, height);
   PreserveSlopeCarriedMomentum(voxels, width, height);
   PreserveMovableSlopeRiderMomentum(voxels, width, height);

@@ -409,7 +409,7 @@ TickResult step_tick(
     }
     if (prepared && ActiveWorkspace().assume_quiescent_start) {
       ActiveWorkspace().assume_quiescent_start = false;
-      InitializeQuiescentMotion(state, count, player_index, direction);
+      InitializeQuiescentMotion(state, voxels, count, player_index, direction, width, height);
     } else {
       ActiveWorkspace().assume_quiescent_start = false;
       InitializeMotion(

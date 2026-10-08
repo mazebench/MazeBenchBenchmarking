@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "e99752b9ef789b1a0ad353545561d4e4be71c3ad",
-  "sourceTree": "729ee2b76f6bd24cdb4e09a90e3401eb0a3d22be",
+  "sourceCommit": "4ea7528a6681febc607fab8fee562b9e24348627",
+  "sourceTree": "3d229a613d9ab5085c23ba7e826c84acf53000ec",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "sourcePath": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "36bcc66cf0abcaaabcae635116e0ecf2fdd6b9cc72eb27ae42454f5bcb316050",
-    "bytes": 491053
+    "sha256": "7a92a680b4d533a2b96539a6fabe84373112436fd5296863f284c472d7589b99",
+    "bytes": 492136
   },
   "files": [
     {
@@ -54,7 +54,7 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "cf7687c07723207f047fe9f9bf9312f297cb140513b4931954082fa4750a55eb"
+      "sha256": "43bc19addf300790eb3ccfcb26c1c4c44714da2f9b4001280ba6e471e0690945"
     },
     {
       "mode": "100644",
@@ -64,7 +64,7 @@
     {
       "mode": "100644",
       "path": "src/physics/command_state.inc",
-      "sha256": "dd87680dbacde56be6bc0973efe54981c9c1c3d9f048c9bd05b27b3738e2d1ee"
+      "sha256": "fe753b9c96b3c0696c41bde503bf0c8571bc933d68c2dc68412872736baf62da"
     },
     {
       "mode": "100644",
@@ -89,7 +89,7 @@
     {
       "mode": "100644",
       "path": "src/physics/gravity_queries.inc",
-      "sha256": "d2a24ffc45fbfa0303ab9c78f8fccf3f6d58bbc5c2f4f46c296ceb9054136afd"
+      "sha256": "09b314545f88fd375b8116efa8ba18e3597d4e0c1a9f6e25e5db21741a5e23cb"
     },
     {
       "mode": "100644",
@@ -99,7 +99,7 @@
     {
       "mode": "100644",
       "path": "src/physics/motion_support.inc",
-      "sha256": "6a77d8e19b1b3371882fe2601b1efba47c8e415a5350c1d9dac9789fc4abe666"
+      "sha256": "a978821ee91a32cc23cae50874b8c0cf1dad31668313c28cd3a4e06c3a6e9f38"
     },
     {
       "mode": "100644",
@@ -109,7 +109,7 @@
     {
       "mode": "100644",
       "path": "src/physics/objects.inc",
-      "sha256": "b28f586cece0b7c8c979a34081b17df17d9998101a1432ed521b73f996ed3cd4"
+      "sha256": "57639de3c66e8a276983fd1bedf5037720067a7c95b54d8c9fcb674d48eabb2d"
     },
     {
       "mode": "100644",
@@ -144,7 +144,7 @@
     {
       "mode": "100644",
       "path": "src/physics/slope_motion.inc",
-      "sha256": "23f8b05c1b4281d32fe065b1ff2109c848394f94617d8ffc9a985f5f2ff55f56"
+      "sha256": "8de046982868cad7531f8812d7fa32676d1670264165c19d8bf766b960d45ecb"
     },
     {
       "mode": "100644",
@@ -154,12 +154,12 @@
     {
       "mode": "100644",
       "path": "src/physics/tick.inc",
-      "sha256": "7654a8b415dc5ca978c9ee1f0dc9c8b8e0c0a2972a57ebf1f2f6ec2c2821298d"
+      "sha256": "43308f75f70692e4423580738836e07d8ba76f3123d2758c5eeea40281fca790"
     },
     {
       "mode": "100644",
       "path": "src/physics/translations.inc",
-      "sha256": "f3e62cac4e61acb5689bd73a1f14f229b9771583c25bc192e4df1471db2d47a5"
+      "sha256": "f68488b506d804c51165c9194da7ed46ba0019810cd7ba2bda040ef46dab6dd1"
     },
     {
       "mode": "100644",
@@ -249,7 +249,7 @@
     {
       "mode": "100644",
       "path": "tests/physics_tests.cpp",
-      "sha256": "bbafe9ffaea20109a46e3da578ae50ee53dd0a97c4964d32a65ea11072c44bdf"
+      "sha256": "e1de9c0717ad2c17c84ab069f38c29a19081e9cc6bc97735ae689ab3be2cf619"
     },
     {
       "mode": "100644",

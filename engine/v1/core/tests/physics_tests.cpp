@@ -1739,6 +1739,58 @@ void TestOpposingSlopeLandingCancelsStoredMomentum() {
         "opposing slope supports should cancel stored pre-fall momentum");
 }
 
+void TestAuthoredHoveringLiftsKeepTheirAnchors() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  constexpr int32_t dx[] = {0, 1, 0, -1};
+  constexpr int32_t dy[] = {-1, 0, 1, 0};
+  for (int32_t raised = 0; raised <= 1; ++raised) {
+    std::vector<voxelbench::Voxel> initial = {
+        {3, 4, 1, Role("player"), -1},
+        {0, 0, 1, Role("player-lift"), raised},
+        {0, 2, 2, Role("player-lift"), raised},
+        {2, 0, 1, Role("player-lift"), raised},
+        {2, 0, 2, Role("player-lift"), raised},
+        {4, 0, 2, Role("player-lift"), raised},
+        {4, 0, 3, Role("player-lift"), raised},
+    };
+    for (int32_t y = 0; y < 6; ++y) {
+      for (int32_t x = 0; x < 6; ++x) {
+        initial.push_back({x, y, 0, Role("floor"), -1});
+      }
+    }
+    const int32_t count = static_cast<int32_t>(initial.size());
+    for (int32_t direction = 0; direction < 4; ++direction) {
+      for (bool prepared : {false, true}) {
+        auto voxels = initial;
+        voxelbench::reset_workspace(&workspace);
+        if (prepared) {
+          Check(voxelbench::prepare_scene(&workspace, voxels.data(), count, 6, 6, 7),
+                "hovering lift scene should prepare for search");
+          Check(voxelbench::simulate_quiescent_turn(
+                    &workspace, voxels.data(), count, 6, 6, direction, true) == 0,
+                "full search successor should preserve hovering lifts");
+        } else {
+          voxelbench::reset_motion_state(&state);
+          Check(voxelbench::step_tick(
+                    &workspace, &state, voxels.data(), count, 6, 6, direction) ==
+                    voxelbench::TickResult::kComplete && state.tick == 1,
+                "unrelated lifts must not add a gravity or animation tick");
+        }
+        Check(voxels[0].x == 3 + dx[direction] &&
+                  voxels[0].y == 4 + dy[direction] && voxels[0].z == 1,
+              "the requested walk should still complete");
+        for (size_t i = 1; i < initial.size(); ++i) {
+          Check(voxels[i].x == initial[i].x && voxels[i].y == initial[i].y &&
+                    voxels[i].z == initial[i].z &&
+                    voxels[i].generic_id == initial[i].generic_id,
+                "single lifts, supported stacks and hovering stacks retain their anchors");
+        }
+      }
+    }
+  }
+}
+
 void TestPlayerEnteringLoweredLiftRaisesAndRides() {
   voxelbench::Voxel voxels[] = {
       {1, 2, 1, Role("player"), -1},
@@ -3076,6 +3128,7 @@ int main() {
   Run(TestRemotePolycubeMemberCarriesPerpendicularSlopeRider, "TestRemotePolycubeMemberCarriesPerpendicularSlopeRider");
   Run(TestSlopeAndFlatIceBridgeNeedsDeliberatePush, "TestSlopeAndFlatIceBridgeNeedsDeliberatePush");
   Run(TestOpposingSlopeLandingCancelsStoredMomentum, "TestOpposingSlopeLandingCancelsStoredMomentum");
+  Run(TestAuthoredHoveringLiftsKeepTheirAnchors, "TestAuthoredHoveringLiftsKeepTheirAnchors");
   Run(TestPlayerEnteringLoweredLiftRaisesAndRides, "TestPlayerEnteringLoweredLiftRaisesAndRides");
   Run(TestPlayerEnteringRaisedLiftLowersAndRides, "TestPlayerEnteringRaisedLiftLowersAndRides");
   Run(TestPlayerLiftToggleUsesItsOwnAnimationTick, "TestPlayerLiftToggleUsesItsOwnAnimationTick");

@@ -404,8 +404,9 @@ void InitializeMotion(
       continue;
     }
     if (ObjectIsActive(voxels, object, width, height)) {
-      if (ObjectIsFloatingFloor(voxels, object)) {
-        // A Floating Floor authored in mid-air remains at that elevation.
+      if (ObjectIsFloatingFloor(voxels, object) ||
+          ObjectIsUnarmedPlayerLift(voxels, object)) {
+        // Hovering floors and terrain lifts remain at their authored anchors.
         // Once translated, the movement kernels arm it so subsequent support
         // loss is animated normally. This is what distinguishes an authored
         // hovering platform from an accidentally airborne ordinary body.
@@ -440,9 +441,12 @@ void InitializeMotion(
 
 void InitializeQuiescentMotion(
     MotionState* state,
+    Voxel* voxels,
     int32_t count,
     int32_t player_index,
-    int32_t direction) {
+    int32_t direction,
+    int32_t width,
+    int32_t height) {
   state->version = kMotionStateVersion;
   state->phase = kMotionReady;
   state->direction = direction;
@@ -460,7 +464,9 @@ void InitializeQuiescentMotion(
   // StoreObjectMotion below replaces the falling/gravity arrays completely.
   ClearHorizontalMomentum(state, count);
   for (int32_t object = 0; object < g_object_count; ++object) {
-    g_object_gravity_armed[object] = 1;
+    g_object_gravity_armed[object] =
+        ObjectIsUnarmedPlayerLift(voxels, object) &&
+        !ObjectHasDirectSupport(voxels, object, width, height) ? 0 : 1;
     g_object_falling[object] = 0;
   }
   StoreObjectMotion(state, count);

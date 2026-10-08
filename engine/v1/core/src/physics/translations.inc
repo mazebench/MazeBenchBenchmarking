@@ -62,7 +62,7 @@ bool TranslateMovingObjects(
       voxels[member].y += dy;
       voxels[member].z += dz;
     }
-    ArmTranslatedFloatingFloors(voxels);
+    ArmTranslatedHoveringObjects(voxels);
     BuildSpatialIndex(voxels, count, width, height);
     MarkObjectsForDeferredGravity(voxels, width, height, false);
     return true;
@@ -253,7 +253,7 @@ bool TranslateMovingObjects(
       voxels[member].z += dz;
     }
   }
-  ArmTranslatedFloatingFloors(voxels);
+  ArmTranslatedHoveringObjects(voxels);
   BuildSpatialIndex(voxels, count, width, height);
   // A stationary body can lose support when a different body translates out
   // from beneath it. Mark every armed body here so that its downward proposal

@@ -6,18 +6,26 @@ import os from "node:os";
 import path from "node:path";
 import { BenchmarkGameRuntime } from "../benchmarking/v1/runtime.mjs";
 import { ConnectedWorldSessionV1 } from "../play/v1/connected-world-session.mjs";
+import { instantiateMazeBenchEngineV1 } from "../engine/v1/engine.mjs";
 import { decodeVoxelRoom } from "../render/v1/voxel-world-v2.mjs";
 import { createRunIntegrity, verifyCheckpoint } from "../benchmarking/v1/integrity.mjs";
 import { OXC_REPAIR, replayCorrectedOxcEntry } from "../scripts/repair-benchmark-oxc-v1.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const originalRoom = execFileSync("git", ["show", `${OXC_REPAIR.sourceCommit}^:${OXC_REPAIR.file}`], { cwd: root });
+// This one-off repair reproduces a historical falling-lift bug. Keep its
+// original engine so fixing that bug does not erase the repair's input state.
+const originalEngine = execFileSync("git", ["show", `${OXC_REPAIR.sourceCommit}^:engine/v1/voxel_physics.wasm`], { cwd: root });
 const hasLift = state => state.objects.some(o => o.blockId === "lift" && o.x === 4 && o.y === 3 && o.z === 0);
 
-async function fixture() {
+async function fixture(historicalEngine = true) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "mazebench-oxc-test-"));
   await createRunIntegrity(root, directory, {});
   const runtime = await BenchmarkGameRuntime.create(root, directory, { startRoom: "OxB", actionLimit: null });
+  if (historicalEngine) {
+    runtime.assets.engine = await instantiateMazeBenchEngineV1(originalEngine);
+    runtime.assets.connectedWorld = new ConnectedWorldSessionV1(runtime.assets.engine, runtime.assets.blocks, runtime.assets.rooms);
+  }
   const player = runtime.internal.state.objects.find(o => o.blockId === "player");
   Object.assign(player, { x: 4, y: 14, z: 1 });
   runtime.internal.gemsCollected = ["already-collected-fixture-gem"];
@@ -29,9 +37,17 @@ async function fixture() {
     ? { ...room, ...decodeVoxelRoom(JSON.parse(originalRoom)) } : room);
   runtime.assets.connectedWorld = new ConnectedWorldSessionV1(runtime.assets.engine, runtime.assets.blocks, oldRooms);
   try { await runtime.apply("down"); } finally { runtime.assets.connectedWorld = world; }
-  assert.equal(runtime.room.position.join("x"), "OxC"); assert.equal(hasLift(runtime.internal.state), false);
+  assert.equal(runtime.room.position.join("x"), "OxC"); assert.equal(hasLift(runtime.internal.state), !historicalEngine);
   return { runtime, directory };
 }
+
+test("the current engine keeps the authored OxC lift on entry even without the repaired floor", async () => {
+  const { runtime, directory } = await fixture(false);
+  try {
+    assert.equal(runtime.internal.state.objects.some(o => o.blockId === "floor" && o.x === 4 && o.y === 3 && o.z === 0), false);
+    assert(hasLift(runtime.internal.state));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 
 test("the engine repairs only the last OxC entry, keeps its time and score, and updates signed replay records", async () => {
   const { runtime, directory } = await fixture();

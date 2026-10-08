@@ -369,6 +369,12 @@ bool ObjectIsFloatingFloor(Voxel* voxels, int32_t object) {
   return head >= 0 && voxels[head].role == kFloatingFloorRole;
 }
 
+bool ObjectIsUnarmedPlayerLift(Voxel* voxels, int32_t object) {
+  const int32_t head = object >= 0 ? g_object_head[object] : -1;
+  return head >= 0 && voxels[head].role == kPlayerLiftRole &&
+      g_object_gravity_armed[object] == 0;
+}
+
 int32_t FindNearestVoxelBelow(
     Voxel* voxels,
     int32_t count,
@@ -694,6 +700,9 @@ bool SettleObject(
     int32_t object,
     int32_t width,
     int32_t height) {
+  // An authored hovering lift is terrain until a carrier moves it. A floor
+  // somewhere below its anchor does not turn it into a loose falling body.
+  if (ObjectIsUnarmedPlayerLift(voxels, object)) return false;
   if (!ObjectIsActive(voxels, object, width, height) ||
       ObjectHasDirectSupport(voxels, object, width, height)) {
     if (ObjectIsActive(voxels, object, width, height)) {
@@ -907,6 +916,15 @@ bool SettleSupportComponent(
       (!ComponentContainsMechanism() &&
        !ComponentContainsSupportCycle(voxels, width, height))) {
     return false;
+  }
+
+  // A hovering terrain lift anchors its entire support stack. Do not let an
+  // upper lift's component pass silently arm and drop the lower fixture.
+  for (int32_t object = 0; object < g_object_count; ++object) {
+    if (g_component_objects[object] != 0 &&
+        ObjectIsUnarmedPlayerLift(voxels, object)) {
+      return false;
+    }
   }
 
   int64_t drop = INT64_MAX;

@@ -60,8 +60,9 @@ bool ObjectsNeedGravityTick(
     needs_tick = false;
     for (int32_t object = 0; object < g_object_count; ++object) {
       if (!ObjectIsActive(voxels, object, width, height)) continue;
-      if (ObjectIsFloatingFloor(voxels, object) &&
-          g_object_gravity_armed[object] == 0) {
+      if ((ObjectIsFloatingFloor(voxels, object) &&
+           g_object_gravity_armed[object] == 0) ||
+          ObjectIsUnarmedPlayerLift(voxels, object)) {
         continue;
       }
       // A vertically interlocked component can give every member apparent

@@ -67,6 +67,12 @@ another cell beneath that rider is not a stationary foothold. These rules do
 not depend on whether an unrelated ramp exists elsewhere in the room. Carrier
 impulse scratch is reset when a workspace starts or rebuilds a command.
 
+Lifts authored without direct support keep their terrain anchors, including
+stacks above a hovering lift. An unrelated walk adds no settling tick. A lift
+mounted on a moving body still translates and falls with its carrier; moving
+a hovering lift arms normal support-loss gravity. Prepared search successors
+use the same distinction as animated play.
+
 A loose passenger blocked by terrain stays behind without cancelling the
 carrier's push; passengers above it stay with that stopped support too. If the
 carrier completely vacates its support, the blocked passenger starts descending

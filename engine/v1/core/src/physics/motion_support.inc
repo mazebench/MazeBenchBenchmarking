@@ -77,10 +77,11 @@ bool FloatingFloorDestinationIsSupportedOrFillable(
   return true;
 }
 
-void ArmTranslatedFloatingFloors(Voxel* voxels) {
+void ArmTranslatedHoveringObjects(Voxel* voxels) {
   for (int32_t object = 0; object < g_object_count; ++object) {
     if (g_moving_objects[object] != 0 &&
-        ObjectIsFloatingFloor(voxels, object)) {
+        (ObjectIsFloatingFloor(voxels, object) ||
+         ObjectIsUnarmedPlayerLift(voxels, object))) {
       g_object_gravity_armed[object] = 1;
     }
   }
