@@ -2236,6 +2236,81 @@ void TestHeldButtonsPreserveOrangeWallAnchors() {
   }
 }
 
+void TestTallOrangeWallCarriesWideStackAcrossWorkspaceResume() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  for (const int32_t height : {2, 3}) {
+    std::vector<voxelbench::Voxel> voxels = {
+        {0, 2, 1, Role("player"), -1},
+        {0, 1, 1, Role("orange-button"), 0},
+        {2, 2, height + 1, Role("weightless-pushable"), 17},
+        {3, 2, height + 1, Role("weightless-pushable"), 17},
+        {3, 2, height + 2, Role("pushable"), -1},
+    };
+    for (int32_t x = 2; x <= 3; ++x) {
+      for (int32_t z = 1; z <= height; ++z) {
+        voxels.push_back({x, 2, z, Role("orange-wall"), 0});
+      }
+    }
+    for (int32_t y = 0; y < 5; ++y) {
+      for (int32_t x = 0; x < 7; ++x) voxels.push_back({x, y, 0, Role("floor"), -1});
+    }
+    for (const int32_t direction : {0, 2, 0, 2}) {
+      const int32_t depth = direction == 0 ? 1 : 0;
+      voxelbench::reset_motion_state(&state);
+      bool complete = false;
+      for (int32_t call = 0; call < 6; ++call) {
+        voxelbench::reset_workspace(&workspace);
+        const auto result = voxelbench::step_tick(&workspace, &state, voxels.data(),
+            static_cast<int32_t>(voxels.size()), 7, 5, direction);
+        Check(result == voxelbench::TickResult::kMore || result == voxelbench::TickResult::kComplete,
+              "resumed orange wall movement must remain valid");
+        const int32_t frame_depth = voxels[5].generic_id;
+        for (int32_t i = 5; i < 5 + height * 2; ++i) {
+          Check(voxels[i].generic_id == frame_depth && voxels[i].z == (i - 5) % height + 1,
+                "a tall wall must move all rows together without shifting its anchors");
+        }
+        Check(voxels[2].z == height + 1 - frame_depth && voxels[3].z == voxels[2].z &&
+                  voxels[4].z == voxels[2].z + 1,
+              "the wide body and its passenger must follow the same wall tick");
+        if (result == voxelbench::TickResult::kComplete) { complete = true; break; }
+      }
+      Check(complete && state.tick == 2 && voxels[5].generic_id == depth,
+            "raising and lowering should each finish in one actuator tick after input");
+    }
+  }
+}
+
+void TestOrangeWallChecksPlayerHeadroomAboveCarriedBody() {
+  for (const bool ceiling : {false, true}) {
+    std::vector<voxelbench::Voxel> voxels = {
+        {2, 2, 3, Role("player"), -1},
+        {2, 2, 3, Role("orange-button"), 0},
+        {2, 2, 2, Role("weightless-pushable"), 17},
+        {3, 2, 2, Role("weightless-pushable"), 17},
+        {2, 2, 1, Role("orange-wall"), 1},
+        {2, 2, 2, Role("orange-wall"), 1},
+        {3, 2, 1, Role("orange-wall"), 1},
+        {3, 2, 2, Role("orange-wall"), 1},
+        {5, 2, 1, Role("orange-wall"), 1},
+    };
+    if (ceiling) voxels.push_back({3, 2, 4, Role("solid"), -1});
+    for (int32_t y = 0; y < 5; ++y) {
+      for (int32_t x = 0; x < 7; ++x) voxels.push_back({x, y, 0, Role("floor"), -1});
+    }
+    Check(voxelbench::simulate_turn(voxels.data(), static_cast<int32_t>(voxels.size()), 7, 5, 1) == 0,
+          "leaving the rider's button should finish safely");
+    Check(voxels[0].x == 3 && voxels[0].z == (ceiling ? 3 : 4) &&
+              voxels[2].z == (ceiling ? 2 : 3) && voxels[3].z == voxels[2].z,
+          "the player's ceiling collision must hold the entire wall and carried body");
+    for (int32_t i = 4; i < 8; ++i) {
+      Check(voxels[i].generic_id == (ceiling ? 1 : 0),
+            "a blocked wall must restore every row without a partial rise");
+    }
+    Check(voxels[8].generic_id == 0, "an unconnected wall must remain free to rise");
+  }
+}
+
 void TestOrangeControlScopesRemainIndependent() {
   const auto scoped = [](int32_t scope, int32_t value) {
     return voxelbench::kOrangeScopedIdFlag |
@@ -3021,6 +3096,8 @@ int main() {
   Run(TestMovingPolycubeCarriesButtonsMountedOnEveryFace, "TestMovingPolycubeCarriesButtonsMountedOnEveryFace");
   Run(TestReleasedOrangeColumnRaisesEveryVoxelAfterJoining, "TestReleasedOrangeColumnRaisesEveryVoxelAfterJoining");
   Run(TestHeldButtonsPreserveOrangeWallAnchors, "TestHeldButtonsPreserveOrangeWallAnchors");
+  Run(TestTallOrangeWallCarriesWideStackAcrossWorkspaceResume, "TestTallOrangeWallCarriesWideStackAcrossWorkspaceResume");
+  Run(TestOrangeWallChecksPlayerHeadroomAboveCarriedBody, "TestOrangeWallChecksPlayerHeadroomAboveCarriedBody");
   Run(TestOrangeControlScopesRemainIndependent, "TestOrangeControlScopesRemainIndependent");
   Run(TestOrangeWallsCountEveryPressedButton, "TestOrangeWallsCountEveryPressedButton");
   Run(TestFlattenedOrangeWallIsPassThroughOnFloor, "TestFlattenedOrangeWallIsPassThroughOnFloor");

@@ -245,12 +245,10 @@ bool OrangeWallsShareFace(const Voxel& left, const Voxel& right) {
   return distance == 1;
 }
 
-// A face-connected orange-wall polycube changes state as one mechanism. This
-// preflight applies the component's destination geometry temporarily, runs
-// the ordinary carried-body collision closure without committing movement,
-// then restores the authored wall state. One blocked member therefore holds
-// its connected wall component while disconnected walls remain independent.
-void PreflightOrangeWallComponents(
+// Move each face-connected wall and its riders as one transaction. Every wall
+// destination must be present during collision checks: testing individual wall
+// records makes a wide rider collide with a neighboring wall's old top cell.
+bool AdvanceOrangeWallComponents(
     Voxel* voxels,
     int32_t count,
     int32_t player_index,
@@ -261,190 +259,180 @@ void PreflightOrangeWallComponents(
     g_orange_component_walls[index] = 0;
     g_orange_component_shifts[index] = 0;
   }
-
+  for (int32_t object = 0; object < g_object_count; ++object) {
+    g_clone_command_processed[object] = 0;
+  }
+  bool changed = false;
+  bool player_moved = false;
   for (int32_t seed = 0; seed < count; ++seed) {
     if (voxels[seed].role != kOrangeWallRole ||
-        g_orange_component_walls[seed] != 0) {
-      continue;
-    }
-
-    int32_t queue_begin = 0;
+        g_orange_component_walls[seed] != 0) continue;
     const int32_t target_depth = target_depths[OrangeScope(voxels[seed])];
+    int32_t queue_begin = 0;
     int32_t queue_end = 0;
     g_object_queue[queue_end++] = seed;
     g_orange_component_walls[seed] = 2;
     while (queue_begin < queue_end) {
       const int32_t member = g_object_queue[queue_begin++];
       for (int32_t candidate = 0; candidate < count; ++candidate) {
-        if (g_orange_component_walls[candidate] != 0 ||
-            !OrangeWallsShareFace(voxels[member], voxels[candidate])) {
-          continue;
+        if (g_orange_component_walls[candidate] == 0 &&
+            OrangeWallsShareFace(voxels[member], voxels[candidate])) {
+          g_orange_component_walls[candidate] = 2;
+          g_object_queue[queue_end++] = candidate;
         }
-        g_orange_component_walls[candidate] = 2;
-        g_object_queue[queue_end++] = candidate;
       }
     }
 
     bool needs_transition = false;
-    bool conflicting_deltas = false;
+    bool blocked = false;
     int32_t component_delta = 0;
-    bool player_rides_component = false;
+    int32_t fixture_delta = 0;
     ClearMovingObjects();
-
     for (int32_t index = 0; index < count; ++index) {
       if (g_orange_component_walls[index] != 2) continue;
-      Voxel& wall = voxels[index];
+      const Voxel& wall = voxels[index];
       const int32_t old_depth = OrangeWallDepth(wall);
       g_component_indegree[index] = old_depth;
+      blocked |= g_blocked_orange_walls[index] != 0;
       if (old_depth == target_depth) continue;
       needs_transition = true;
-      const int32_t new_depth = old_depth +
-          (old_depth < target_depth ? 1 : -1);
-      const int32_t old_surface = OrangeWallSurfaceZForDepth(
-          voxels, count, index, old_depth);
-      const int32_t new_surface = OrangeWallSurfaceZForDepth(
-          voxels, count, index, new_depth);
-      const int32_t wall_delta = old_surface == INT32_MIN ||
-              new_surface == INT32_MIN
-          ? 0
-          : new_surface - old_surface;
-      if (wall_delta != 0) {
-        if (component_delta != 0 && component_delta != wall_delta) {
-          conflicting_deltas = true;
-        } else {
-          component_delta = wall_delta;
+      const int32_t new_depth = old_depth + (old_depth < target_depth ? 1 : -1);
+      fixture_delta = old_depth - new_depth;
+      const int32_t old_surface = OrangeWallSurfaceZForDepth(voxels, count, index, old_depth);
+      const int32_t new_surface = OrangeWallSurfaceZForDepth(voxels, count, index, new_depth);
+      const int32_t delta = old_surface == INT32_MIN || new_surface == INT32_MIN
+          ? 0 : new_surface - old_surface;
+      if (delta != 0) {
+        blocked |= component_delta != 0 && component_delta != delta;
+        component_delta = delta;
+      }
+    }
+
+    bool player_rides_wall = false;
+    const RiderSnapshot player_rider = CapturePlayerRider(voxels, player_index, width, height);
+    const int32_t player_start_z = voxels[player_index].z;
+    if (needs_transition && !blocked) {
+      // Discover every rider against the unchanged source geometry, including
+      // fixtures which cross between face and hidden states during this tick.
+      for (int32_t index = 0; index < count; ++index) {
+        if (g_orange_component_walls[index] != 2) continue;
+        const Voxel& wall = voxels[index];
+        const int32_t old_depth = g_component_indegree[index];
+        if (old_depth == target_depth) {
+          if (target_depth != 0 || component_delta <= 0) continue;
+          // A just-joined raised voxel rides the rising polycube. Members
+          // normalized to a nonzero depth retain their authored anchors.
+          g_orange_component_shifts[index] = static_cast<int8_t>(component_delta);
         }
+        const int32_t new_depth = old_depth == target_depth ? old_depth
+            : old_depth + (old_depth < target_depth ? 1 : -1);
+        const int32_t old_surface = OrangeWallSurfaceZForDepth(voxels, count, index, old_depth);
+        const int32_t new_surface = OrangeWallSurfaceZForDepth(voxels, count, index, new_depth);
+        const bool carries_body = old_surface != INT32_MIN && new_surface != INT32_MIN &&
+            (old_surface != new_surface || g_orange_component_shifts[index] != 0);
         const Voxel& player = voxels[player_index];
-        player_rides_component |= player.x == wall.x &&
+        player_rides_wall |= carries_body && !player_moved && player.x == wall.x &&
             player.y == wall.y && player.z == old_surface;
         for (int32_t object = 0; object < g_object_count; ++object) {
+          if (g_clone_command_processed[object] != 0) continue;
+          const int32_t fixture = g_object_head[object];
           if (g_object_kind[object] == kMechanismObject) {
-            const int32_t fixture = g_object_head[object];
-            if (fixture >= 0 && OrangeFixtureTracksWall(
-                    voxels[fixture], wall, old_surface)) {
+            if (OrangeFixtureTracksWall(voxels[fixture], wall, old_surface)) {
               g_mandatory_objects[object] = 1;
               g_moving_objects[object] = 1;
             }
-            continue;
-          }
-          for (int32_t object_member = g_object_head[object];
-               object_member >= 0;
-               object_member = g_next_object_voxel[object_member]) {
-            if (voxels[object_member].x == wall.x &&
-                voxels[object_member].y == wall.y &&
-                voxels[object_member].z == old_surface) {
-              g_mandatory_objects[object] = 1;
-              g_moving_objects[object] = 1;
-              break;
+          } else if (carries_body) {
+            for (int32_t member = fixture; member >= 0; member = g_next_object_voxel[member]) {
+              if (voxels[member].x == wall.x && voxels[member].y == wall.y &&
+                  voxels[member].z == old_surface) {
+                g_mandatory_objects[object] = 1;
+                g_moving_objects[object] = 1;
+                break;
+              }
             }
           }
         }
       }
-    }
 
-    bool blocked = conflicting_deltas;
-    if (needs_transition && !blocked) {
       for (int32_t index = 0; index < count; ++index) {
         if (g_orange_component_walls[index] != 2) continue;
         const int32_t old_depth = g_component_indegree[index];
-        if (old_depth != target_depth) {
-          SetOrangeWallDepth(
-              &voxels[index],
-              old_depth + (old_depth < target_depth ? 1 : -1));
-        } else if (target_depth == 0 && component_delta > 0 &&
-                   component_delta <= INT8_MAX) {
-          // A wall cube that has no rise debt of its own is still part of the
-          // same face-connected polycube. It rides the component motion while
-          // retaining depth zero; disconnected zero-depth walls do not move.
-          // A member already normalized to a nonzero target depth must stay
-          // at its raised anchor while the remaining members catch up.
-          g_orange_component_shifts[index] =
-              static_cast<int8_t>(component_delta);
-          voxels[index].z += component_delta;
-        }
+        SetOrangeWallDepth(&voxels[index], old_depth == target_depth ? old_depth
+            : old_depth + (old_depth < target_depth ? 1 : -1));
+        voxels[index].z += g_orange_component_shifts[index];
       }
       BuildSpatialIndex(voxels, count, width, height);
 
       for (int32_t index = 0; index < count && !blocked; ++index) {
         if (g_orange_component_walls[index] != 2 ||
-            g_component_indegree[index] == target_depth) {
-          continue;
-        }
+            !VoxelBlocksSpace(voxels, count, index)) continue;
         const Voxel& wall = voxels[index];
-        if (OrangeWallIsHiddenForDepth(
-                voxels,
-                count,
-                index,
-                OrangeWallDepth(wall))) {
-          continue;
-        }
-        const int32_t new_top = OrangeWallPhysicalZ(voxels, count, index);
-        const int32_t occupant = FindVoxelAt(
-            voxels, wall.x, wall.y, new_top, width, height);
-        if (occupant < 0 || occupant == index || occupant == player_index ||
+        const int32_t occupant = FindVoxelAt(voxels, wall.x, wall.y,
+            OrangeWallPhysicalZ(voxels, count, index), width, height);
+        if (occupant < 0 || occupant == index ||
             (voxels[occupant].role == kOrangeWallRole &&
-             g_orange_component_walls[occupant] == 2)) {
-          continue;
-        }
-        const int32_t occupant_object = g_voxel_object[occupant];
-        blocked = occupant_object < 0 ||
-            g_mandatory_objects[occupant_object] == 0;
+             g_orange_component_walls[occupant] == 2)) continue;
+        if (occupant == player_index && player_rides_wall) continue;
+        const int32_t other = g_voxel_object[occupant];
+        blocked = other < 0 || g_mandatory_objects[other] == 0;
       }
 
-      if (!blocked && player_rides_component && component_delta != 0) {
+      const int32_t movement_delta = component_delta != 0 ? component_delta : fixture_delta;
+      // Expand the complete carried stack before checking the player's head
+      // room. The player may ride a box several levels above the wall itself.
+      if (!blocked && movement_delta != 0) {
+        blocked = !TranslateMovingObjects(voxels, count, player_index,
+            0, 0, movement_delta, width, height, player_rides_wall, true,
+            true, false, false);
+      }
+      bool carries_player = player_rides_wall || (!player_moved &&
+          player_rider.object >= 0 && g_moving_objects[player_rider.object] != 0);
+      if (!blocked && carries_player && movement_delta != 0) {
         const Voxel& player = voxels[player_index];
-        const int32_t player_target = FindVoxelAt(
-            voxels,
-            player.x,
-            player.y,
-            player.z + component_delta,
-            width,
-            height);
-        if (player_target >= 0 && player_target != player_index &&
-            !(voxels[player_target].role == kOrangeWallRole &&
-              g_orange_component_walls[player_target] == 2)) {
-          const int32_t target_object = g_voxel_object[player_target];
-          if (target_object < 0) {
+        const int32_t occupant = FindVoxelAt(voxels, player.x, player.y,
+            player.z + movement_delta, width, height);
+        if (occupant >= 0 && occupant != player_index) {
+          const int32_t other = g_voxel_object[occupant];
+          if (other < 0) {
             blocked = true;
           } else {
-            g_mandatory_objects[target_object] = 1;
-            g_moving_objects[target_object] = 1;
+            g_mandatory_objects[other] = 1;
+            g_moving_objects[other] = 1;
           }
         }
       }
-
-      if (!blocked && component_delta != 0) {
-        blocked = !TranslateMovingObjects(
-            voxels,
-            count,
-            player_index,
-            0,
-            0,
-            component_delta,
-            width,
-            height,
-            player_rides_component,
-            true,
-            true,
-            false,
-            false);
+      if (!blocked && movement_delta != 0) {
+        blocked = !TranslateMovingObjects(voxels, count, player_index,
+            0, 0, movement_delta, width, height, carries_player, true,
+            carries_player, false);
       }
-
-      for (int32_t index = 0; index < count; ++index) {
-        if (g_orange_component_walls[index] == 2) {
+      if (blocked) {
+        // No rider has committed on failure. Restore all wall geometry as a
+        // unit, so blocked upper rows cannot leave lower rows retracted.
+        for (int32_t index = 0; index < count; ++index) {
+          if (g_orange_component_walls[index] != 2) continue;
           voxels[index].z -= g_orange_component_shifts[index];
           SetOrangeWallDepth(&voxels[index], g_component_indegree[index]);
         }
+      } else {
+        if (carries_player && voxels[player_index].z == player_start_z) {
+          voxels[player_index].z += movement_delta;
+        }
+        player_moved |= carries_player;
+        for (int32_t object = 0; object < g_object_count; ++object) {
+          if (g_moving_objects[object] != 0) g_clone_command_processed[object] = 1;
+        }
+        changed = true;
       }
       BuildSpatialIndex(voxels, count, width, height);
     }
-
     for (int32_t index = 0; index < count; ++index) {
       if (g_orange_component_walls[index] != 2) continue;
       if (blocked) g_blocked_orange_walls[index] = 1;
       g_orange_component_walls[index] = 1;
     }
   }
+  return changed;
 }
 
 bool AdvanceOrangeMechanismsOneTick(
@@ -456,199 +444,8 @@ bool AdvanceOrangeMechanismsOneTick(
     int32_t height) {
   int32_t target_depths[kOrangeScopeCount];
   CountPressedOrangeButtons(voxels, count, width, height, target_depths);
-  PreflightOrangeWallComponents(
+  bool changed = AdvanceOrangeWallComponents(
       voxels, count, player_index, width, height, target_depths);
-  bool changed = false;
-  bool player_moved_with_wall_component = false;
-  for (int32_t object = 0; object < g_object_count; ++object) {
-    // Scratch ownership for this actuator pass. A rigid rider may touch more
-    // than one face of the same connected Orange Wall component, but the
-    // component changes height only once per tick.
-    g_clone_command_processed[object] = 0;
-  }
-
-  for (int32_t index = 0; index < count; ++index) {
-    Voxel& wall = voxels[index];
-    if (wall.role != kOrangeWallRole || g_blocked_orange_walls[index] != 0) {
-      continue;
-    }
-    const int32_t old_depth = OrangeWallDepth(wall);
-    const int32_t component_shift = g_orange_component_shifts[index];
-    const int32_t target_depth = target_depths[OrangeScope(wall)];
-    if (old_depth == target_depth && component_shift == 0) continue;
-    const int32_t new_depth = old_depth == target_depth
-        ? old_depth
-        : old_depth + (old_depth < target_depth ? 1 : -1);
-    const int32_t old_surface = OrangeWallSurfaceZForDepth(
-        voxels, count, index, old_depth);
-    int32_t new_surface = OrangeWallSurfaceZForDepth(
-        voxels, count, index, new_depth);
-    if (component_shift != 0 && new_surface != INT32_MIN) {
-      new_surface += component_shift;
-    }
-    const int32_t wall_delta = old_surface == INT32_MIN ||
-            new_surface == INT32_MIN
-        ? 0
-        : new_surface - old_surface;
-    if (wall_delta == 0) {
-      // A flat-to-hidden (or hidden-to-flat) transition has no rigid surface
-      // to carry an ordinary body, but a face-mounted button remains attached
-      // to the authored Orange Wall and advances one depth unit with it.
-      const int32_t fixture_delta = component_shift != 0
-          ? component_shift
-          : old_depth == new_depth ? 0 : old_depth < new_depth ? -1 : 1;
-      if (fixture_delta != 0) {
-        for (int32_t object = 0; object < g_object_count; ++object) {
-          if (g_clone_command_processed[object] != 0 ||
-              g_object_kind[object] != kMechanismObject) {
-            continue;
-          }
-          const int32_t member = g_object_head[object];
-          if (member < 0 || !OrangeFixtureTracksWall(
-                  voxels[member], wall, old_surface)) {
-            continue;
-          }
-          voxels[member].z += fixture_delta;
-          g_clone_command_processed[object] = 1;
-        }
-      }
-      SetOrangeWallDepth(&wall, new_depth);
-      changed = true;
-      BuildSpatialIndex(voxels, count, width, height);
-      continue;
-    }
-
-    ClearMovingObjects();
-    const RiderSnapshot player_rider = CapturePlayerRider(
-        voxels, player_index, width, height);
-    const Voxel& player = voxels[player_index];
-    const bool player_rides_wall = !player_moved_with_wall_component &&
-        player.x == wall.x && player.y == wall.y && player.z == old_surface;
-    for (int32_t object = 0; object < g_object_count; ++object) {
-      if (g_clone_command_processed[object] != 0) continue;
-      if (g_object_kind[object] == kMechanismObject) {
-        const int32_t member = g_object_head[object];
-        if (member >= 0 && OrangeFixtureTracksWall(
-                voxels[member], wall, old_surface)) {
-          g_mandatory_objects[object] = 1;
-          g_moving_objects[object] = 1;
-        }
-        continue;
-      }
-      for (int32_t member = g_object_head[object]; member >= 0;
-           member = g_next_object_voxel[member]) {
-        if (voxels[member].x == wall.x && voxels[member].y == wall.y &&
-            voxels[member].z == old_surface) {
-          g_mandatory_objects[object] = 1;
-          g_moving_objects[object] = 1;
-          break;
-        }
-      }
-    }
-
-    bool blocked = false;
-    if (!OrangeWallIsHiddenForDepth(voxels, count, index, new_depth) &&
-        !OrangeWallIsFlatForDepth(voxels, count, index, new_depth)) {
-      int32_t new_top = OrangeWallPhysicalZForDepth(
-          voxels, count, index, new_depth);
-      if (component_shift != 0) new_top += component_shift;
-      const int32_t wall_occupant = FindVoxelAt(
-          voxels, wall.x, wall.y, new_top, width, height);
-      if (wall_occupant >= 0 && wall_occupant != index) {
-        bool occupant_vacates = false;
-        if (voxels[wall_occupant].role == kOrangeWallRole) {
-          const int32_t occupant_depth = OrangeWallDepth(
-              voxels[wall_occupant]);
-          const int32_t occupant_target = target_depths[OrangeScope(voxels[wall_occupant])];
-          if (occupant_depth != occupant_target) {
-            const int32_t occupant_new_depth = occupant_depth +
-                (occupant_depth < occupant_target ? 1 : -1);
-            occupant_vacates =
-                OrangeWallIsFlatForDepth(
-                    voxels, count, wall_occupant, occupant_new_depth) ||
-                OrangeWallIsHiddenForDepth(
-                    voxels, count, wall_occupant, occupant_new_depth) ||
-                OrangeWallPhysicalZForDepth(
-                    voxels, count, wall_occupant, occupant_new_depth) !=
-                    new_top;
-          }
-        }
-        if (!occupant_vacates) {
-          const int32_t occupant_object = g_voxel_object[wall_occupant];
-          blocked = wall_occupant != player_index &&
-              (occupant_object < 0 ||
-               g_mandatory_objects[occupant_object] == 0);
-        }
-      }
-    }
-    if (!blocked && player_rides_wall) {
-      const int32_t player_target = FindVoxelAt(
-          voxels,
-          player.x,
-          player.y,
-          player.z + wall_delta,
-          width,
-          height);
-      if (player_target >= 0 && player_target != index) {
-        const int32_t target_object = g_voxel_object[player_target];
-        if (target_object < 0) {
-          blocked = true;
-        } else {
-          // A body directly above the player is part of the same lift
-          // proposal. Seed it before collision validation so the ordinary
-          // carrier closure can bring its complete rigid group along. Static
-          // terrain in this destination still blocks the wall transaction.
-          g_mandatory_objects[target_object] = 1;
-          g_moving_objects[target_object] = 1;
-        }
-      }
-    }
-    if (!blocked) {
-      // Validate riders against the wall's destination geometry. In
-      // particular, a lowering rider moves into the wall's old top cell,
-      // which is vacated by this same mechanism tick.
-      SetOrangeWallDepth(&wall, new_depth);
-      wall.z += component_shift;
-      BuildSpatialIndex(voxels, count, width, height);
-    }
-    if (!blocked) {
-      blocked = !TranslateMovingObjects(
-          voxels,
-          count,
-          player_index,
-          0,
-          0,
-          wall_delta,
-          width,
-          height,
-          player_rides_wall,
-          true,
-          true,
-          false);
-    }
-    if (blocked) {
-      SetOrangeWallDepth(&wall, old_depth);
-      wall.z -= component_shift;
-      g_blocked_orange_walls[index] = 1;
-      BuildSpatialIndex(voxels, count, width, height);
-      continue;
-    }
-
-    const bool player_rode_object = MovePlayerWithRider(
-        voxels, player_index, player_rider, width, height);
-    if (player_rides_wall && !player_rode_object) {
-      voxels[player_index].z += wall_delta;
-    }
-    player_moved_with_wall_component |=
-        player_rides_wall || player_rode_object;
-    for (int32_t object = 0; object < g_object_count; ++object) {
-      if (g_moving_objects[object] != 0) {
-        g_clone_command_processed[object] = 1;
-      }
-    }
-    changed = true;
-    BuildSpatialIndex(voxels, count, width, height);
-  }
 
   changed |= RefreshOrangeButtonVisibility(voxels, count);
   if (!changed) return false;

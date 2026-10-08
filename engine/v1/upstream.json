@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "4504ab47891ab4d5e6fbda1021979a7baa320401",
-  "sourceTree": "9d0cd3ffe21c43323a8cb5a4b678a27d56dd3f26",
+  "sourceCommit": "aa75d64414ab9f75dad7ee06f6fda3101a3d9d6e",
+  "sourceTree": "efe17c65f03dde3a9dbab197138985acacd860f5",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "sourcePath": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "448ce656c7811d5a094864b7d50959c26816805d3784864a6b27f76012490127",
-    "bytes": 494314
+    "sha256": "0300351f0bb78fe78aa96f7c003f20b738c381215faf85719e53f306278b820b",
+    "bytes": 488378
   },
   "files": [
     {
@@ -114,7 +114,7 @@
     {
       "mode": "100644",
       "path": "src/physics/orange_mechanisms.inc",
-      "sha256": "18619de9f7beb0e66241b0b84b79ba326be215ae47d27c910a156391477fae1d"
+      "sha256": "74d2433a5528ed71a1df4991d80faee532afd38720417edeb85c3fbc9bf2b863"
     },
     {
       "mode": "100644",
@@ -233,13 +233,18 @@
     },
     {
       "mode": "100644",
+      "path": "tests/orange-wall-motion.test.mjs",
+      "sha256": "dc15f1ac13715832e4b6073f27dbeae033cdc32a993bfd072b0876f4f94b18ba"
+    },
+    {
+      "mode": "100644",
       "path": "tests/passive_differential.test.mjs",
       "sha256": "e701b09fd27a4d5b94ff98d8435b5c89ac1375c5d5020b343f73e33260d01000"
     },
     {
       "mode": "100644",
       "path": "tests/physics_tests.cpp",
-      "sha256": "11aea86dc4fb7beda5a0cdd3e822274be22b3f6b2ab701ef90e6f017a6e801da"
+      "sha256": "bbafe9ffaea20109a46e3da578ae50ee53dd0a97c4964d32a65ea11072c44bdf"
     },
     {
       "mode": "100644",
