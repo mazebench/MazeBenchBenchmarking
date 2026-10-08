@@ -236,6 +236,8 @@ bool AdvanceCloneCommandObjects(
       g_moving_objects[object] = 1;
       g_object_direction[object] = static_cast<uint8_t>(direction);
     }
+    const RiderSnapshot player_rider =
+        CapturePlayerRider(voxels, player_index, width, height);
     bool player_was_pushed = false;
     const bool moved = SceneHasIceSlopes(voxels, count, width, height)
         ? TranslateSlopeMomentumObjects(
@@ -263,6 +265,26 @@ bool AdvanceCloneCommandObjects(
               player_will_vacate,
               false);
     if (!moved) continue;
+    if (!player_was_pushed && player_rider.object >= 0 &&
+        g_moving_objects[player_rider.object] != 0) {
+      // A clone can climb a ramp during the initial input tick. Its player
+      // passenger must follow that exact 3D transform, rather than attempting
+      // a separate level step after the supporting clone has already moved.
+      const Voxel& player = voxels[player_index];
+      const Voxel& carrier = voxels[player_rider.member];
+      const int32_t target_x = player.x + carrier.x - player_rider.x;
+      const int32_t target_y = player.y + carrier.y - player_rider.y;
+      const int32_t target_z = player.z + carrier.z - player_rider.z;
+      const int32_t occupant = FindVoxelAt(
+          voxels, target_x, target_y, target_z, width, height);
+      if (IsInsideRoom(target_x, target_y, width, height) &&
+          (occupant < 0 || occupant == player_index) &&
+          MovePlayerWithRider(
+              voxels, player_index, player_rider, width, height)) {
+        state->player_gravity_armed = 1;
+        BuildSpatialIndex(voxels, count, width, height);
+      }
+    }
     advanced = true;
     for (int32_t object = 0; object < g_object_count; ++object) {
       if (g_moving_objects[object] != 0) {
@@ -442,6 +464,7 @@ TickResult step_tick(
       player_object >= 0 && g_object_kind[player_object] == kPlayerObject;
 
   const bool clone_command_tick = state->phase == kMotionReady;
+  const Voxel player_before_clone_command = voxels[player_index];
   const bool clone_command_advanced = clone_command_tick &&
       AdvanceCloneCommandObjects(
           state,
@@ -451,6 +474,11 @@ TickResult step_tick(
           state->direction,
           width,
           height);
+  const bool player_rode_clone_command = clone_command_tick &&
+      !player_is_rigid_object &&
+      (voxels[player_index].x != player_before_clone_command.x ||
+       voxels[player_index].y != player_before_clone_command.y ||
+       voxels[player_index].z != player_before_clone_command.z);
 
   bool orange_advanced_this_tick = false;
   bool gate_advanced_this_tick = false;
@@ -1265,7 +1293,8 @@ TickResult step_tick(
       automatic_ice_motion || automatic_punch_motion;
   const bool records_initial_tick =
       state->phase == kMotionReady && state->tick == 0;
-  if (player_is_rigid_object && state->phase == kMotionReady) {
+  if ((player_is_rigid_object || player_rode_clone_command) &&
+      state->phase == kMotionReady) {
     const bool gravity_continues =
         ObjectsNeedGravityTick(voxels, count, width, height, false);
     return store_and_finish(
