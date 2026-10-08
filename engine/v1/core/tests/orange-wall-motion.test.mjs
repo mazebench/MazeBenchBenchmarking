@@ -10,7 +10,7 @@ const walls = frame => frame.filter(v => v.role === 'orange-wall');
 const reorder = (voxels, order) => order === 'reversed' ? [...voxels].reverse()
   : order === 'interleaved' ? [...voxels.filter((_, i) => i % 2), ...voxels.filter((_, i) => i % 2 === 0)] : voxels;
 
-async function engineForTest() {
+async function engineForTest(width = 7, height = 5) {
   const { instance: { exports: engine } } = await WebAssembly.instantiate(wasm, {});
   const role = name => {
     const bytes = new TextEncoder().encode(name);
@@ -26,7 +26,7 @@ async function engineForTest() {
     const frames = [];
     let lastTick = 0;
     for (let i = 0; i < 100; i++) {
-      const status = engine.step_command_tick(voxels.length, 7, 5, direction);
+      const status = engine.step_command_tick(voxels.length, width, height, direction);
       assert(status >= 0, `invalid tick status ${status}`);
       if (engine.command_tick() > lastTick) {
         frames.push(read());
@@ -35,7 +35,7 @@ async function engineForTest() {
       if (status === 0) {
         const final = read();
         write();
-        assert.equal(engine.simulate_turn(voxels.length, 7, 5, direction), 0);
+        assert.equal(engine.simulate_turn(voxels.length, width, height, direction), 0);
         assert.deepEqual(read(), final, 'fast command and animated ticks must agree');
         return { frames, final };
       }
@@ -44,7 +44,37 @@ async function engineForTest() {
   };
 }
 
+test('HxO button lowers every orange wall despite fixed terrain inside the structure', async () => {
+  // The reported U, L, L, D×5, L, L, D×3 route at camera heading 1,
+  // expressed here in world directions. A remote clone presses the button.
+  const fixture = JSON.parse(await readFile(new URL('./fixtures/hxo-orange-walls.json', import.meta.url)));
+  const run = await engineForTest(fixture.width, fixture.height);
+  let scene = fixture.voxels.map(([x, y, z, role, value], i) => voxel(`voxel-${i}`, x, y, z, role, value));
+  const anchors = new Map(walls(scene).map(v => [v.id, v.z]));
+  assert.equal(anchors.size, 122);
+  for (const direction of fixture.commands) scene = run(scene, direction).final;
+  assert(walls(scene).every(v => v.value === 1), 'one held button must lower all 122 wall voxels');
+  assert(walls(scene).every(v => v.z === anchors.get(v.id)), 'retraction must preserve raised anchors');
+  assert(scene.some(v => v.role === 'clone' && v.x === 14 && v.y === 6 && v.z === 1),
+    'the clone remains on the button');
+});
+
 for (const order of ['original', 'reversed', 'interleaved']) {
+  test(`orange walls retract into fixed terrain without blocking connected columns (${order})`, async () => {
+    const run = await engineForTest();
+    const scene = [voxel('player', 0, 2, 1, 'player'), voxel('button', 0, 1, 1, 'orange-button', 0), ...floor()];
+    for (let z = 1; z <= 5; z++) {
+      scene.push(voxel(`wall-2-${z}`, 2, 2, z, 'orange-wall', 0));
+      scene.push(voxel(`wall-3-${z}`, 3, 2, z, z === 3 ? 'solid' : 'orange-wall', 0));
+    }
+    const { final } = run(reorder(scene, order), 0);
+    assert(walls(final).every(v => v.value === 1), 'the fixed wall must not stop retraction of the whole structure');
+    assert.equal(byId(final, 'wall-3-3').z, 3, 'fixed terrain stays in place');
+    const obstructed = [...final, voxel('ceiling', 2, 2, 5, 'solid')];
+    const raised = run(reorder(obstructed, order), 2).final;
+    assert(walls(raised).every(v => v.value === 1), 'fixed terrain must still block extension');
+  });
+
   for (const height of [2, 3]) {
     test(`height-${height} orange wall moves a wide stacked rider atomically (${order})`, async () => {
       const run = await engineForTest();

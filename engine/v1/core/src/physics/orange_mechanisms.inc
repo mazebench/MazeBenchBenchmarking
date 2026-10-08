@@ -374,6 +374,15 @@ bool AdvanceOrangeWallComponents(
              g_orange_component_walls[occupant] == 2)) continue;
         if (occupant == player_index && player_rides_wall) continue;
         const int32_t other = g_voxel_object[occupant];
+        // Retraction may fold authored wall voxels into fixed terrain between
+        // their raised anchors. Such terrain still obstructs extension, but
+        // must not stop the entire connected structure from lowering. Actors
+        // and movable bodies retain the usual collision/carrier checks.
+        if (other < 0 && occupant != player_index &&
+            voxels[occupant].role != kOrangeWallRole &&
+            OrangeWallDepth(wall) > g_component_indegree[index]) {
+          continue;
+        }
         blocked = other < 0 || g_mandatory_objects[other] == 0;
       }
 

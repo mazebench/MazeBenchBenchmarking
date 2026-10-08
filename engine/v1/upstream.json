@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "cd4789bf939939160be1dacc2ef349e2e64ae16b",
-  "sourceTree": "cfbc72a07656d3bdbc8360d11a5b93c48bc8f3b8",
+  "sourceCommit": "15bab4071830565dc5bb08b193bdc458879a4a70",
+  "sourceTree": "8a1f913056eb094f4c69a7288b275b92861cca55",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "sourcePath": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "1a2f67caa4e2d254e41aa494f77b699625cc1150dfb6eed4cf25e8361459a3f7",
-    "bytes": 488383
+    "sha256": "40256b670d8b914def9b90f67c59add1017c781fd7ef2d60cced91478a668ef7",
+    "bytes": 488724
   },
   "files": [
     {
@@ -114,7 +114,7 @@
     {
       "mode": "100644",
       "path": "src/physics/orange_mechanisms.inc",
-      "sha256": "74d2433a5528ed71a1df4991d80faee532afd38720417edeb85c3fbc9bf2b863"
+      "sha256": "33077e1e4d116f1eba76ac882254acb51e5f52c9916cd07d3f1168cb65338e58"
     },
     {
       "mode": "100644",
@@ -193,6 +193,11 @@
     },
     {
       "mode": "100644",
+      "path": "tests/fixtures/hxo-orange-walls.json",
+      "sha256": "7764f117c937a3b0f5bc4890536121f70ea6a8ce1e68e53777607bc105c7341c"
+    },
+    {
+      "mode": "100644",
       "path": "tests/floating-floor-slopes.test.mjs",
       "sha256": "263e4d40c4f3835705aab080419e501b3385c10288d21ce4e07859cd16e44ba9"
     },
@@ -234,7 +239,7 @@
     {
       "mode": "100644",
       "path": "tests/orange-wall-motion.test.mjs",
-      "sha256": "dc15f1ac13715832e4b6073f27dbeae033cdc32a993bfd072b0876f4f94b18ba"
+      "sha256": "e8af016bbdd854963f9ec19e0f7bf5c1cb43db8a0ceef2a3d7e20f5183cad507"
     },
     {
       "mode": "100644",
