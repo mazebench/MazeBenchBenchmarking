@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "c0cee98c3876864156e27e5a170f28f6ef500732",
-  "sourceTree": "80142c0dc5bee382d3c3cc08f1f8fa3b02a64aa7",
+  "sourceCommit": "8ff37febe18bf86f629c0b7488da318e4e1a919b",
+  "sourceTree": "1f98c087dd3f79ead5482fe71f6f2b3d3450bca1",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "sourcePath": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "92e0a2d230b5d0202a3492082f888b91d5de56d8b93ea03a6984efae99868f60",
-    "bytes": 497173
+    "sha256": "3e94682c0540e0bba22ae43829531b70171c905fc3fe5a1384ffc12d2582bfec",
+    "bytes": 497974
   },
   "files": [
     {
@@ -144,7 +144,7 @@
     {
       "mode": "100644",
       "path": "src/physics/slope_motion.inc",
-      "sha256": "9c2d8a0fb8dbd5d0a813c8ffb4124bbd2a7f5638e8d4c652de718bb33622604e"
+      "sha256": "8aab3c03c2917e639ce9931fcb35f30bd144971caeb26ca1f13c84cb81040e84"
     },
     {
       "mode": "100644",
@@ -239,7 +239,7 @@
     {
       "mode": "100644",
       "path": "tests/mounted-lift-contact.test.mjs",
-      "sha256": "38df7cc299c8bc66cfcdd54643a98c02a887ed0d6e0dc0aa4a3b873bd7e1142d"
+      "sha256": "058f26661720c57ffd6968833a4a4b7fa226612008c6594b6eccc804df3a6029"
     },
     {
       "mode": "100644",
@@ -254,7 +254,7 @@
     {
       "mode": "100644",
       "path": "tests/physics_tests.cpp",
-      "sha256": "e36b797df9150df223e92d5a09e541361eab279914491f9ea39af6363acc5f4b"
+      "sha256": "50a5cbd173a75468baecd147ff97d4b6b3fe2540c24ff996c221bf70bf81473d"
     },
     {
       "mode": "100644",

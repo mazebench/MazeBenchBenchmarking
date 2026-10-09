@@ -302,6 +302,15 @@ bool TranslateSlopeMomentumObjects(
                   voxels[second_member].y + g_object_dy[second] &&
               voxels[first_member].z + g_object_dz[first] ==
                   voxels[second_member].z + g_object_dz[second]) {
+            // A shared logical cell is legal for a collapsed face fixture,
+            // just as in uniform translations. Raised cubes still collide,
+            // and the lowered-lift policy still forbids overlap with Floor.
+            if (MovingFixtureIgnoresOccupant(
+                    voxels[first_member], &voxels[second_member]) ||
+                MovingFixtureIgnoresOccupant(
+                    voxels[second_member], &voxels[first_member])) {
+              continue;
+            }
             return false;
           }
         }

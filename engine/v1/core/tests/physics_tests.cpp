@@ -2589,6 +2589,99 @@ void TestMountedLiftTransmitsItsCarriersPush() {
   }
 }
 
+void TestCarriedFaceFixturesMayShareMovingBodyCells() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  constexpr int32_t dx[] = {0, 1, 0, -1};
+  constexpr int32_t dy[] = {-1, 0, 1, 0};
+  const char* ramps[] = {"ice-slope-up", "ice-slope-right",
+                         "ice-slope-down", "ice-slope-left"};
+  for (int32_t rotation = 0; rotation < 4; ++rotation) {
+    for (const bool remote_ramp : {false, true}) {
+      for (const bool raised_top : {false, true}) {
+        for (int32_t blocker = 0; blocker < 4; ++blocker) {
+          // A wide carrier pushes a small box with face fixtures. Its front
+          // overlaps the small box's collapsed side and top lift cells.
+          std::vector<voxelbench::Voxel> start = {
+              {3, 4, 2, Role("player"), -1},
+              {3, 3, 2, Role("weightless-pushable"), 12},
+              {3, 3, 1, Role("weightless-pushable"), 12},
+              {3, 4, 1, Role("weightless-pushable"), 12},
+              {2, 3, 1, Role("weightless-pushable"), 12},
+              {4, 3, 1, Role("weightless-pushable"), 12},
+              {3, 2, 1, Role("weightless-pushable"), 13},
+              {3, 2, 2, Role("player-lift"), raised_top ? 1 : 0},
+              {3, 3, 1, Role("player-lift"), ((2 + rotation) % 4 + 1) * 2},
+              {2, 2, 1, Role("player-lift"), ((3 + rotation) % 4 + 1) * 2},
+              {4, 2, 1, Role("player-lift"), ((1 + rotation) % 4 + 1) * 2},
+          };
+          const size_t moving_count = start.size();
+          if (blocker != 0) start.push_back({3, 1, blocker == 3 ? 1 : 2,
+              Role(blocker == 2 ? "floor" : "wall"), -1});
+          const size_t dynamic_count = start.size();
+          const auto dynamic_end = static_cast<std::vector<voxelbench::Voxel>::difference_type>(dynamic_count);
+          for (int32_t x = 0; x < 7; ++x) {
+            for (int32_t y = 0; y < 7; ++y) start.push_back({x, y, 0, Role("floor"), -1});
+          }
+          if (remote_ramp) start.push_back({6, 6, 1, Role(ramps[rotation]), -1});
+          for (auto& voxel : start) {
+            for (int32_t turn = 0; turn < rotation; ++turn) {
+              const int32_t old_x = voxel.x;
+              voxel.x = 6 - voxel.y;
+              voxel.y = old_x;
+            }
+          }
+          auto expected = start;
+          const bool can_push = blocker == 0 || (blocker == 1 && !raised_top);
+          if (can_push) {
+            for (size_t i = 0; i < moving_count; ++i) {
+              expected[i].x += dx[rotation];
+              expected[i].y += dy[rotation];
+            }
+          }
+          for (const bool prepared : {false, true}) {
+            for (const bool reversed : {false, true}) {
+              auto voxels = start;
+              auto reference = expected;
+              if (reversed) {
+                std::reverse(voxels.begin(), voxels.begin() + dynamic_end);
+                std::reverse(voxels.begin() + dynamic_end, voxels.end());
+                std::reverse(reference.begin(), reference.begin() + dynamic_end);
+                std::reverse(reference.begin() + dynamic_end, reference.end());
+              }
+              const auto prepare = [&]() {
+                voxelbench::reset_workspace(&workspace);
+                if (prepared) Check(voxelbench::prepare_scene(&workspace,
+                    voxels.data(), static_cast<int32_t>(voxels.size()), 7, 7,
+                    static_cast<int32_t>(dynamic_count)), "face-fixture push should prepare");
+              };
+              prepare();
+              voxelbench::reset_motion_state(&state);
+              Check(voxelbench::step_command_tick(&workspace, &state, voxels.data(),
+                        static_cast<int32_t>(voxels.size()), 7, 7, rotation) ==
+                        voxelbench::TickResult::kComplete && state.tick == 1 &&
+                        std::memcmp(voxels.data(), reference.data(),
+                            voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                    "collapsed fixtures may overlap moving boxes; raised cubes and floors still block");
+              voxels = start;
+              if (reversed) {
+                std::reverse(voxels.begin(), voxels.begin() + dynamic_end);
+                std::reverse(voxels.begin() + dynamic_end, voxels.end());
+              }
+              prepare();
+              Check(voxelbench::simulate_quiescent_turn(&workspace, voxels.data(),
+                        static_cast<int32_t>(voxels.size()), 7, 7, rotation) == 0 &&
+                        std::memcmp(voxels.data(), reference.data(),
+                            voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                    "search must share the animated fixture overlap policy");
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 void TestLiftRidesWeightlessCarrierWithStatefulCollision() {
   voxelbench::Voxel lowered[] = {
       {1, 3, 1, Role("player"), -1},
@@ -3846,6 +3939,7 @@ int main() {
   Run(TestSideLiftDepartureTiming, "TestSideLiftDepartureTiming");
   Run(TestMountedLiftPushIgnoresRemoteRamp, "TestMountedLiftPushIgnoresRemoteRamp");
   Run(TestMountedLiftTransmitsItsCarriersPush, "TestMountedLiftTransmitsItsCarriersPush");
+  Run(TestCarriedFaceFixturesMayShareMovingBodyCells, "TestCarriedFaceFixturesMayShareMovingBodyCells");
   Run(TestLiftRidesWeightlessCarrierWithStatefulCollision, "TestLiftRidesWeightlessCarrierWithStatefulCollision");
   Run(TestBlockedPlayerLiftRefusesToRaise, "TestBlockedPlayerLiftRefusesToRaise");
   Run(TestOverlappingPlayerLiftsDoNotDependOnVoxelOrder, "TestOverlappingPlayerLiftsDoNotDependOnVoxelOrder");
