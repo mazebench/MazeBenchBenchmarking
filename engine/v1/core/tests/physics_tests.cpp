@@ -462,6 +462,83 @@ void TestTallStacksFollowRampCarrierTicks() {
   }
 }
 
+void TestRampPassengersStopWithGroundedCarrier() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  for (const int32_t boxes : {2, 3}) {
+    for (const bool continuing_remote_slide : {false, true}) {
+      std::vector<voxelbench::Voxel> start = {{0, 7, 1, Role("player"), -1}};
+      for (int32_t box = 0; box < boxes; ++box) {
+        for (int32_t layer = 0; layer < 2; ++layer) {
+          start.push_back({0, 6, 1 + box * 2 + layer,
+              Role("weightless-pushable"), box});
+        }
+      }
+      if (continuing_remote_slide) {
+        start.push_back({3, 7, 1, Role("clone"), 42});
+      }
+      const int32_t dynamic_count = static_cast<int32_t>(start.size());
+      for (int32_t y = 0; y < 8; ++y) {
+        for (int32_t x = 0; x < 8; ++x) {
+          start.push_back({x, y, 0, Role(x == 3 && y >= 2 ? "ice" : "floor"), -1});
+        }
+      }
+      for (int32_t y = 0; y <= 5; ++y) {
+        const int32_t top = y < 3 ? 3 : 6 - y;
+        for (int32_t z = 1; z <= top; ++z) {
+          start.push_back({0, y, z,
+              Role(z == top && y >= 3 ? "ice-slope-up" : "wall"), -1});
+        }
+      }
+      start.push_back({3, 0, 1, Role("wall"), -1});
+      for (const bool reversed : {false, true}) {
+        for (const bool prepared : {false, true}) {
+          auto voxels = start;
+          if (reversed) std::reverse(voxels.begin(), voxels.begin() + dynamic_count);
+          const auto initial = voxels;
+          const int32_t count = static_cast<int32_t>(voxels.size());
+          voxelbench::reset_workspace(&workspace);
+          voxelbench::reset_motion_state(&state);
+          if (prepared) {
+            Check(voxelbench::prepare_scene(
+                      &workspace, voxels.data(), count, 8, 8, dynamic_count),
+                  "grounded ramp stack should prepare for search");
+          }
+          auto result = voxelbench::TickResult::kMore;
+          for (int32_t calls = 0; calls < 20 && result == voxelbench::TickResult::kMore; ++calls) {
+            result = voxelbench::step_tick(
+                &workspace, &state, voxels.data(), count, 8, 8, 0);
+            const int32_t steps = std::min(state.tick, 4);
+            for (int32_t i = 0; i < dynamic_count; ++i) {
+              const size_t index = static_cast<size_t>(i);
+              if (initial[index].role != Role("weightless-pushable")) continue;
+              Check(voxels[index].x == initial[index].x &&
+                        voxels[index].y == initial[index].y - steps &&
+                        voxels[index].z == initial[index].z + std::min(steps, 3),
+                    "passengers must stop stacked on the first ordinary ramp landing");
+            }
+          }
+          Check(result == voxelbench::TickResult::kComplete,
+                "grounded ramp passengers must finish even while another body slides");
+          const auto animated_final = voxels;
+          voxels = initial;
+          voxelbench::reset_workspace(&workspace);
+          if (prepared) {
+            Check(voxelbench::prepare_scene(
+                      &workspace, voxels.data(), count, 8, 8, dynamic_count),
+                  "grounded ramp stack should reprepare for search");
+          }
+          Check(voxelbench::simulate_quiescent_turn(
+                    &workspace, voxels.data(), count, 8, 8, 0) == 0 &&
+                    std::memcmp(voxels.data(), animated_final.data(),
+                        voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                "animated and prepared ramp landing successors must agree");
+        }
+      }
+    }
+  }
+}
+
 void TestInterlockedPushDoesNotInventMomentum() {
   static voxelbench::PhysicsWorkspace workspace;
   static voxelbench::MotionState state;
@@ -3297,6 +3374,7 @@ int main() {
   Run(TestRampCrestPushesOnlyUnblockedWeightlessChains, "TestRampCrestPushesOnlyUnblockedWeightlessChains");
   Run(TestSparseStackCarryIgnoresUnrelatedSlopes, "TestSparseStackCarryIgnoresUnrelatedSlopes");
   Run(TestTallStacksFollowRampCarrierTicks, "TestTallStacksFollowRampCarrierTicks");
+  Run(TestRampPassengersStopWithGroundedCarrier, "TestRampPassengersStopWithGroundedCarrier");
   Run(TestInterlockedPushDoesNotInventMomentum, "TestInterlockedPushDoesNotInventMomentum");
   Run(TestCarrierMomentumCannotLeakIntoNextScene, "TestCarrierMomentumCannotLeakIntoNextScene");
   Run(TestBlockedPassengersDoNotAnchorTheirCarrier, "TestBlockedPassengersDoNotAnchorTheirCarrier");

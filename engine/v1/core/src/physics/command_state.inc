@@ -218,7 +218,12 @@ bool StoreSupportedMandatoryMomentum(
     }
     const bool moved_with_momentum_body =
         supported_by_nonfalling_momentum_body &&
-        g_mandatory_objects[object] != 0;
+        g_mandatory_objects[object] != 0 &&
+        // Carried passengers already receive continuing momentum through
+        // PreserveSlopeCarriedMomentum. The carrier's incoming momentum may
+        // have ended on ordinary terrain this tick; it must not grant the
+        // passenger another active step off the now-stationary stack.
+        g_carried_objects[object] == 0;
     bool falling_toward_slope = false;
     if (!supported_momentum && g_object_falling[object] != 0) {
       for (int32_t member = g_object_head[object]; member >= 0;

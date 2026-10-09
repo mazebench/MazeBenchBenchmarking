@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "b06d9292e17b4a567df7ba24dfe0bf7c4ebc5008",
-  "sourceTree": "2be4132e8a581149a34f4e0997623c1908d6f9d7",
+  "sourceCommit": "40964eb9edca79c703e293081f19aba12008c750",
+  "sourceTree": "098e66dc740e38f1858a425ba4016259c6f40347",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "sourcePath": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "4a2d42634d1b8b4004d1b3b47a5b7e00f6ef96013d8a46b45514ff0a833541b8",
-    "bytes": 492460
+    "sha256": "84acea19c02da1800eb78b5fa4fb287b744d1991defeb6333f6731a739e152f6",
+    "bytes": 492506
   },
   "files": [
     {
@@ -64,7 +64,7 @@
     {
       "mode": "100644",
       "path": "src/physics/command_state.inc",
-      "sha256": "fe753b9c96b3c0696c41bde503bf0c8571bc933d68c2dc68412872736baf62da"
+      "sha256": "6621a32753e8d2aa687daa9670610616e814ffaca4bd22304e50dfb62dfa5bee"
     },
     {
       "mode": "100644",
@@ -249,7 +249,7 @@
     {
       "mode": "100644",
       "path": "tests/physics_tests.cpp",
-      "sha256": "34dfe93cd494ba2ba633f48bcf613e89b3667949e18f909d6f771c08fd3f27c7"
+      "sha256": "c90050f8c369830f74e41ec34cfd15016d5c6b74efe2c9fe1972bab2b6c0ae26"
     },
     {
       "mode": "100644",

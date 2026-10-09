@@ -13,6 +13,7 @@ import {
   instantiateMazeBenchEngineV1
 } from "../engine/v1/engine.mjs";
 import { cameraRelativeMoveDirection } from "../play/v1/camera-relative-input.mjs";
+import { decodeVoxelRoom } from "../render/v1/voxel-world-v2.mjs";
 import { ConnectedWorldSessionV1 } from "../play/v1/connected-world-session.mjs";
 import {
   DEFAULT_PLAY_FRAME_DELAY_MS,
@@ -133,6 +134,40 @@ test("the shipped Play engine crosses LxL north into LxK and returns without los
   assert.equal(session.room, original);
   assert.deepEqual(session.state.objects.find(o => o.blockId === "player"), initial.objects.find(o => o.blockId === "player"));
   assert.equal(session.moves, 8);
+});
+
+test("HxM's first left move keeps both tall boxes stacked after the ramp landing", async () => {
+  const assets = await loadBenchmarkAssets(new URL("..", import.meta.url).pathname);
+  // Freeze the reported room so future authored edits do not erase this case.
+  const authored = JSON.parse(await readFile(
+    new URL("./fixtures/hxm-ramp-stack.json", import.meta.url), "utf8"));
+  const room = {
+    ...assets.roomsByLabel.get("HXM"),
+    ...decodeVoxelRoom(authored)
+  };
+  const connected = new ConnectedWorldSessionV1(assets.engine, assets.blocks,
+    assets.rooms.map((value) => value.fileName === room.fileName ? room : value));
+  const stack = (state) => state.objects.filter((object) =>
+    object.blockId === "weightless-box" && object.y === 2 &&
+    (object.genericId === 10 || object.genericId === 11));
+  const initial = stack(room);
+  assert.equal(initial.length, 4);
+  for (const throughWorld of [false, true]) {
+    const result = throughWorld
+      ? await connected.simulateCommand(assets.engine.createState(room), room, "left")
+      : await assets.engine.simulateCommand(room, "left", assets.blocks);
+    assert.equal(result.cycle, null);
+    assert.ok(result.frames.length >= 5);
+    result.frames.forEach((frame, index) => {
+      const steps = Math.min(index + 1, 5);
+      assert.deepEqual(stack(frame.state || frame), initial.map((object) => ({
+        ...object, x: object.x - steps, z: object.z + Math.min(steps, 4)
+      })), `the stack must remain together in animation frame ${index + 1}`);
+    });
+    assert.deepEqual(stack(result.final.state || result.final), initial.map((object) => ({
+      ...object, x: 7, z: object.z + 4
+    })));
+  }
 });
 
 test("connected play reloads rooms normally and undo crosses back with exact state", async () => {
