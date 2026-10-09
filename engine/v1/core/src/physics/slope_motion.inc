@@ -149,14 +149,11 @@ bool TranslateSlopeMomentumObjects(
     }
   }
 
-  // Autonomous downhill motion is discovered before the deliberate contact
-  // closure knows every body that the command will move. Once that closure
-  // is complete, a moving support takes precedence for this synchronized
-  // tick: demote its horizontally armed rider so AddSlopeCarriedObjects can
-  // copy the carrier's exact 3D proposal. This is a support-graph rule, not a
-  // role-specific exception: a body resting on another moving body rides it
-  // before acquiring any new downhill momentum from the resulting support.
+  // Rebuild carried ramp and Ice-momentum proposals after contact closure.
+  // Discover every rider before demoting any carrier, so a tall stack does
+  // not depend on which body's records appear first in voxel storage.
   for (int32_t object = 0; object < g_object_count; ++object) {
+    g_carried_objects[object] = 0;
     if (g_mandatory_objects[object] == 0) continue;
     bool rider_is_movable_ramp = false;
     for (int32_t member = g_object_head[object]; member >= 0;
@@ -165,18 +162,29 @@ bool TranslateSlopeMomentumObjects(
           IsBlueBoxSlopeRole(voxels[member].role) ||
           IsYellowCloneSlopeRole(voxels[member].role);
     }
-    if (!rider_is_movable_ramp) continue;
-    if (MovingSupportBelowObject(
-            voxels,
-            object,
-            player_index,
-            false,
-            width,
-            height) < 0) {
-      continue;
-    }
+    if (!rider_is_movable_ramp && allow_push) continue;
+    const int32_t carrier = MovingSupportBelowObject(
+        voxels, object, player_index, false, width, height);
+    if (carrier < 0) continue;
+    // Serialized Ice momentum also belongs to ordinary carried boxes. Without
+    // rebuilding that relationship they propose a level move while their
+    // ramp-supported carrier climbs, and the stack collides with itself.
+    const bool follows_carrier = !allow_push &&
+        g_object_falling[object] == 0 &&
+        !ObjectIsFullyOnIce(voxels, object, width, height) &&
+        g_component_indegree[object] <= 3 &&
+        g_component_indegree[object] == g_component_indegree[carrier] &&
+        g_object_direction[carrier] == g_component_indegree[carrier];
+    if (!rider_is_movable_ramp && !follows_carrier) continue;
+    g_carried_objects[object] = follows_carrier ? 2 : 1;
+  }
+  for (int32_t object = 0; object < g_object_count; ++object) {
+    if (g_carried_objects[object] == 0) continue;
     g_mandatory_objects[object] = 0;
     g_moving_objects[object] = 0;
+    // Let the carry pass copy the parent's 3D transform instead of treating
+    // this inherited heading as the rider's own latent momentum.
+    if (g_carried_objects[object] == 2) g_object_direction[object] = 0xff;
   }
 
   // A slope reflection propagates through exact head-on contacts. Recompute

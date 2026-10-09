@@ -1806,7 +1806,7 @@ TickResult step_tick(
             player_index,
             dx,
             dy,
-            0,
+            player_dz,
             width,
             height,
             true,

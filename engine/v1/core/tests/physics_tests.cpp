@@ -365,6 +365,103 @@ void TestSparseStackCarryIgnoresUnrelatedSlopes() {
   }
 }
 
+void TestTallStacksFollowRampCarrierTicks() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  for (int32_t scenario = 0; scenario < 3; ++scenario) {
+    const bool player_carrier = scenario != 0;
+    const bool downhill = scenario == 2;
+    for (const int32_t boxes : {2, 3}) {
+      std::vector<voxelbench::Voxel> start = {
+          {0, player_carrier && !downhill ? 4 : 5,
+              downhill ? 4 : 1, Role("player"), -1},
+      };
+      for (int32_t box = 0; box < boxes; ++box) {
+        for (int32_t layer = 0; layer < 2; ++layer) {
+          start.push_back({0, downhill ? 5 : 4,
+              (downhill ? 5 : player_carrier ? 2 : 1) + box * 2 + layer,
+              Role("weightless-pushable"), box});
+        }
+      }
+      const int32_t dynamic_count = static_cast<int32_t>(start.size());
+      for (int32_t y = 0; y < 6; ++y) {
+        for (int32_t x = 0; x < 6; ++x) {
+          start.push_back({x, y, 0, Role("floor"), -1});
+        }
+      }
+      for (int32_t y = downhill ? 2 : 0; y <= (downhill ? 5 : 3); ++y) {
+        const int32_t top = downhill ? (y == 5 ? 3 : y - 1)
+            : (y == 0 ? 3 : 4 - y);
+        for (int32_t z = 1; z <= top; ++z) {
+          const bool ramp = z == top && (downhill ? y < 5 : y > 0);
+          start.push_back({0, y, z,
+              Role(ramp ? downhill ? "ice-slope-down" : "ice-slope-up" : "wall"), -1});
+        }
+      }
+      for (const bool reversed : {false, true}) {
+        for (const bool prepared : {false, true}) {
+          auto voxels = start;
+          if (reversed) std::reverse(voxels.begin(), voxels.begin() + dynamic_count);
+          const auto initial = voxels;
+          const int32_t count = static_cast<int32_t>(voxels.size());
+          voxelbench::reset_workspace(&workspace);
+          voxelbench::reset_motion_state(&state);
+          if (prepared) {
+            Check(voxelbench::prepare_scene(
+                      &workspace, voxels.data(), count, 6, 6, dynamic_count),
+                  "ramp stack should prepare for search");
+          }
+          auto result = voxelbench::TickResult::kInvalid;
+          for (int32_t tick = 1; tick <= 4; ++tick) {
+            result = voxelbench::step_tick(
+                &workspace, &state, voxels.data(), count, 6, 6, 0);
+            Check(state.tick == tick && (tick < 4
+                      ? result == voxelbench::TickResult::kMore
+                      : result == voxelbench::TickResult::kComplete ||
+                        result == voxelbench::TickResult::kMore),
+                  "a ramp stack must expose four synchronized movement ticks");
+            for (int32_t i = 0; i < count; ++i) {
+              const size_t index = static_cast<size_t>(i);
+              const bool player = initial[index].role == Role("player");
+              const int32_t horizontal = i >= dynamic_count ? 0
+                  : player && !player_carrier ? 1 : tick;
+              const int32_t vertical = i >= dynamic_count || (player && !player_carrier)
+                  ? 0 : downhill ? -(tick - 1) : (tick < 3 ? tick : 3);
+              Check(voxels[index].x == initial[index].x &&
+                        voxels[index].y == initial[index].y - horizontal &&
+                        voxels[index].z == initial[index].z + vertical &&
+                        voxels[index].generic_id == initial[index].generic_id,
+                    "all passenger cells must follow the carrier's full ramp transform");
+            }
+          }
+          const auto animated_final = voxels;
+          if (result == voxelbench::TickResult::kMore) {
+            Check(voxelbench::step_tick(
+                      &workspace, &state, voxels.data(), count, 6, 6, 0) ==
+                      voxelbench::TickResult::kComplete && state.tick == 4 &&
+                      std::memcmp(voxels.data(), animated_final.data(),
+                          voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                  "a boundary completion check must not invent a fifth movement frame");
+          }
+          voxels = initial;
+          voxelbench::reset_workspace(&workspace);
+          if (prepared) {
+            Check(voxelbench::prepare_scene(
+                      &workspace, voxels.data(), count, 6, 6, dynamic_count),
+                  "ramp stack should reprepare for a quiescent successor");
+          }
+          Check(voxelbench::simulate_quiescent_turn(
+                    &workspace, voxels.data(), count, 6, 6, 0) == 0,
+                "search successor for a ramp stack should run");
+          Check(std::memcmp(voxels.data(), animated_final.data(),
+                    voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                "prepared search and animated ramp stacks must finish identically");
+        }
+      }
+    }
+  }
+}
+
 void TestInterlockedPushDoesNotInventMomentum() {
   static voxelbench::PhysicsWorkspace workspace;
   static voxelbench::MotionState state;
@@ -3199,6 +3296,7 @@ int main() {
   Run(TestRampSideSlideStillCollidesWithSolids, "TestRampSideSlideStillCollidesWithSolids");
   Run(TestRampCrestPushesOnlyUnblockedWeightlessChains, "TestRampCrestPushesOnlyUnblockedWeightlessChains");
   Run(TestSparseStackCarryIgnoresUnrelatedSlopes, "TestSparseStackCarryIgnoresUnrelatedSlopes");
+  Run(TestTallStacksFollowRampCarrierTicks, "TestTallStacksFollowRampCarrierTicks");
   Run(TestInterlockedPushDoesNotInventMomentum, "TestInterlockedPushDoesNotInventMomentum");
   Run(TestCarrierMomentumCannotLeakIntoNextScene, "TestCarrierMomentumCannotLeakIntoNextScene");
   Run(TestBlockedPassengersDoNotAnchorTheirCarrier, "TestBlockedPassengersDoNotAnchorTheirCarrier");
