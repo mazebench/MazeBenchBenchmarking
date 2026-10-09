@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { simulateFrames, frameDifference } from './helpers/project-engine.mjs';
+import { project, simulateFrames, frameDifference } from './helpers/project-engine.mjs';
+import { rotateVoxelsClockwise } from '../../apps/web/app/worldBounds.mjs';
 
 // A sealed, unoccupied ramp cannot influence physics on the other side of a
 // wall. Exercise both dispatch paths with repeatable ordinary 3D arrangements.
@@ -23,6 +24,34 @@ function makeScene(seed) {
     for (let z = 1; z <= height; ++z) voxels.push({ x, y, z, blockId, ...(kind >= 2 ? { genericId: x * 8 + y } : {}) });
   }
   return voxels;
+}
+
+for (const id of ['test-656', 'test-657']) {
+  test(`remote ramps preserve mounted lowered lift pushes: ${id}`, () => {
+    const authored = project.tests.find(value => value.id === id);
+    assert.ok(authored, `missing authored lift fixture ${id}`);
+    for (let rotation = 0; rotation < 4; ++rotation) {
+      for (const reversed of [false, true]) {
+        const start = rotateVoxelsClockwise(authored.start.voxels,
+          authored.world, rotation);
+        const ramp = rotateVoxelsClockwise([
+          { x: 5, y: 5, z: 1, blockId: 'ice-slope', orientation: 'up' }
+        ], authored.world, rotation);
+        if (reversed) start.reverse();
+        const baseline = simulateFrames(start, rotation, authored.world);
+        const withRamp = simulateFrames([...start, ...ramp], rotation, authored.world);
+        const context = `${id}, rotation ${rotation}, reversed ${reversed}`;
+        assert.equal(withRamp.length, baseline.length, `${context}: tick count`);
+        assert.deepEqual(withRamp.cycle, baseline.cycle, `${context}: cycle`);
+        baseline.forEach((frame, index) => {
+          assert.deepEqual(frameDifference(frame,
+            withRamp[index].filter(voxel => voxel.blockId !== 'ice-slope'),
+            authored.world), { missing: [], unexpected: [] },
+          `${context}: tick ${index + 1}`);
+        });
+      }
+    }
+  });
 }
 for (let batch = 0; batch < 8; ++batch) {
   test(`remote terrain invariance: deterministic batch ${batch + 1}`, () => {

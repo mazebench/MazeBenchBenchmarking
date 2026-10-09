@@ -2351,6 +2351,78 @@ void TestSideLiftDepartureTiming() {
   }
 }
 
+void TestMountedLiftPushIgnoresRemoteRamp() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  constexpr int32_t dx[] = {0, 1, 0, -1};
+  constexpr int32_t dy[] = {-1, 0, 1, 0};
+  const char* ramps[] = {"ice-slope-up", "ice-slope-right",
+                         "ice-slope-down", "ice-slope-left"};
+  for (int32_t rotation = 0; rotation < 4; ++rotation) {
+    for (const bool remote_ramp : {false, true}) {
+      for (const bool raised : {false, true}) {
+        for (const bool floor_blocker : {false, true}) {
+          std::vector<voxelbench::Voxel> start = {
+              {2, 4, 1, Role("player"), -1},
+              {1, 3, 1, Role("weightless-pushable"), 12},
+              {2, 3, 1, Role("weightless-pushable"), 12},
+              {3, 3, 1, Role("weightless-pushable"), 12},
+              {0, 3, 1, Role("player-lift"), ((3 + rotation) % 4 + 1) * 2 + raised},
+              {4, 3, 1, Role("player-lift"), ((1 + rotation) % 4 + 1) * 2 + raised},
+              {0, 2, 1, Role(floor_blocker ? "floor" : "wall"), -1},
+              {4, 2, 1, Role(floor_blocker ? "floor" : "wall"), -1},
+          };
+          for (int32_t x = 0; x < 6; ++x) {
+            for (int32_t y = 0; y < 6; ++y) start.push_back({x, y, 0, Role("floor"), -1});
+          }
+          if (remote_ramp) start.push_back({5, 5, 1, Role(ramps[rotation]), -1});
+          for (auto& voxel : start) {
+            for (int32_t turn = 0; turn < rotation; ++turn) {
+              const int32_t old_x = voxel.x;
+              voxel.x = 5 - voxel.y;
+              voxel.y = old_x;
+            }
+          }
+          auto expected = start;
+          if (!raised && !floor_blocker) {
+            for (size_t i = 0; i < 6; ++i) {
+              expected[i].x += dx[rotation];
+              expected[i].y += dy[rotation];
+            }
+          }
+          const int32_t count = static_cast<int32_t>(start.size());
+          for (const bool prepared : {false, true}) {
+            auto voxels = start;
+            const auto prepare = [&]() {
+              voxelbench::reset_workspace(&workspace);
+              if (prepared) {
+                Check(voxelbench::prepare_scene(
+                          &workspace, voxels.data(), count, 6, 6, 6),
+                      "mounted lift push should prepare with or without remote terrain");
+              }
+            };
+            prepare();
+            voxelbench::reset_motion_state(&state);
+            Check(voxelbench::step_command_tick(
+                      &workspace, &state, voxels.data(), count, 6, 6, rotation) ==
+                      voxelbench::TickResult::kComplete && state.tick == 1 &&
+                      std::memcmp(voxels.data(), expected.data(),
+                          voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                  "only raised lifts and floor overlap may anchor a mounted lift push");
+            voxels = start;
+            prepare();
+            Check(voxelbench::simulate_quiescent_turn(
+                      &workspace, voxels.data(), count, 6, 6, rotation) == 0 &&
+                      std::memcmp(voxels.data(), expected.data(),
+                          voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                  "prepared search must agree on lowered and raised fixture collisions");
+          }
+        }
+      }
+    }
+  }
+}
+
 void TestLiftRidesWeightlessCarrierWithStatefulCollision() {
   voxelbench::Voxel lowered[] = {
       {1, 3, 1, Role("player"), -1},
@@ -3605,6 +3677,7 @@ int main() {
   Run(TestLeavingAuthoredLoweredLiftKeepsItLowered, "TestLeavingAuthoredLoweredLiftKeepsItLowered");
   Run(TestBlockedLoweredLiftRetriesAfterRiderLeaves, "TestBlockedLoweredLiftRetriesAfterRiderLeaves");
   Run(TestSideLiftDepartureTiming, "TestSideLiftDepartureTiming");
+  Run(TestMountedLiftPushIgnoresRemoteRamp, "TestMountedLiftPushIgnoresRemoteRamp");
   Run(TestLiftRidesWeightlessCarrierWithStatefulCollision, "TestLiftRidesWeightlessCarrierWithStatefulCollision");
   Run(TestBlockedPlayerLiftRefusesToRaise, "TestBlockedPlayerLiftRefusesToRaise");
   Run(TestOverlappingPlayerLiftsDoNotDependOnVoxelOrder, "TestOverlappingPlayerLiftsDoNotDependOnVoxelOrder");

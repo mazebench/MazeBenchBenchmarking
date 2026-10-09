@@ -670,6 +670,11 @@ bool SlopeObjectDestinationIsClear(
     if (!IsInsideRoom(next_x, next_y, width, height)) return false;
     const int32_t occupant = FindVoxelAt(
         voxels, next_x, next_y, next_z, width, height);
+    if (g_object_kind[object] == kMechanismObject &&
+        MovingFixtureIgnoresOccupant(
+            voxels[member], occupant >= 0 ? &voxels[occupant] : nullptr)) {
+      continue;
+    }
     if (occupant < 0 || g_voxel_object[occupant] == object) continue;
     if (occupant == player_index) {
       if (player_is_vacating) continue;

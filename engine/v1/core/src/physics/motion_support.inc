@@ -364,17 +364,8 @@ bool ResolveCarriedCollisions(
           g_voxel_object[occupant] == object) {
         continue;
       }
-      if (voxel.role == kOrangeButtonRole || voxel.role == kPuncherRole) {
-        // Orange Buttons are face sensors, not rigid voxels. A mounted button
-        // may ride its carrier into a cell occupied by the floor, a wall, or
-        // another body while remaining independently pressable by overlap.
-        continue;
-      }
       if (g_object_kind[object] == kMechanismObject &&
-          IsLoweredPlayerLift(voxel)) {
-        // The lowered lift is a non-colliding slab. Its carrier may move it
-        // through an occupied full cell; the raised cube below follows the
-        // normal rigid carried-body collision rule.
+          MovingFixtureIgnoresOccupant(voxel, &voxels[occupant])) {
         continue;
       }
       const int32_t other = g_voxel_object[occupant];

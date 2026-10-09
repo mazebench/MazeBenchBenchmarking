@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { countActiveRoleV1 } from "../engine/v1/adapter.mjs";
+import { countActiveRoleV1, engineStatesEqualV1 } from "../engine/v1/adapter.mjs";
 import { loadBenchmarkAssets } from "../benchmarking/v1/runtime.mjs";
 import {
   ENGINE_SOURCE_COMMIT,
@@ -227,6 +227,32 @@ test("side lifts preserve a stable lowered state or retry a blocked departure on
           [object.x, object.y - (object.blockId === "player" ? 1 : 0), object.z]));
     });
     assert.equal(result.final.objects[1].genericId, blocked ? 5 : 4);
+  }
+});
+
+test("MxA's first Up pushes its box and lowered side lifts despite the remote ramp", async () => {
+  const assets = await loadBenchmarkAssets(new URL("..", import.meta.url).pathname);
+  const authored = JSON.parse(await readFile(
+    new URL("./fixtures/mxa-mounted-lift-push.json", import.meta.url), "utf8"));
+  const room = { ...assets.roomsByLabel.get("MXA"), ...decodeVoxelRoom(authored) };
+  const expected = { ...room, objects: room.objects.map((object) => {
+    const moves = object.blockId === "player" ||
+      (object.blockId === "weightless-box" && object.groupId === 1) ||
+      (object.blockId === "lift" && object.y === 7 && object.stateId === 0);
+    return moves ? { ...object, y: object.y - 1 } : object;
+  }) };
+  const connected = new ConnectedWorldSessionV1(assets.engine, assets.blocks,
+    assets.rooms.map((value) => value.fileName === room.fileName ? room : value));
+  for (const throughWorld of [false, true]) {
+    const result = throughWorld
+      ? await connected.simulateCommand(assets.engine.createState(room), room, "up")
+      : await assets.engine.simulateCommand(room, "up", assets.blocks);
+    assert.equal(result.cycle, null);
+    assert.equal(result.frames.length, 1);
+    assert.ok(engineStatesEqualV1(result.frames[0].state || result.frames[0],
+      expected, assets.blocks));
+    assert.ok(engineStatesEqualV1(result.final.state || result.final,
+      expected, assets.blocks));
   }
 });
 

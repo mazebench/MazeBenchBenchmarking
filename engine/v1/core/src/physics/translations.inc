@@ -39,9 +39,8 @@ bool TranslateMovingObjects(
       const int32_t occupant = FindVoxelAt(
           voxels, next_x, next_y, voxel.z + dz, width, height);
       if (g_object_kind[0] == kMechanismObject &&
-          IsPassThroughVoxel(voxel) &&
-          !(IsLoweredPlayerLift(voxel) && occupant >= 0 &&
-            voxels[occupant].role == kFloorRole)) {
+          MovingFixtureIgnoresOccupant(
+              voxel, occupant >= 0 ? &voxels[occupant] : nullptr)) {
         continue;
       }
       if (occupant >= 0) {
@@ -87,9 +86,8 @@ bool TranslateMovingObjects(
       const int32_t occupant = FindVoxelAt(
           voxels, next_x, next_y, voxel.z + dz, width, height);
       if (g_object_kind[object] == kMechanismObject &&
-          IsPassThroughVoxel(voxel) &&
-          !(IsLoweredPlayerLift(voxel) && occupant >= 0 &&
-            voxels[occupant].role == kFloorRole)) {
+          MovingFixtureIgnoresOccupant(
+              voxel, occupant >= 0 ? &voxels[occupant] : nullptr)) {
         continue;
       }
       if (occupant < 0) continue;
@@ -165,9 +163,8 @@ bool TranslateMovingObjects(
           const int32_t occupant = FindVoxelAt(
               voxels, next_x, next_y, voxel.z + dz, width, height);
           if (g_object_kind[object] == kMechanismObject &&
-              IsPassThroughVoxel(voxel) &&
-              !(IsLoweredPlayerLift(voxel) && occupant >= 0 &&
-                voxels[occupant].role == kFloorRole)) {
+              MovingFixtureIgnoresOccupant(
+                  voxel, occupant >= 0 ? &voxels[occupant] : nullptr)) {
             continue;
           }
           if (occupant < 0 || occupant == player_index) continue;

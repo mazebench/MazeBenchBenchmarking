@@ -104,6 +104,15 @@ bool IsPassThroughVoxel(const Voxel& voxel) {
       voxel.role == kOrangeButtonRole;
 }
 
+// Use the same fixture collision policy for uniform and slope proposals.
+// Retracted mechanisms and face sensors may overlap occupied cells, but a
+// lowered lift must stay above floor geometry.
+bool MovingFixtureIgnoresOccupant(const Voxel& fixture, const Voxel* occupant) {
+  return IsPassThroughVoxel(fixture) &&
+      !(IsLoweredPlayerLift(fixture) && occupant != nullptr &&
+        occupant->role == kFloorRole);
+}
+
 bool HasOrangeScope(const Voxel& voxel) {
   return (voxel.role == kOrangeButtonRole || voxel.role == kOrangeWallRole) &&
       voxel.generic_id >= 0 && (voxel.generic_id & kOrangeScopedIdFlag) != 0;
