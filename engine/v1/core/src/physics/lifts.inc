@@ -391,14 +391,13 @@ bool PlayerLiftCanToggleOnEntry(
   return player.z != INT32_MAX;
 }
 
-bool RaiseVacatedUpwardPlayerLift(
+bool RaiseVacatedPlayerLift(
     Voxel* voxels,
     int32_t count,
     int32_t player_index,
     int32_t from_x,
     int32_t from_y,
-    int32_t from_z,
-    bool allow_top_lift) {
+    int32_t from_z) {
   if (ActiveWorkspace().prepared_voxels == voxels &&
       ActiveWorkspace().prepared_count == count &&
       !ActiveWorkspace().prepared_has_player_lifts) return false;
@@ -420,11 +419,9 @@ bool RaiseVacatedUpwardPlayerLift(
     Voxel& lift = voxels[index];
     if (lift.role == kPlayerLiftRole && lift.generic_id >= 0 &&
         lift.generic_id <= 9 && lift.generic_id % 2 == 0 &&
-        (allow_top_lift || lift.generic_id >= 2) &&
         lift.x == from_x && lift.y == from_y && lift.z == from_z) {
-      // A blocked or voluntarily departing rider leaves the lowered fixture
-      // behind. With nobody to actuate, every mounting returns to its raised
-      // state without pushing the contents of its outward cell.
+      // A blocked rider has left this fixture. Retry on the following tick;
+      // the empty lift raises at its anchor without pushing its outward cell.
       if (lift.generic_id <= 1) {
         for (int32_t button_index = 0; button_index < count; ++button_index) {
           Voxel& button = voxels[button_index];
@@ -440,7 +437,7 @@ bool RaiseVacatedUpwardPlayerLift(
   return false;
 }
 
-bool VacatedUpwardPlayerLiftNeedsRetry(
+bool VacatedPlayerLiftNeedsRetry(
     Voxel* voxels,
     int32_t count,
     int32_t player_index,
@@ -452,14 +449,22 @@ bool VacatedUpwardPlayerLiftNeedsRetry(
   int32_t lift_index = -1;
   for (int32_t index = 0; index < count; ++index) {
     const Voxel& lift = voxels[index];
-    if (lift.role != kPlayerLiftRole || lift.generic_id != 0 ||
+    if (lift.role != kPlayerLiftRole || lift.generic_id < 0 ||
+        lift.generic_id > 9 || PlayerLiftIsRaised(lift) ||
         lift.x != player.x || lift.y != player.y || lift.z != player.z) {
       continue;
     }
     if (lift_index >= 0) return false;
     lift_index = index;
   }
-  if (lift_index < 0 || player.z == INT32_MAX) return false;
+  if (lift_index < 0) return false;
+  const int32_t outward = PlayerLiftSideOutwardDirection(voxels[lift_index]);
+  constexpr int32_t kLiftDx[] = {0, 1, 0, -1};
+  constexpr int32_t kLiftDy[] = {-1, 0, 1, 0};
+  if (outward < 0 && player.z == INT32_MAX) return false;
+  const int32_t dx = outward >= 0 ? kLiftDx[outward] : 0;
+  const int32_t dy = outward >= 0 ? kLiftDy[outward] : 0;
+  if (!IsInsideRoom(player.x + dx, player.y + dy, width, height)) return false;
 
   // Probe the lift transaction without committing it. A lowered lift which
   // could have raised its rider is an authored stable state and stays down
@@ -473,9 +478,9 @@ bool VacatedUpwardPlayerLiftNeedsRetry(
       player.x,
       player.y,
       player.z,
-      0,
-      0,
-      1,
+      dx,
+      dy,
+      outward < 0 ? 1 : 0,
       width,
       height,
       false);

@@ -2268,6 +2268,89 @@ void TestBlockedLoweredLiftRetriesAfterRiderLeaves() {
         "the unobstructed vacated lift should finish raised");
 }
 
+void TestSideLiftDepartureTiming() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  constexpr int32_t dx[] = {0, 1, 0, -1};
+  constexpr int32_t dy[] = {-1, 0, 1, 0};
+  for (int32_t rotation = 0; rotation < 4; ++rotation) {
+    const int32_t outward = (rotation + 1) % 4;
+    const int32_t lowered_id = (outward + 1) * 2;
+    // Unobstructed, wall-blocked, and blocked through a movable box chain.
+    for (int32_t obstruction = 0; obstruction < 3; ++obstruction) {
+      std::vector<voxelbench::Voxel> start = {
+          {3, 3, 1, Role("player"), -1},
+          {3, 3, 1, Role("player-lift"), lowered_id},
+          {2, 3, 1, Role("weightless-pushable"), 0},
+          {1, 3, 1, Role("wall"), -1},
+      };
+      if (obstruction != 0) {
+        start.push_back({4, 3, 1,
+            Role(obstruction == 1 ? "wall" : "weightless-pushable"),
+            obstruction == 1 ? -1 : 1});
+      }
+      if (obstruction == 2) start.push_back({5, 3, 1, Role("wall"), -1});
+      const int32_t dynamic_count = static_cast<int32_t>(start.size());
+      for (int32_t x = 0; x < 7; ++x) {
+        for (int32_t y = 0; y < 7; ++y) {
+          start.push_back({x, y, 0, Role("floor"), -1});
+        }
+      }
+      for (auto& voxel : start) {
+        for (int32_t turn = 0; turn < rotation; ++turn) {
+          const int32_t old_x = voxel.x;
+          voxel.x = 6 - voxel.y;
+          voxel.y = old_x;
+        }
+      }
+      const int32_t count = static_cast<int32_t>(start.size());
+      auto expected = start;
+      expected[0].x += dx[rotation];
+      expected[0].y += dy[rotation];
+      if (obstruction != 0) ++expected[1].generic_id;
+      for (const bool prepared : {false, true}) {
+        for (const bool resumed : {false, true}) {
+          auto voxels = start;
+          const auto prepare = [&]() {
+            voxelbench::reset_workspace(&workspace);
+            if (prepared) {
+              Check(voxelbench::prepare_scene(
+                        &workspace, voxels.data(), count, 7, 7, dynamic_count),
+                    "side-lift departure should prepare for search or resume");
+            }
+          };
+          prepare();
+          voxelbench::reset_motion_state(&state);
+          const auto result = voxelbench::step_command_tick(
+              &workspace, &state, voxels.data(), count, 7, 7, rotation);
+          Check(state.tick == 1 && voxels[1].generic_id == lowered_id &&
+                    result == (obstruction == 0
+                        ? voxelbench::TickResult::kComplete
+                        : voxelbench::TickResult::kMore),
+                "departure must leave a lowered side lift unchanged for one tick");
+          if (obstruction != 0) {
+            if (resumed) prepare();
+            Check(voxelbench::step_command_tick(
+                      &workspace, &state, voxels.data(), count, 7, 7, rotation) ==
+                      voxelbench::TickResult::kComplete && state.tick == 2,
+                  "a blocked side lift retries only after its rider leaves");
+          }
+          Check(std::memcmp(voxels.data(), expected.data(),
+                    voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                "a vacated lift must not displace its carrier or outward blockers");
+          voxels = start;
+          prepare();
+          Check(voxelbench::simulate_quiescent_turn(
+                    &workspace, voxels.data(), count, 7, 7, rotation) == 0 &&
+                    std::memcmp(voxels.data(), expected.data(),
+                        voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                "prepared search must preserve the same side-lift departure state");
+        }
+      }
+    }
+  }
+}
+
 void TestLiftRidesWeightlessCarrierWithStatefulCollision() {
   voxelbench::Voxel lowered[] = {
       {1, 3, 1, Role("player"), -1},
@@ -3521,6 +3604,7 @@ int main() {
   Run(TestPlayerLiftToggleUsesItsOwnAnimationTick, "TestPlayerLiftToggleUsesItsOwnAnimationTick");
   Run(TestLeavingAuthoredLoweredLiftKeepsItLowered, "TestLeavingAuthoredLoweredLiftKeepsItLowered");
   Run(TestBlockedLoweredLiftRetriesAfterRiderLeaves, "TestBlockedLoweredLiftRetriesAfterRiderLeaves");
+  Run(TestSideLiftDepartureTiming, "TestSideLiftDepartureTiming");
   Run(TestLiftRidesWeightlessCarrierWithStatefulCollision, "TestLiftRidesWeightlessCarrierWithStatefulCollision");
   Run(TestBlockedPlayerLiftRefusesToRaise, "TestBlockedPlayerLiftRefusesToRaise");
   Run(TestOverlappingPlayerLiftsDoNotDependOnVoxelOrder, "TestOverlappingPlayerLiftsDoNotDependOnVoxelOrder");

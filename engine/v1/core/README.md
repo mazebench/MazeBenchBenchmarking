@@ -76,6 +76,10 @@ Player and clone contacts never mount a lift onto the actor: walking out from
 under a lift stack leaves its anchors in place, allowing a destination lift
 to actuate independently on its following tick.
 
+Leaving an unobstructed authored lowered lift keeps it lowered, for both top
+and side mountings. A blocked lift retries empty on the tick after its rider
+leaves; that retry raises only the fixture and never pushes its former blockers.
+
 A loose passenger blocked by terrain stays behind without cancelling the
 carrier's push; passengers above it stay with that stopped support too. If the
 carrier completely vacates its support, the blocked passenger starts descending

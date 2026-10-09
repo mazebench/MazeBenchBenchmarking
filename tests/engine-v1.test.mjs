@@ -200,6 +200,36 @@ test("a wide clone's blocked ramp reflection settles without an idle retry loop"
       : object.blockId === "player" ? { ...object, y: object.y - 1 } : object));
 });
 
+test("side lifts preserve a stable lowered state or retry a blocked departure on a separate tick", async () => {
+  const { engine } = await loadEngine();
+  const definitions = [...blocks,
+    { id: "side-lift", roleId: "player-lift", visual: { kind: "lift" } },
+    { id: "weightless", roleId: "weightless-pushable", visual: { kind: "cube" } }
+  ];
+  for (const blocked of [false, true]) {
+    const room = { width: 7, height: 7, objects: [
+      { x: 3, y: 3, z: 0, blockId: "player" },
+      { x: 3, y: 3, z: 0, blockId: "side-lift", orientation: "east", genericId: 4 },
+      { x: 2, y: 3, z: 0, blockId: "weightless", genericId: 0 },
+      { x: 1, y: 3, z: 0, blockId: "wall" }
+    ] };
+    if (blocked) room.objects.push({ x: 4, y: 3, z: 0, blockId: "wall" });
+    for (let x = 0; x < 7; x += 1) {
+      for (let y = 0; y < 7; y += 1) room.objects.push({ x, y, z: 0, blockId: "floor" });
+    }
+    const result = await engine.simulateCommand(room, "up", definitions);
+    assert.equal(result.cycle, null);
+    assert.equal(result.frames.length, blocked ? 2 : 1);
+    result.frames.forEach((frame, index) => {
+      assert.equal(frame.objects[1].genericId, blocked && index === 1 ? 5 : 4);
+      assert.deepEqual(frame.objects.map(({ x, y, z }) => [x, y, z]),
+        room.objects.map((object) =>
+          [object.x, object.y - (object.blockId === "player" ? 1 : 0), object.z]));
+    });
+    assert.equal(result.final.objects[1].genericId, blocked ? 5 : 4);
+  }
+});
+
 test("connected play reloads rooms normally and undo crosses back with exact state", async () => {
   const { engine } = await loadEngine();
   const roomA = {
