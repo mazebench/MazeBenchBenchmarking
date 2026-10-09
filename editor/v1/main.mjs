@@ -1,4 +1,5 @@
 import { ThreeMazeRendererV1 } from "../../render/v1/three-renderer.mjs";
+import { installCutawayControls } from "../../render/v1/cutaway-controls.mjs";
 import { roomContextWorld } from "../../render/v1/room-context.mjs";
 import { cellForTool, describeCell } from "../../render/v1/world-renderer.mjs";
 import { encodeVoxelRoom, loadMainWorldV2 } from "../../render/v1/voxel-world-v2.mjs";
@@ -206,6 +207,9 @@ function placementFromHit(hit, strokeLayer = null) {
     selectedCanShare: objectPaintsInsideClickedBody(selectedBlock)
   });
   coordinate.z = editorPaintLayer(preview.blockId, coordinate.z, strokeLayer);
+  if (renderer.cutawayHeight !== null) {
+    coordinate.z = Math.min(coordinate.z, renderer.cutawayHeight - 1);
+  }
   if (coordinate.x < 0 || coordinate.y < 0 || coordinate.x >= currentRoom.width || coordinate.y >= currentRoom.height) {
     return null;
   }
@@ -746,6 +750,9 @@ try {
     onInspect: inspect,
     onSelect: inspect,
     onPaint: paint
+  });
+  installCutawayControls(document.getElementById("cutaway-controls"), renderer, {
+    onChange: () => { hoverHit = null; updatePlacementPreview(); }
   });
   new ResizeObserver(() => renderer.resize()).observe(elements.stage);
   updateRoomChrome();

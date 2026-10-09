@@ -94,7 +94,7 @@ export function voxelPieceDefinition(object, block) {
   return { kind: "cube", bottom, top: bottom + 1, height: 1, color };
 }
 
-export function collectVoxelSceneV2(renderer) {
+export function collectVoxelSceneV2(renderer, { minHeight = -Infinity, maxHeight = Infinity } = {}) {
   const floorGroups = new Map();
   const cubeGroups = new Map();
   const occupied = new Set();
@@ -115,6 +115,7 @@ export function collectVoxelSceneV2(renderer) {
     const group = groupEntry(cubeGroups, groupKey, settings);
     for (let offset = 0; offset < height; offset += 1) {
       const voxel = { x, z: y, y: bottom + offset };
+      if (voxel.y < minHeight || voxel.y >= maxHeight) continue;
       const key = voxelKey(voxel.x, voxel.z, voxel.y);
       if (!group.voxelKeys.has(key)) {
         group.voxels.push(voxel);
@@ -122,7 +123,7 @@ export function collectVoxelSceneV2(renderer) {
       }
       occupied.add(key);
     }
-    recordTop(x, y, bottom + height);
+    recordTop(x, y, Math.min(bottom + height, maxHeight));
   };
 
   renderer.world.rooms.forEach((room) => {
@@ -134,7 +135,8 @@ export function collectVoxelSceneV2(renderer) {
       const y = room.rowIndex * renderer.world.roomHeight + object.y;
       const source = voxelRenderSource(object, block);
       const definition = voxelPieceDefinition(object, block);
-      recordTop(x, y, definition.top);
+      if (definition.bottom >= maxHeight || definition.top <= minHeight) return;
+      recordTop(x, y, Math.min(definition.top, maxHeight));
       if (!dimmed) {
         pickRecords.push({
           room,
@@ -143,8 +145,8 @@ export function collectVoxelSceneV2(renderer) {
           globalX: x,
           globalY: y,
           bottom: definition.bottom,
-          top: definition.kind === "terrain_asset" ? definition.top : Math.max(definition.top, definition.bottom + 0.04),
-          height: block.visual?.height || 1,
+          top: Math.min(maxHeight, definition.kind === "terrain_asset" ? definition.top : Math.max(definition.top, definition.bottom + 0.04)),
+          height: Math.min(block.visual?.height || 1, maxHeight - object.z),
           surfaceFloor: definition.kind === "floor"
         });
       }

@@ -2,6 +2,7 @@ import { loadMazeBenchEngineV1 } from "../../engine/v1/engine.mjs";
 import { AsciiMazeRendererV1 } from "../../render-ascii/v1/ascii-renderer.mjs";
 import { roomContextWorld } from "../../render/v1/room-context.mjs";
 import { ThreeMazeRendererV1 } from "../../render/v1/three-renderer.mjs";
+import { installCutawayControls } from "../../render/v1/cutaway-controls.mjs";
 import { loadMainWorldV2 } from "../../render/v1/voxel-world-v2.mjs";
 import { bindCameraHold } from "../../render/v1/camera-controls.mjs";
 import { cameraRelativeMoveDirection } from "./camera-relative-input.mjs";
@@ -306,6 +307,7 @@ try {
   const requested = new URL(location.href).searchParams.get("room")?.toUpperCase() || "HXI";
   currentRoom = world.rooms.find((room) => room.position.join("X") === requested) || world.rooms[0];
   renderer = new ThreeMazeRendererV1(elements.canvas, roomWorld(currentRoom), { mode: "play" });
+  installCutawayControls(document.getElementById("cutaway-controls"), renderer, { ghosts: true });
   const params = new URL(location.href).searchParams;
   elements.seededGlyphs.checked = params.get("seededGlyphs") === "1";
   elements.asciiSeed.value = params.get("asciiSeed") || "1";

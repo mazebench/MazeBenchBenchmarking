@@ -22,6 +22,8 @@ const ids = [
 ];
 const elements = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
 const runId = new URLSearchParams(location.search).get("id");
+const compareHeatmap = document.getElementById("compare-heatmap");
+if (compareHeatmap && runId) compareHeatmap.href = `./compare.html?left=${encodeURIComponent(runId)}`;
 let currentRun = null;
 let currentFrame = 0;
 let followingLatest = true;

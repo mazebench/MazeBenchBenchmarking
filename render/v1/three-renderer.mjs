@@ -22,6 +22,7 @@ import { addSpecialPiece } from "./special-piece-renderers.mjs";
 import { MAZE_COLORS, parseCellState } from "./world-renderer.mjs";
 import { cellObjectSelectionKey } from "./cell-objects-v2.mjs";
 import { collectVoxelSceneV2 } from "./voxel-scene-v2.mjs";
+import { applyCutawayMaterials, cutawayMaxHeight, normalizeCutaway, playerCutawayHeight } from "./cutaway.mjs";
 import { roomObjectInContext } from "./room-context.mjs";
 import { V2_WORLD_FORMAT } from "./voxel-world-v2.mjs";
 import {
@@ -83,10 +84,14 @@ export class ThreeMazeRendererV1 {
   constructor(canvas, world, options = {}) {
     this.canvas = canvas;
     this.mode = options.mode || "world";
+    this.pickVoxels = this.mode === "editor" || options.pickVoxels === true;
     this.onInspect = options.onInspect || null;
     this.onViewChange = options.onViewChange || null;
     this.onSelect = options.onSelect || null;
     this.onPaint = options.onPaint || null;
+    this.cutaway = normalizeCutaway();
+    this.cutawayMaxHeight = 1;
+    this.onCutawayChange = null;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(MAZE_COLORS.empty);
     this.camera = new THREE.PerspectiveCamera(34, 1, 0.05, 1600);
@@ -123,9 +128,10 @@ export class ThreeMazeRendererV1 {
     };
     this.runCameraFrame = this.runCameraFrame.bind(this);
     this.content = new THREE.Group();
+    this.cutawayContent = new THREE.Group();
     this.placementPreview = new THREE.Group();
     this.placementPreview.renderOrder = 30;
-    this.scene.add(this.content, this.placementPreview);
+    this.scene.add(this.content, this.cutawayContent, this.placementPreview);
     this.pickMeshes = [];
     this.cellTops = new Map();
     this.pointer = null;
@@ -430,6 +436,9 @@ export class ThreeMazeRendererV1 {
     clearPlacementPreview(this.placementPreview);
     this.canvas.dataset.placementPreview = "";
     this.world = world;
+    if (this.mode !== "world" && world.storageFormat === V2_WORLD_FORMAT) {
+      this.cutawayMaxHeight = cutawayMaxHeight(world);
+    }
     this.totalWidth = world.columns.length * world.roomWidth;
     this.totalHeight = world.rows.length * world.roomHeight;
     this.canvas.dataset.contextRoomCount = String(world.rooms.filter((room) => room.renderDimmed).length);
@@ -439,6 +448,22 @@ export class ThreeMazeRendererV1 {
     const modelUrls = this.rebuild();
     this.requestModels(modelUrls);
     if (!options.preserveCamera) this.resetView();
+    this.onCutawayChange?.();
+  }
+
+  get cutawayHeight() {
+    return this.cutaway.followPlayer
+      ? playerCutawayHeight(this.world) ?? this.cutaway.height
+      : this.cutaway.height;
+  }
+
+  setCutaway(settings) {
+    this.cutaway = normalizeCutaway({ ...this.cutaway, ...settings });
+    clearPlacementPreview(this.placementPreview);
+    this.canvas.dataset.placementPreview = "";
+    this.setSelection(null);
+    this.requestModels(this.rebuild());
+    this.onCutawayChange?.();
   }
 
   setRoom(room, options = {}) {
@@ -612,34 +637,36 @@ export class ThreeMazeRendererV1 {
     };
   }
 
-  addFloorGroups(groups) {
+  addFloorGroups(groups, content = this.content) {
     const halfWidth = this.totalWidth / 2;
     const halfHeight = this.totalHeight / 2;
     groups.forEach((group) => {
       const geometry = geometryFromFaces(floorFaces(group.cells, halfWidth, halfHeight));
       const mesh = new THREE.Mesh(geometry, renderMaterial(group.color, group.dimmed));
       mesh.receiveShadow = true;
-      this.content.add(mesh);
+      content.add(mesh);
     });
   }
 
-  addCubeGroups(groups, occupied) {
+  addCubeGroups(groups, occupied, content = this.content, minHeight = -Infinity) {
     const halfWidth = this.totalWidth / 2;
     const halfHeight = this.totalHeight / 2;
     groups.forEach((group) => {
-      const faces = voxelFaces(group.voxels, occupied, halfWidth, halfHeight);
+      const rawFaces = voxelFaces(group.voxels, occupied, halfWidth, halfHeight);
+      const faces = Number.isFinite(minHeight) ? rawFaces.filter(face =>
+        !(face.normal === "y-" && face.corners.every(corner => corner[1] === minHeight))) : rawFaces;
       if (!faces.length) return;
       const geometry = geometryFromFaces(faces);
       const mesh = new THREE.Mesh(geometry, renderMaterial(group.color, group.dimmed));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
-      this.content.add(mesh);
+      content.add(mesh);
       const edges = new THREE.LineSegments(
         edgeGeometryFromFaces(faces),
         group.dimmed ? edgeMaterial(0x111820, 0.58) : edgeMaterial()
       );
       edges.renderOrder = 10;
-      this.content.add(edges);
+      content.add(edges);
     });
   }
 
@@ -670,7 +697,7 @@ export class ThreeMazeRendererV1 {
   }
 
   addEditorPickMesh(metadata) {
-    if (this.mode !== "editor" || !metadata.length) return;
+    if (!this.pickVoxels || !metadata.length) return;
     const geometry = cachedGeometry("editor-pick-box", () => new THREE.BoxGeometry(1, 1, 1));
     const pickMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
@@ -701,7 +728,7 @@ export class ThreeMazeRendererV1 {
   }
 
   addEditorVoxelPickMesh(records) {
-    if (this.mode !== "editor" || !records?.length) return;
+    if (!this.pickVoxels || !records?.length) return;
     const geometry = cachedGeometry("editor-v2-pick-box", () => new THREE.BoxGeometry(1, 1, 1));
     const material = new THREE.MeshBasicMaterial({
       color: 0xffffff,
@@ -732,21 +759,51 @@ export class ThreeMazeRendererV1 {
 
   rebuild() {
     disposeGeneratedChildren(this.content);
+    disposeGeneratedChildren(this.cutawayContent);
     this.pickMeshes = [];
-    const data = this.collectScene();
+    const height = this.cutawayHeight;
+    const isCutaway = this.world.storageFormat === V2_WORLD_FORMAT && height !== null;
+    const data = isCutaway ? collectVoxelSceneV2(this, { maxHeight: height }) : this.collectScene();
     const dimensions = { totalWidth: this.totalWidth, totalHeight: this.totalHeight };
+    const addPiece = (content, record, add) => {
+      const first = content.children.length;
+      add(content, record, dimensions);
+      if (isCutaway && record.definition.bottom < height && record.definition.top > height) {
+        content.children.slice(first).forEach(child => child.traverse(object => {
+          object.userData.cutawayClip = true;
+        }));
+      }
+    };
     this.addFloorGroups(data.floorGroups);
     this.addCubeGroups(data.cubeGroups, data.occupied);
-    data.terrainAssets.forEach((record) => addTerrainAsset(this.content, record, dimensions));
-    data.gems.forEach((record) => addGemAsset(this.content, record, dimensions));
-    data.specialPieces.forEach((record) => addSpecialPiece(this.content, record, dimensions));
-    if (this.mode === "editor") {
+    data.terrainAssets.forEach((record) => addPiece(this.content, record, addTerrainAsset));
+    data.gems.forEach((record) => addPiece(this.content, record, addGemAsset));
+    data.specialPieces.forEach((record) => addPiece(this.content, record, addSpecialPiece));
+    if (this.pickVoxels) {
       data.genericLabels?.forEach((record) => addGenericNumberFaces(this.content, record, dimensions));
     }
     this.addEditorGrid(data.editorGridCells);
     if (data.pickRecords) this.addEditorVoxelPickMesh(data.pickRecords);
     else this.addEditorPickMesh(data.cellMetadata);
+    if (isCutaway) {
+      applyCutawayMaterials(this.content, { height, clip: false });
+      if (this.mode === "play" && this.cutaway.opacity > 0) {
+        const upper = collectVoxelSceneV2({ world: this.world }, { minHeight: height });
+        this.addFloorGroups(upper.floorGroups, this.cutawayContent);
+        this.addCubeGroups(upper.cubeGroups, upper.occupied, this.cutawayContent, height);
+        upper.terrainAssets.forEach((record) => addPiece(this.cutawayContent, record, addTerrainAsset));
+        upper.gems.forEach((record) => addPiece(this.cutawayContent, record, addGemAsset));
+        upper.specialPieces.forEach((record) => addPiece(this.cutawayContent, record, addSpecialPiece));
+        applyCutawayMaterials(this.cutawayContent, { height, upper: true, opacity: this.cutaway.opacity, clip: false });
+        upper.modelUrls.forEach((url) => data.modelUrls.add(url));
+      }
+    }
+    this.canvas.dataset.cutawayHeight = height === null ? "full" : String(height);
+    this.canvas.dataset.cutawayOpacity = String(this.cutaway.opacity);
+    this.canvas.dataset.cutawayFollowPlayer = String(this.cutaway.followPlayer);
+    this.canvas.dataset.visiblePickCount = String(data.pickRecords?.length || 0);
     this.assignRenderLayers(this.content);
+    this.assignRenderLayers(this.cutawayContent);
     if (this.renderer.shadowMap.enabled) this.renderer.shadowMap.needsUpdate = true;
     this.render();
     return data.modelUrls;
@@ -791,6 +848,9 @@ export class ThreeMazeRendererV1 {
     this.canvas.dataset.cameraTargetX = this.target.x.toFixed(3);
     this.canvas.dataset.cameraTargetZ = this.target.z.toFixed(3);
     this.content.traverse((object) => {
+      if (object.userData.liftMarker) object.rotation.y = this.yaw;
+    });
+    this.cutawayContent.traverse((object) => {
       if (object.userData.liftMarker) object.rotation.y = this.yaw;
     });
   }
@@ -936,7 +996,7 @@ export class ThreeMazeRendererV1 {
       -((event.clientY - bounds.top) / bounds.height) * 2 + 1
     );
     this.raycaster.setFromCamera(this.mouse, this.camera);
-    if (this.mode === "editor") {
+    if (this.pickVoxels) {
       const intersections = this.raycaster.intersectObjects(this.pickMeshes, false);
       const intersection = intersections.find((entry) => Number.isInteger(entry.instanceId));
       const voxelRecord = intersection?.object?.userData?.voxelInstances?.[intersection.instanceId];
@@ -953,7 +1013,7 @@ export class ThreeMazeRendererV1 {
     const rowIndex = Math.floor(globalY / this.world.roomHeight);
     const room = this.world.rooms.find((candidate) =>
       candidate.columnIndex === columnIndex && candidate.rowIndex === rowIndex);
-    if (!room || (this.mode === "editor" && room.renderDimmed)) return null;
+    if (!room || (this.pickVoxels && room.renderDimmed)) return null;
     const cellX = globalX % this.world.roomWidth;
     const cellY = globalY % this.world.roomHeight;
     if (this.world.storageFormat === V2_WORLD_FORMAT) {

@@ -1,5 +1,6 @@
 import { loadMainWorldV2 } from '../../render/v1/voxel-world-v2.mjs';
 import { ThreeMazeRendererV1 } from '../../render/v1/three-renderer.mjs';
+import { installCutawayControls } from '../../render/v1/cutaway-controls.mjs';
 import { roomContextWorld } from '../../render/v1/room-context.mjs';
 import { roomFromEngineStateV1 } from '../../engine/v1/adapter.mjs';
 import { bindCameraHold } from '../../render/v1/camera-controls.mjs';
@@ -63,18 +64,17 @@ async function action(type,payload={},success){
   finally{setBusy(false);}
 }
 
-// Use the editor's exact voxel picking, with Play's drag-to-rotate interaction.
-class SolutionRenderer extends ThreeMazeRendererV1 {
-  rebuild(){const mode=this.mode;this.mode='editor';try{return super.rebuild();}finally{this.mode=mode;}}
-  hitTest(event){const mode=this.mode;this.mode='editor';try{return super.hitTest(event);}finally{this.mode=mode;}}
-}
 const roomById=id=>world.rooms.find(r=>r.fileName===id);
 function showBoard(roomId,state=null){
   const room=roomById(roomId);if(!room)return;
   const collected=new Set(snapshot?.collectedGems||[]);
   const rendered=state?roomFromEngineStateV1(state,room):{...room,objects:room.objects.filter((o,i)=>!collected.has(`${room.fileName}:${i}`))};
   const context=roomContextWorld(world,room,rendered,{omitDimmedRoleIds:['player']});
-  if(!renderer){renderer=new SolutionRenderer($('room-canvas'),context,{mode:'play',onSelect:chooseTile});new ResizeObserver(()=>renderer.resize()).observe($('stage'));}
+  if(!renderer){
+    renderer=new ThreeMazeRendererV1($('room-canvas'),context,{mode:'play',pickVoxels:true,onSelect:chooseTile});
+    installCutawayControls($('cutaway-controls'),renderer,{ghosts:true});
+    new ResizeObserver(()=>renderer.resize()).observe($('stage'));
+  }
   else renderer.setWorld(context,{preserveCamera:true});
   const active=renderer.world.rooms.find(r=>r.fileName===target?.room);
   renderer.selectCell(active||null,target?.x,target?.y,target?.z??undefined);

@@ -42,6 +42,8 @@ details[open] > summary::after { transform: rotate(90deg); }
 .topbar nav .back-link:hover { background: #0a84ff1a; }
 .connection-status { display: flex; align-items: center; gap: 7px; max-width: 45%; color: var(--muted); font-family: inherit; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; text-align: right; }
 .connection-status.connected::before { content: ""; width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--green); }
+.compare-link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; background: #0a84ff18; color: var(--cyan); font-size: 13px; white-space: nowrap; }
+.compare-link:hover { background: #0a84ff28; }
 .records-main { width: min(1200px, 100%); padding: 32px 28px 64px; }
 .launch-panel { padding: 28px; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); box-shadow: none; }
 .launch-panel::after { content: none; }
@@ -167,6 +169,7 @@ details[open] > summary::after { transform: rotate(90deg); }
   .runtime-content button { align-self: flex-start; }
   .records-heading p { max-width: 210px; line-height: 1.5; }
   .records-actions { gap: 6px; }
+  .records-heading:has(.compare-link) { flex-wrap: wrap; }
   .run-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .run-filters label:last-child { grid-column: 1 / -1; }
   .record-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }

@@ -210,6 +210,8 @@ export function addOutlinedMesh(content, geometry, color, transform = {}, thresh
 }
 
 export function disposeGeneratedChildren(group) {
+  group.userData.cutawayMaterials?.forEach((material) => material.dispose());
+  delete group.userData.cutawayMaterials;
   group.traverse((object) => {
     if (object.geometry && !object.geometry.userData?.persistentGeometry) object.geometry.dispose();
     if (object.userData?.transientMaterial) object.material?.dispose?.();

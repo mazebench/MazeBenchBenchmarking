@@ -10,9 +10,10 @@ import { safeReadFile } from "../v1/safe-files.mjs";
 export const CLAUDE_PROVIDER = "claude-code";
 export const CLAUDE_POLICY = "claude-mcp-only-v1";
 // Admission requires the real-CLI wire tests and the shared adversarial suite.
-export const VERIFIED_CLAUDE_VERSIONS = new Set(["2.1.258", "2.1.280", "2.1.284"]);
+export const VERIFIED_CLAUDE_VERSIONS = new Set(["2.1.258", "2.1.280", "2.1.284", "2.1.293"]);
 export const CLAUDE_MODELS = [
   ["claude-sonnet-5-5", "Claude Sonnet 5.5"],
+  ["claude-haiku-5-5", "Claude Haiku 5.5"],
   ["claude-sonnet-5", "Claude Sonnet 5"],
   ["claude-opus-5-5", "Claude Opus 5.5"],
   ["claude-opus-5", "Claude Opus 5"],
@@ -60,7 +61,7 @@ export function buildClaudeArguments({ projectRoot, runDirectory, model, effort,
   const allowed = interview ? [] : claudeTools(toolsEnabled);
   const settings = {
     disableAllHooks: true, autoMemoryEnabled: false, includeGitInstructions: false,
-    enabledPlugins: { "agents-md@builtin": false }, disableBundledSkills: true, fallbackModel: [], autoConnectIde: false,
+    enabledPlugins: { "agents-md@builtin": false, "cc-plugin-plugin-authoring@builtin": false }, disableBundledSkills: true, fallbackModel: [], autoConnectIde: false,
     permissions: { defaultMode: "dontAsk", allow: allowed, deny: ["Bash", "PowerShell", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch", "Agent", "Task", "Skill", "NotebookEdit", "ToolSearch"] }
   };
   const mcp = interview ? {} : { mazebench: { type: "stdio", command: process.execPath,

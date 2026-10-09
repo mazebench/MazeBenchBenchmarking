@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="../../render/v1/visual-effects.css">
     <link rel="stylesheet" href="../../render-ascii/v1/styles.css">
     <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="../../render/v1/cutaway-controls.css">
   </head>
   <body>
     <header class="play-topbar">
@@ -24,6 +25,7 @@
       <section id="stage" class="play-stage" aria-label="MazeBench play mode with 3D and ASCII views">
         <div class="play-viewport">
           <canvas id="play-canvas" aria-label="MazeBench room"></canvas>
+          <div id="cutaway-controls" class="cutaway-controls" role="group" aria-label="Room cutaway" hidden></div>
           <div id="ascii-view" class="ascii-view" hidden>
             <div class="ascii-toolbar">
               <strong>ASCII</strong>

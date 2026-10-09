@@ -1,12 +1,13 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MazeBench — Solutions</title><meta name="description" content="Build and replay verified routes through MazeBench, starting in H×I."><link rel="stylesheet" href="./styles.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MazeBench — Solutions</title><meta name="description" content="Build and replay verified routes through MazeBench, starting in H×I."><link rel="stylesheet" href="./styles.css"><link rel="stylesheet" href="../../render/v1/cutaway-controls.css"></head>
 <body>
 <header class="topbar"><div class="identity"><a class="back" href="../../"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg>Back</a><strong>Solutions</strong></div><div class="top-actions"><output id="save-state">Starting…</output><button id="import" disabled>Import JSON</button><input id="import-file" type="file" accept=".json,application/json" aria-label="Import solution JSON" hidden><button id="full-solution" disabled>Full solution</button><button id="export" disabled>Export routes</button></div></header>
 <main>
   <section class="workspace">
     <div class="workspace-heading"><div><span class="eyebrow">Route builder</span><h1 id="room-name">H×I</h1><p id="source-label">Start here. Discover the whole world.</p></div><button id="return-current" hidden>Return to current spot</button></div>
     <div class="stage" id="stage"><canvas id="room-canvas" aria-label="3D room. Tap a tile to move there."></canvas>
+      <div id="cutaway-controls" class="cutaway-controls" role="group" aria-label="Room cutaway" hidden></div>
       <div id="loading" class="loading"><progress id="load-progress" max="256" value="0" aria-label="Loading Solutions"></progress></div>
       <div class="stage-caption"><span id="view-note">Tap a tile to move there</span><button id="clear-target" aria-label="Clear target" hidden>×</button></div>
       <div class="camera-pad" role="group" aria-label="Camera controls">

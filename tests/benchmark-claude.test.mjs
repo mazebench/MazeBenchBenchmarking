@@ -21,6 +21,12 @@ test("Claude agent selection cannot cross providers or accept unknown models", a
   assert.equal(spec.toolsEnabled, true);
   assert(CLAUDE_MODELS.some(entry => entry.id === "claude-opus-5-5"));
   assert(CLAUDE_MODELS.some(entry => entry.id === "claude-sonnet-5-5"));
+  assert(CLAUDE_MODELS.some(entry => entry.id === "claude-haiku-5-5"));
+  for (const effort of ["low", "medium", "high", "xhigh", "max"]) {
+    const haiku = await supervisor.validateSpec({ provider: CLAUDE_PROVIDER, model: "claude-haiku-5-5", effort });
+    assert.equal(haiku.model, "claude-haiku-5-5");
+    assert.equal(haiku.effort, effort);
+  }
   assert.equal((await supervisor.validateSpec({ provider: CLAUDE_PROVIDER, model: "claude-opus-5-5" })).model, "claude-opus-5-5");
   for (const spec of [{ provider: "unknown" }, { provider: "codex", model }, { provider: CLAUDE_PROVIDER, model: "gpt-6-astra" }, { provider: CLAUDE_PROVIDER, model, effort: "ultra" }]) await assert.rejects(() => supervisor.validateSpec(spec));
 });
@@ -38,6 +44,7 @@ test("Claude launch, resume and interview only permit explicitly configured tool
     const settings = JSON.parse(value("--settings"));
     assert.equal(settings.disableAllHooks, true); assert.equal(settings.autoMemoryEnabled, false);
     assert.equal(settings.enabledPlugins['agents-md@builtin'], false);
+    assert.equal(settings.enabledPlugins['cc-plugin-plugin-authoring@builtin'], false);
     assert.equal(settings.disableBundledSkills, true);
     assert.deepEqual(settings.fallbackModel, []);
     assert.deepEqual(settings.permissions.allow, extra.interview ? [] : claudeTools(extra.toolsEnabled));
