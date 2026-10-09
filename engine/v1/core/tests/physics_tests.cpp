@@ -2491,6 +2491,104 @@ void TestMountedLiftPushIgnoresRemoteRamp() {
   }
 }
 
+void TestMountedLiftTransmitsItsCarriersPush() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  constexpr int32_t dx[] = {0, 1, 0, -1};
+  constexpr int32_t dy[] = {-1, 0, 1, 0};
+  const char* ramps[] = {"ice-slope-up", "ice-slope-right",
+                         "ice-slope-down", "ice-slope-left"};
+  for (int32_t rotation = 0; rotation < 4; ++rotation) {
+    for (const bool remote_ramp : {false, true}) {
+      for (const bool normal_carrier : {false, true}) {
+        for (int32_t obstruction = 0; obstruction < 5; ++obstruction) {
+          // The player stands on an L-shaped box. On its second Up, the
+          // mounted West lift contacts a separate box's mounted East lift.
+          std::vector<voxelbench::Voxel> start = {
+              {5, 5, normal_carrier ? 1 : 2, Role("player"), -1},
+              {5, 4, 1, Role(normal_carrier ? "pushable" : "weightless-pushable"), 12},
+          };
+          if (!normal_carrier) {
+            start.push_back({5, 4, 2, Role("weightless-pushable"), 12});
+            start.push_back({5, 5, 1, Role("weightless-pushable"), 12});
+          }
+          start.push_back({4, 4, 1, Role("player-lift"), ((3 + rotation) % 4 + 1) * 2 + 1});
+          const size_t primary_end = start.size();
+          start.push_back({3, 2, 1, Role(obstruction == 2 ? "wall" :
+              obstruction == 1 || obstruction == 3 ? "pushable" : "weightless-pushable"), 13});
+          start.push_back({4, 2, 1, Role("player-lift"), ((1 + rotation) % 4 + 1) * 2 + 1});
+          const size_t moving_end = start.size();
+          if (obstruction == 3) start.push_back({3, 1, 1, Role("pushable"), 14});
+          if (obstruction == 4) start.push_back({4, 1, 1, Role("wall"), -1});
+          const size_t dynamic_count = start.size();
+          for (int32_t x = 0; x < 8; ++x) {
+            for (int32_t y = 0; y < 8; ++y) start.push_back({x, y, 0, Role("floor"), -1});
+          }
+          if (remote_ramp) start.push_back({7, 7, 1, Role(ramps[rotation]), -1});
+          for (auto& voxel : start) {
+            for (int32_t turn = 0; turn < rotation; ++turn) {
+              const int32_t old_x = voxel.x;
+              voxel.x = 7 - voxel.y;
+              voxel.y = old_x;
+            }
+          }
+          const bool can_push = obstruction == 0 || (obstruction == 1 && !normal_carrier);
+          for (const bool prepared : {false, true}) {
+            for (const bool reversed : {false, true}) {
+              auto voxels = start;
+              auto expected = start;
+              if (reversed) std::reverse(voxels.begin(), voxels.end());
+              voxelbench::reset_workspace(&workspace);
+              if (prepared) {
+                // Prepared scenes require a dynamic prefix; reverse each
+                // section independently to vary discovery order safely.
+                if (reversed) {
+                  voxels = start;
+                  std::reverse(voxels.begin(), voxels.begin() + dynamic_count);
+                  std::reverse(voxels.begin() + dynamic_count, voxels.end());
+                }
+                Check(voxelbench::prepare_scene(&workspace, voxels.data(),
+                          static_cast<int32_t>(voxels.size()), 8, 8,
+                          static_cast<int32_t>(dynamic_count)),
+                      "mounted fixture contact should prepare");
+              }
+              for (int32_t command = 1; command <= 2; ++command) {
+                for (size_t i = 0; i < primary_end; ++i) {
+                  if (command == 1 || can_push) {
+                    expected[i].x += dx[rotation];
+                    expected[i].y += dy[rotation];
+                  }
+                }
+                if (command == 2 && can_push) {
+                  for (size_t i = primary_end; i < moving_end; ++i) {
+                    expected[i].x += dx[rotation];
+                    expected[i].y += dy[rotation];
+                  }
+                }
+                auto reference = expected;
+                if (reversed) {
+                  if (prepared) {
+                    std::reverse(reference.begin(), reference.begin() + dynamic_count);
+                    std::reverse(reference.begin() + dynamic_count, reference.end());
+                  } else std::reverse(reference.begin(), reference.end());
+                }
+                voxelbench::reset_motion_state(&state);
+                Check(voxelbench::step_command_tick(&workspace, &state, voxels.data(),
+                          static_cast<int32_t>(voxels.size()), 8, 8, rotation) ==
+                          voxelbench::TickResult::kComplete && state.tick == 1,
+                      "mounted fixture push should settle in one tick");
+                Check(std::memcmp(voxels.data(), reference.data(),
+                          voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                      "mounted fixtures transmit one legal push, never bypassing terrain or weight limits");
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 void TestLiftRidesWeightlessCarrierWithStatefulCollision() {
   voxelbench::Voxel lowered[] = {
       {1, 3, 1, Role("player"), -1},
@@ -3747,6 +3845,7 @@ int main() {
   Run(TestBlockedLoweredLiftRetriesAfterRiderLeaves, "TestBlockedLoweredLiftRetriesAfterRiderLeaves");
   Run(TestSideLiftDepartureTiming, "TestSideLiftDepartureTiming");
   Run(TestMountedLiftPushIgnoresRemoteRamp, "TestMountedLiftPushIgnoresRemoteRamp");
+  Run(TestMountedLiftTransmitsItsCarriersPush, "TestMountedLiftTransmitsItsCarriersPush");
   Run(TestLiftRidesWeightlessCarrierWithStatefulCollision, "TestLiftRidesWeightlessCarrierWithStatefulCollision");
   Run(TestBlockedPlayerLiftRefusesToRaise, "TestBlockedPlayerLiftRefusesToRaise");
   Run(TestOverlappingPlayerLiftsDoNotDependOnVoxelOrder, "TestOverlappingPlayerLiftsDoNotDependOnVoxelOrder");

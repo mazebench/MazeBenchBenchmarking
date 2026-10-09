@@ -77,52 +77,55 @@ bool TranslateMovingObjects(
   }
   while (queue_begin < queue_end) {
     const int32_t object = g_object_queue[queue_begin++];
-    for (int32_t member = g_object_head[object]; member >= 0;
-         member = g_next_object_voxel[member]) {
-      const Voxel& voxel = voxels[member];
-      const int32_t next_x = voxel.x + dx;
-      const int32_t next_y = voxel.y + dy;
-      if (!IsInsideRoom(next_x, next_y, width, height)) return false;
-      const int32_t occupant = FindVoxelAt(
-          voxels, next_x, next_y, voxel.z + dz, width, height);
-      if (g_object_kind[object] == kMechanismObject &&
-          MovingFixtureIgnoresOccupant(
-              voxel, occupant >= 0 ? &voxels[occupant] : nullptr)) {
-        continue;
-      }
-      if (occupant < 0) continue;
-      if (occupant == player_index) {
-        if (player_moves_horizontally) continue;
-        return false;
-      }
-      const int32_t other_object = g_voxel_object[occupant];
-      if (other_object == object ||
-          (other_object >= 0 && g_mandatory_objects[other_object] != 0) ||
-          PlayerLiftIsAttachedToObject(
-              voxels, other_object, object, width, height)) {
-        continue;
-      }
-      if (other_object >= 0 && g_object_falling[other_object] != 0 &&
-          g_moving_objects[other_object] == 0) {
-        // The occupant's synchronized downward proposal vacates this cell.
-        // A vertical stack can refill it in the same tick, however, in which
-        // case the trailing horizontal body must stop before gravity commits.
-        if (FallingObjectRefillsCell(
-                voxels, next_x, next_y, voxel.z, width, height)) {
+    for (int32_t part = object; part >= 0; part = allow_push
+        ? NextRaisedMountedPushPart(voxels, object, part, width, height) : -1) {
+      for (int32_t member = g_object_head[part]; member >= 0;
+           member = g_next_object_voxel[member]) {
+        const Voxel& voxel = voxels[member];
+        const int32_t next_x = voxel.x + dx;
+        const int32_t next_y = voxel.y + dy;
+        if (!IsInsideRoom(next_x, next_y, width, height)) return false;
+        const int32_t occupant = FindVoxelAt(
+            voxels, next_x, next_y, voxel.z + dz, width, height);
+        if (g_object_kind[object] == kMechanismObject &&
+            MovingFixtureIgnoresOccupant(
+                voxel, occupant >= 0 ? &voxels[occupant] : nullptr)) {
+          continue;
+        }
+        if (occupant < 0) continue;
+        if (occupant == player_index) {
+          if (player_moves_horizontally) continue;
           return false;
         }
-        continue;
+        const int32_t other_object = g_voxel_object[occupant];
+        if (other_object == object ||
+            (other_object >= 0 && g_mandatory_objects[other_object] != 0) ||
+            PlayerLiftIsAttachedToObject(
+                voxels, other_object, object, width, height)) {
+          continue;
+        }
+        if (other_object >= 0 && g_object_falling[other_object] != 0 &&
+            g_moving_objects[other_object] == 0) {
+          // The occupant's synchronized downward proposal vacates this cell.
+          // A vertical stack can refill it in the same tick, however, in which
+          // case the trailing horizontal body must stop before gravity commits.
+          if (FallingObjectRefillsCell(
+                  voxels, next_x, next_y, voxel.z, width, height)) {
+            return false;
+          }
+          continue;
+        }
+        const int32_t push_target = allow_push
+            ? DeliberatePushContactObject(voxels, other_object, width, height)
+            : other_object;
+        if (allow_push && push_target >= 0 &&
+            (g_mandatory_objects[push_target] != 0 ||
+             DeliberatePushMayRecruit(object, push_target))) {
+          AddMandatoryObject(push_target, queue_end);
+          continue;
+        }
+        return false;
       }
-      const int32_t push_target = allow_push
-          ? DeliberatePushContactObject(voxels, other_object, width, height)
-          : other_object;
-      if (allow_push && push_target >= 0 &&
-          (g_mandatory_objects[push_target] != 0 ||
-           DeliberatePushMayRecruit(object, push_target))) {
-        AddMandatoryObject(push_target, queue_end);
-        continue;
-      }
-      return false;
     }
   }
 
@@ -154,35 +157,38 @@ bool TranslateMovingObjects(
       }
       while (queue_begin < queue_end) {
         const int32_t object = g_object_queue[queue_begin++];
-        for (int32_t member = g_object_head[object]; member >= 0;
-             member = g_next_object_voxel[member]) {
-          const Voxel& voxel = voxels[member];
-          const int32_t next_x = voxel.x + dx;
-          const int32_t next_y = voxel.y + dy;
-          if (!IsInsideRoom(next_x, next_y, width, height)) return false;
-          const int32_t occupant = FindVoxelAt(
-              voxels, next_x, next_y, voxel.z + dz, width, height);
-          if (g_object_kind[object] == kMechanismObject &&
-              MovingFixtureIgnoresOccupant(
-                  voxel, occupant >= 0 ? &voxels[occupant] : nullptr)) {
-            continue;
+        for (int32_t part = object; part >= 0; part = allow_push
+            ? NextRaisedMountedPushPart(voxels, object, part, width, height) : -1) {
+          for (int32_t member = g_object_head[part]; member >= 0;
+               member = g_next_object_voxel[member]) {
+            const Voxel& voxel = voxels[member];
+            const int32_t next_x = voxel.x + dx;
+            const int32_t next_y = voxel.y + dy;
+            if (!IsInsideRoom(next_x, next_y, width, height)) return false;
+            const int32_t occupant = FindVoxelAt(
+                voxels, next_x, next_y, voxel.z + dz, width, height);
+            if (g_object_kind[object] == kMechanismObject &&
+                MovingFixtureIgnoresOccupant(
+                    voxel, occupant >= 0 ? &voxels[occupant] : nullptr)) {
+              continue;
+            }
+            if (occupant < 0 || occupant == player_index) continue;
+            const int32_t other = g_voxel_object[occupant];
+            if (other == object ||
+                (other >= 0 && g_mandatory_objects[other] != 0)) {
+              continue;
+            }
+            const int32_t push_target = allow_push
+                ? DeliberatePushContactObject(voxels, other, width, height)
+                : other;
+            if (allow_push && push_target >= 0 &&
+                (g_mandatory_objects[push_target] != 0 ||
+                 DeliberatePushMayRecruit(object, push_target))) {
+              AddMandatoryObject(push_target, queue_end);
+              continue;
+            }
+            return false;
           }
-          if (occupant < 0 || occupant == player_index) continue;
-          const int32_t other = g_voxel_object[occupant];
-          if (other == object ||
-              (other >= 0 && g_mandatory_objects[other] != 0)) {
-            continue;
-          }
-          const int32_t push_target = allow_push
-              ? DeliberatePushContactObject(voxels, other, width, height)
-              : other;
-          if (allow_push && push_target >= 0 &&
-              (g_mandatory_objects[push_target] != 0 ||
-               DeliberatePushMayRecruit(object, push_target))) {
-            AddMandatoryObject(push_target, queue_end);
-            continue;
-          }
-          return false;
         }
       }
     }

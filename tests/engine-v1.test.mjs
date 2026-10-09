@@ -256,6 +256,40 @@ test("MxA's first Up pushes its box and lowered side lifts despite the remote ra
   }
 });
 
+test("MxA's second Up pushes both boxes through their raised mounted lifts", async () => {
+  const assets = await loadBenchmarkAssets(new URL("..", import.meta.url).pathname);
+  const authored = JSON.parse(await readFile(
+    new URL("./fixtures/mxa-second-up.json", import.meta.url), "utf8"));
+  const room = { ...assets.roomsByLabel.get("MXA"), ...decodeVoxelRoom(authored) };
+  const connected = new ConnectedWorldSessionV1(assets.engine, assets.blocks,
+    assets.rooms.map(value => value.fileName === room.fileName ? room : value));
+  for (const throughWorld of [false, true]) {
+    let state = assets.engine.createState(room);
+    for (let command = 1; command <= 2; ++command) {
+      const expected = { ...room, objects: room.objects.map(object => {
+        const distance = object.blockId === "player" ||
+          object.blockId === "weightless-box" && object.groupId === 2 ||
+          object.blockId === "lift" && object.x === 6 && object.y === 4
+          ? command
+          : object.blockId === "weightless-box" && object.groupId === 3 ||
+            object.blockId === "lift" && object.x === 6 && object.y === 2
+            ? command - 1 : 0;
+        return { ...object, y: object.y - distance };
+      }) };
+      const result = throughWorld
+        ? await connected.simulateCommand(state, room, "up")
+        : await assets.engine.simulateCommand(state, "up", assets.blocks);
+      const context = `${throughWorld ? "connected" : "direct"}, Up ${command}`;
+      assert.equal(result.cycle, null, context);
+      assert.equal(result.frames.length, 1, context);
+      assert.ok(engineStatesEqualV1(result.frames[0].state || result.frames[0],
+        expected, assets.blocks), `${context}: every animated object`);
+      state = result.final.state || result.final;
+      assert.ok(engineStatesEqualV1(state, expected, assets.blocks), `${context}: final state`);
+    }
+  }
+});
+
 test("JxA Down twice moves only the player and its contacted box", async () => {
   const assets = await loadBenchmarkAssets(new URL("..", import.meta.url).pathname);
   const authored = JSON.parse(await readFile(

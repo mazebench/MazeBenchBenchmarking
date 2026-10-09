@@ -76,74 +76,77 @@ bool TranslateSlopeMomentumObjects(
           }
         }
       }
-      for (int32_t member = g_object_head[object]; member >= 0;
-           member = g_next_object_voxel[member]) {
-        const int32_t next_x = voxels[member].x + g_object_dx[object];
-        const int32_t next_y = voxels[member].y + g_object_dy[object];
-        const int32_t next_z = voxels[member].z + g_object_dz[object];
-        if (!IsInsideRoom(next_x, next_y, width, height)) continue;
-        const int32_t occupant = FindVoxelAt(
-            voxels, next_x, next_y, next_z, width, height);
-        if (occupant < 0 || occupant == player_index) continue;
-        const int32_t other = allow_push
-            ? DeliberatePushContactObject(
-                  voxels, g_voxel_object[occupant], width, height)
-            : g_voxel_object[occupant];
-        if (other < 0 || other == object ||
-            g_mandatory_objects[other] != 0) {
-          continue;
-        }
-        if (g_object_falling[other] != 0) {
-          // A falling body vacates its source vertically; it must not be
-          // recruited into the horizontal push closure.
-          continue;
-        }
-        // A deliberate shove always recruits a touching weightless body.
-        // Ramp momentum also transmits a push through a crest's weightless
-        // chain. A free flat-Ice slide still stops at a stationary body.
-        bool source_is_movable_ramp = false;
-        for (int32_t source_member = g_object_head[object];
-             source_member >= 0;
-             source_member = g_next_object_voxel[source_member]) {
-          source_is_movable_ramp |=
-              IsBlueBoxSlopeRole(voxels[source_member].role) ||
-              IsYellowCloneSlopeRole(voxels[source_member].role);
-        }
-        const bool slope_derived_contact = source_is_movable_ramp &&
-            ObjectDownhillSlopeDirection(
-                voxels, object, width, height) >= 0;
-        const bool deliberate_contact_push = allow_push &&
-            ((!pushed_targets_require_ice && !slope_derived_contact) ||
-             ObjectIsFullyOnIce(voxels, other, width, height));
-        const bool downhill_ice_contact_push =
-            allow_downhill_contact_push && g_component_objects[object] != 0 &&
-            (ObjectIsFullyOnIce(voxels, other, width, height) ||
-             ObjectIsFloatingFloor(voxels, other));
-        const bool crest_contact_push = allow_downhill_contact_push &&
-            (g_component_objects[object] & 2) != 0;
-        const bool recruit_deliberate = deliberate_contact_push &&
-            DeliberatePushMayRecruit(object, other);
-        const bool recruit_downhill =
-            (downhill_ice_contact_push || crest_contact_push) &&
-            (g_object_kind[object] == kWeightlessObject ||
-             g_object_kind[object] == kCloneObject ||
-             g_object_kind[object] == kPlayerObject ||
-             ObjectIsFloatingFloor(voxels, object)) &&
-            ObjectAcceptsSlopeContactPush(voxels, other) &&
-            DeliberatePushMayRecruit(object, other) &&
-            (!ObjectIsFloatingFloor(voxels, other) ||
-             FloatingFloorDestinationIsSupportedOrFillable(
-                voxels, other, g_object_dx[object], g_object_dy[object],
-                ObjectSlopeVerticalDelta(
-                    voxels, other, g_object_direction[object], width, height,
-                    false),
-                width, height));
-        if (recruit_deliberate || recruit_downhill) {
-          g_mandatory_objects[other] = 1;
-          g_moving_objects[other] = 1;
-          g_object_direction[other] = g_object_direction[object];
-          g_component_objects[other] = g_component_objects[object];
-          added = true;
+      for (int32_t part = object; part >= 0; part = allow_push
+          ? NextRaisedMountedPushPart(voxels, object, part, width, height) : -1) {
+        for (int32_t member = g_object_head[part]; member >= 0;
+             member = g_next_object_voxel[member]) {
+          const int32_t next_x = voxels[member].x + g_object_dx[object];
+          const int32_t next_y = voxels[member].y + g_object_dy[object];
+          const int32_t next_z = voxels[member].z + g_object_dz[object];
+          if (!IsInsideRoom(next_x, next_y, width, height)) continue;
+          const int32_t occupant = FindVoxelAt(
+              voxels, next_x, next_y, next_z, width, height);
+          if (occupant < 0 || occupant == player_index) continue;
+          const int32_t other = allow_push
+              ? DeliberatePushContactObject(
+                    voxels, g_voxel_object[occupant], width, height)
+              : g_voxel_object[occupant];
+          if (other < 0 || other == object ||
+              g_mandatory_objects[other] != 0) {
+            continue;
+          }
+          if (g_object_falling[other] != 0) {
+            // A falling body vacates its source vertically; it must not be
+            // recruited into the horizontal push closure.
+            continue;
+          }
+          // A deliberate shove always recruits a touching weightless body.
+          // Ramp momentum also transmits a push through a crest's weightless
+          // chain. A free flat-Ice slide still stops at a stationary body.
+          bool source_is_movable_ramp = false;
+          for (int32_t source_member = g_object_head[object];
+               source_member >= 0;
+               source_member = g_next_object_voxel[source_member]) {
+            source_is_movable_ramp |=
+                IsBlueBoxSlopeRole(voxels[source_member].role) ||
+                IsYellowCloneSlopeRole(voxels[source_member].role);
+          }
+          const bool slope_derived_contact = source_is_movable_ramp &&
+              ObjectDownhillSlopeDirection(
+                  voxels, object, width, height) >= 0;
+          const bool deliberate_contact_push = allow_push &&
+              ((!pushed_targets_require_ice && !slope_derived_contact) ||
+               ObjectIsFullyOnIce(voxels, other, width, height));
+          const bool downhill_ice_contact_push =
+              allow_downhill_contact_push && g_component_objects[object] != 0 &&
+              (ObjectIsFullyOnIce(voxels, other, width, height) ||
+               ObjectIsFloatingFloor(voxels, other));
+          const bool crest_contact_push = allow_downhill_contact_push &&
+              (g_component_objects[object] & 2) != 0;
+          const bool recruit_deliberate = deliberate_contact_push &&
+              DeliberatePushMayRecruit(object, other);
+          const bool recruit_downhill =
+              (downhill_ice_contact_push || crest_contact_push) &&
+              (g_object_kind[object] == kWeightlessObject ||
+               g_object_kind[object] == kCloneObject ||
+               g_object_kind[object] == kPlayerObject ||
+               ObjectIsFloatingFloor(voxels, object)) &&
+              ObjectAcceptsSlopeContactPush(voxels, other) &&
+              DeliberatePushMayRecruit(object, other) &&
+              (!ObjectIsFloatingFloor(voxels, other) ||
+               FloatingFloorDestinationIsSupportedOrFillable(
+                  voxels, other, g_object_dx[object], g_object_dy[object],
+                  ObjectSlopeVerticalDelta(
+                      voxels, other, g_object_direction[object], width, height,
+                      false),
+                  width, height));
+          if (recruit_deliberate || recruit_downhill) {
+            g_mandatory_objects[other] = 1;
+            g_moving_objects[other] = 1;
+            g_object_direction[other] = g_object_direction[object];
+            g_component_objects[other] = g_component_objects[object];
+            added = true;
+          }
         }
       }
     }

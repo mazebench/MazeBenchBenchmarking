@@ -27,6 +27,24 @@ bool ObjectCanTransmitDeliberatePush(int32_t object) {
       g_object_kind[object] == kPlayerObject;
 }
 
+int32_t NextRaisedMountedPushPart(
+    Voxel* voxels, int32_t carrier, int32_t previous,
+    int32_t width, int32_t height) {
+  if (!ObjectCanTransmitDeliberatePush(carrier)) return -1;
+  // A raised lift is part of its carrier's rigid collision footprint. Its
+  // contacts use the carrier's single push force, never a new force belonging
+  // to the mechanism or to an optional passenger.
+  for (int32_t object = previous == carrier ? 0 : previous + 1;
+       object < g_object_count; ++object) {
+    const int32_t fixture = g_object_head[object];
+    if (fixture >= 0 && PlayerLiftIsRaised(voxels[fixture]) &&
+        PlayerLiftIsAttachedToObject(voxels, object, carrier, width, height)) {
+      return object;
+    }
+  }
+  return -1;
+}
+
 int32_t DeliberatePushContactObject(
     Voxel* voxels, int32_t object, int32_t width, int32_t height) {
   if (object < 0 || g_object_kind[object] != kMechanismObject) return object;
