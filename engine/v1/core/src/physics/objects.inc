@@ -76,6 +76,18 @@ void BuildObjects(Voxel* voxels, int32_t count) {
   }
 }
 
+bool PlayerLiftContactIsActor(
+    Voxel* voxels,
+    int32_t lift_index,
+    int32_t support_index) {
+  // Walking underneath (or beside) terrain does not mount it onto the actor.
+  // Other bodies still carry lifts fastened to their faces.
+  return lift_index >= 0 && support_index >= 0 &&
+      voxels[lift_index].role == kPlayerLiftRole &&
+      (voxels[support_index].role == kPlayerRole ||
+       IsCloneObjectRole(voxels[support_index].role));
+}
+
 // Directional lifts are fixtures mounted to one face of a supporting body.
 // Their encoded orientation is the outward normal, so the attachment lies in
 // the opposite direction. Top lifts continue to use ordinary support-below
@@ -111,7 +123,8 @@ int32_t PlayerLiftSideAttachmentVoxel(
   }
   const int32_t support = FindVoxelAt(
       voxels, support_x, support_y, lift.z, width, height);
-  return support == g_ignored_support_voxel ? -1 : support;
+  return support == g_ignored_support_voxel ||
+      PlayerLiftContactIsActor(voxels, member, support) ? -1 : support;
 }
 
 int32_t MechanismAttachmentVoxel(
@@ -172,7 +185,8 @@ int32_t MechanismAttachmentVoxel(
   }
   const int32_t support = FindVoxelAt(
       voxels, support_x, support_y, support_z, width, height);
-  return support == g_ignored_support_voxel ? -1 : support;
+  return support == g_ignored_support_voxel ||
+      PlayerLiftContactIsActor(voxels, member, support) ? -1 : support;
 }
 
 bool OrangeButtonIsMountedToWall(
@@ -533,7 +547,8 @@ bool ObjectHasDirectSupport(
     const int32_t support = FindVoxelAt(
         voxels, voxel.x, voxel.y, voxel.z - 1, width, height);
     if (support >= 0 && support != g_ignored_support_voxel &&
-        g_voxel_object[support] != object) {
+        g_voxel_object[support] != object &&
+        !PlayerLiftContactIsActor(voxels, member, support)) {
       return true;
     }
   }
@@ -562,7 +577,8 @@ bool ObjectHasStableDirectSupport(
     if (voxel.z == INT32_MIN) continue;
     const int32_t support = FindVoxelAt(
         voxels, voxel.x, voxel.y, voxel.z - 1, width, height);
-    if (support < 0 || support == g_ignored_support_voxel) continue;
+    if (support < 0 || support == g_ignored_support_voxel ||
+        PlayerLiftContactIsActor(voxels, member, support)) continue;
     const int32_t support_object = g_voxel_object[support];
     if (support_object != object &&
         (support_object < 0 || g_object_falling[support_object] == 0)) {

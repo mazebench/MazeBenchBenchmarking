@@ -214,6 +214,7 @@ int32_t MovingSupportBelowObject(
     const int32_t support = FindVoxelAt(
         voxels, voxel.x, voxel.y, voxel.z - 1, width, height);
     if (support < 0) continue;
+    if (PlayerLiftContactIsActor(voxels, member, support)) continue;
     if (g_voxel_object[support] == object) continue;
     if (support == player_index && player_is_vacating && !carry_from_player) {
       // The player's old cell is not a stationary foothold during a shared

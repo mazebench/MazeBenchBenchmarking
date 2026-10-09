@@ -72,6 +72,9 @@ stacks above a hovering lift. An unrelated walk adds no settling tick. A lift
 mounted on a moving body still translates and falls with its carrier; moving
 a hovering lift arms normal support-loss gravity. Prepared search successors
 use the same distinction as animated play.
+Player and clone contacts never mount a lift onto the actor: walking out from
+under a lift stack leaves its anchors in place, allowing a destination lift
+to actuate independently on its following tick.
 
 A loose passenger blocked by terrain stays behind without cancelling the
 carrier's push; passengers above it stay with that stopped support too. If the

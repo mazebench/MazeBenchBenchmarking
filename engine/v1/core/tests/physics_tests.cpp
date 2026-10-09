@@ -1791,6 +1791,62 @@ void TestAuthoredHoveringLiftsKeepTheirAnchors() {
   }
 }
 
+void TestTerrainLiftsDoNotAttachToActors() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  constexpr int32_t dx[] = {0, 1, 0, -1};
+  constexpr int32_t dy[] = {-1, 0, 1, 0};
+  for (bool clone : {false, true}) {
+    for (int32_t raised = 0; raised <= 1; ++raised) {
+      std::vector<voxelbench::Voxel> initial = {
+          {3, 4, 1, Role("player"), -1},
+      };
+      const size_t actor = clone ? 1u : 0u;
+      const int32_t actor_x = clone ? 1 : 3;
+      if (clone) initial.push_back({actor_x, 4, 1, Role("clone"), 0});
+      for (int32_t z = 2; z <= 5; ++z) {
+        initial.push_back({actor_x, 4, z, Role("player-lift"), raised});
+      }
+      const int32_t dynamic_count = static_cast<int32_t>(initial.size());
+      for (int32_t y = 0; y < 6; ++y) {
+        for (int32_t x = 0; x < 6; ++x) {
+          initial.push_back({x, y, 0, Role("floor"), -1});
+        }
+      }
+      const int32_t count = static_cast<int32_t>(initial.size());
+      for (int32_t direction = 0; direction < 4; ++direction) {
+        for (bool prepared : {false, true}) {
+          auto voxels = initial;
+          voxelbench::reset_workspace(&workspace);
+          if (prepared) {
+            Check(voxelbench::prepare_scene(
+                      &workspace, voxels.data(), count, 6, 6, dynamic_count),
+                  "actor and overhead lifts should prepare for search");
+            Check(voxelbench::simulate_quiescent_turn(
+                      &workspace, voxels.data(), count, 6, 6, direction, true) == 0,
+                  "prepared full physics should leave overhead lifts anchored");
+          } else {
+            voxelbench::reset_motion_state(&state);
+            Check(voxelbench::step_tick(
+                      &workspace, &state, voxels.data(), count, 6, 6, direction) ==
+                      voxelbench::TickResult::kComplete && state.tick == 1,
+                  "walking out from under lifts should need only one tick");
+          }
+          Check(voxels[actor].x == actor_x + dx[direction] &&
+                    voxels[actor].y == 4 + dy[direction] && voxels[actor].z == 1,
+                "the player or clone should walk out from under the lift stack");
+          for (size_t i = actor + 1; i < static_cast<size_t>(dynamic_count); ++i) {
+            Check(voxels[i].x == initial[i].x && voxels[i].y == initial[i].y &&
+                      voxels[i].z == initial[i].z &&
+                      voxels[i].generic_id == initial[i].generic_id,
+                  "touching an actor must neither carry nor drop a lift stack");
+          }
+        }
+      }
+    }
+  }
+}
+
 void TestPlayerEnteringLoweredLiftRaisesAndRides() {
   voxelbench::Voxel voxels[] = {
       {1, 2, 1, Role("player"), -1},
@@ -1829,22 +1885,30 @@ void TestPlayerLiftToggleUsesItsOwnAnimationTick() {
       {1, 1, 1, Role("player-lift"), 0},
       {1, 2, 0, Role("floor"), -1},
       {1, 1, 0, Role("floor"), -1},
+      {1, 2, 2, Role("player-lift"), 1},
+      {1, 2, 3, Role("player-lift"), 1},
+      {1, 2, 4, Role("player-lift"), 1},
+      {1, 2, 5, Role("player-lift"), 1},
   };
   voxelbench::reset_workspace(&workspace);
   voxelbench::reset_motion_state(&state);
   Check(voxelbench::step_tick(
-            &workspace, &state, voxels, 4, 3, 3, 0) ==
+            &workspace, &state, voxels, 8, 3, 3, 0) ==
             voxelbench::TickResult::kMore,
         "entering a lift should expose the horizontal entry frame");
   Check(state.tick == 1 && voxels[0].y == 1 && voxels[0].z == 1 &&
             voxels[1].generic_id == 0,
         "the entry tick should not collapse the lift state change into movement");
   Check(voxelbench::step_tick(
-            &workspace, &state, voxels, 4, 3, 3, 0) ==
+            &workspace, &state, voxels, 8, 3, 3, 0) ==
             voxelbench::TickResult::kComplete,
         "the following animation tick should complete the lift toggle");
   Check(state.tick == 2 && voxels[0].z == 2 && voxels[1].generic_id == 1,
         "the second tick should raise both lift state and rider");
+  for (int32_t i = 4; i < 8; ++i) {
+    Check(voxels[i].x == 1 && voxels[i].y == 2 && voxels[i].z == i - 2,
+          "the overhead stack must stay behind throughout entry and activation");
+  }
 }
 
 void TestLeavingAuthoredLoweredLiftKeepsItLowered() {
@@ -3129,6 +3193,7 @@ int main() {
   Run(TestSlopeAndFlatIceBridgeNeedsDeliberatePush, "TestSlopeAndFlatIceBridgeNeedsDeliberatePush");
   Run(TestOpposingSlopeLandingCancelsStoredMomentum, "TestOpposingSlopeLandingCancelsStoredMomentum");
   Run(TestAuthoredHoveringLiftsKeepTheirAnchors, "TestAuthoredHoveringLiftsKeepTheirAnchors");
+  Run(TestTerrainLiftsDoNotAttachToActors, "TestTerrainLiftsDoNotAttachToActors");
   Run(TestPlayerEnteringLoweredLiftRaisesAndRides, "TestPlayerEnteringLoweredLiftRaisesAndRides");
   Run(TestPlayerEnteringRaisedLiftLowersAndRides, "TestPlayerEnteringRaisedLiftLowersAndRides");
   Run(TestPlayerLiftToggleUsesItsOwnAnimationTick, "TestPlayerLiftToggleUsesItsOwnAnimationTick");
