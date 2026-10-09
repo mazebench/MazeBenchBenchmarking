@@ -1110,9 +1110,17 @@ TickResult step_tick(
       const bool gravity_continues =
           state->player_falling != 0 ||
           ObjectsNeedGravityTick(voxels, count, width, height, false);
+      const bool resume_object_ice = gravity_continues &&
+          StoredMomentumWillLandOnSlope(state, voxels, count, width);
+      if (!resume_object_ice) {
+        // The horizontal transaction was blocked. Spend that momentum before
+        // completion checks, which would otherwise requeue a supported clone
+        // forever without advancing any tick. A falling body headed for a
+        // lower ramp still retains its latent direction through gravity.
+        ClearHorizontalMomentum(state, count);
+      }
       if (gravity_continues) {
-        state->reserved[0] = StoredMomentumWillLandOnSlope(
-            state, voxels, count, width)
+        state->reserved[0] = resume_object_ice
             ? kResumeObjectIce
             : kResumeNothing;
       }

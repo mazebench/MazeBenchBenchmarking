@@ -170,6 +170,36 @@ test("HxM's first left move keeps both tall boxes stacked after the ramp landing
   }
 });
 
+test("a wide clone's blocked ramp reflection settles without an idle retry loop", async () => {
+  const { engine } = await loadEngine();
+  const definitions = [...blocks,
+    { id: "clone", roleId: "clone", visual: { kind: "cube" } },
+    { id: "ice-slope", roleId: "ice", visual: { kind: "slope" } }
+  ];
+  const room = { width: 16, height: 16, objects: [
+    { x: 5, y: 10, z: 0, blockId: "player" }
+  ] };
+  for (let x = 5; x <= 8; x += 1) {
+    for (let y = 6; y <= 9; y += 1) {
+      if (x === 5 || x === 8 || y === 6 || y === 9) {
+        room.objects.push({ x, y, z: 0, blockId: "clone", genericId: 0, groupId: 0 });
+      }
+    }
+    room.objects.push({ x, y: 4, z: 0, blockId: "wall" },
+      { x, y: 4, z: 1, blockId: "wall" },
+      { x, y: 5, z: 0, blockId: "ice-slope", orientation: "up" });
+  }
+  for (let x = 0; x < 16; x += 1) {
+    for (let y = 0; y < 16; y += 1) room.objects.push({ x, y, z: 0, blockId: "floor" });
+  }
+  const result = await engine.simulateCommand(room, "up", definitions);
+  assert.equal(result.cycle, null);
+  assert.equal(result.frames.length, 1);
+  assert.deepEqual(result.final.objects, room.objects.map((object) =>
+    object.blockId === "clone" ? { ...object, y: object.y - 1, z: object.z + 1 }
+      : object.blockId === "player" ? { ...object, y: object.y - 1 } : object));
+});
+
 test("connected play reloads rooms normally and undo crosses back with exact state", async () => {
   const { engine } = await loadEngine();
   const roomA = {

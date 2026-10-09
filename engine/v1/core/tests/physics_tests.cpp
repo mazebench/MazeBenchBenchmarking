@@ -539,6 +539,91 @@ void TestRampPassengersStopWithGroundedCarrier() {
   }
 }
 
+void TestBlockedCloneRampMomentumCompletes() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  constexpr int32_t dx[] = {0, 1, 0, -1};
+  constexpr int32_t dy[] = {-1, 0, 1, 0};
+  const char* slopes[] = {"ice-slope-up", "ice-slope-right",
+                           "ice-slope-down", "ice-slope-left"};
+  for (int32_t rotation = 0; rotation < 4; ++rotation) {
+    std::vector<voxelbench::Voxel> start = {{5, 10, 1, Role("player"), -1}};
+    for (int32_t x = 5; x <= 8; ++x) {
+      for (int32_t y = 6; y <= 9; ++y) {
+        if (x == 5 || x == 8 || y == 6 || y == 9) {
+          start.push_back({x, y, 1, Role("clone"), 0});
+        }
+      }
+    }
+    const int32_t dynamic_count = static_cast<int32_t>(start.size());
+    for (int32_t x = 0; x < 16; ++x) {
+      for (int32_t y = 0; y < 16; ++y) {
+        start.push_back({x, y, 0, Role("floor"), -1});
+      }
+    }
+    for (int32_t x = 5; x <= 8; ++x) {
+      start.push_back({x, 4, 1, Role("wall"), -1});
+      start.push_back({x, 4, 2, Role("wall"), -1});
+      start.push_back({x, 5, 1, Role(slopes[rotation]), -1});
+    }
+    for (auto& voxel : start) {
+      for (int32_t turn = 0; turn < rotation; ++turn) {
+        const int32_t old_x = voxel.x;
+        voxel.x = 15 - voxel.y;
+        voxel.y = old_x;
+      }
+    }
+    for (const bool reversed : {false, true}) {
+      for (const bool prepared : {false, true}) {
+        for (const bool resumed : {false, true}) {
+          auto voxels = start;
+          if (reversed) std::reverse(voxels.begin(), voxels.begin() + dynamic_count);
+          const auto initial = voxels;
+          const int32_t count = static_cast<int32_t>(voxels.size());
+          const auto prepare = [&]() {
+            voxelbench::reset_workspace(&workspace);
+            if (prepared) {
+              Check(voxelbench::prepare_scene(
+                        &workspace, voxels.data(), count, 16, 16, dynamic_count),
+                    "blocked clone ramp should prepare for search or resume");
+            }
+          };
+          prepare();
+          voxelbench::reset_motion_state(&state);
+          Check(voxelbench::step_command_tick(
+                    &workspace, &state, voxels.data(), count, 16, 16, rotation) ==
+                    voxelbench::TickResult::kMore && state.tick == 1,
+                "clone and player must share the initial ramp entry tick");
+          for (int32_t i = 0; i < count; ++i) {
+            const size_t index = static_cast<size_t>(i);
+            const bool actor = i < dynamic_count;
+            Check(voxels[index].x == initial[index].x + (actor ? dx[rotation] : 0) &&
+                      voxels[index].y == initial[index].y + (actor ? dy[rotation] : 0) &&
+                      voxels[index].z == initial[index].z +
+                          (initial[index].role == Role("clone") ? 1 : 0),
+                  "the whole clone climbs once while the player steps behind it");
+          }
+          const auto expected = voxels;
+          if (resumed) prepare();
+          Check(voxelbench::step_command_tick(
+                    &workspace, &state, voxels.data(), count, 16, 16, rotation) ==
+                    voxelbench::TickResult::kComplete && state.tick == 1 &&
+                    std::memcmp(voxels.data(), expected.data(),
+                        voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                "a blocked ramp reflection must complete without an idle retry loop");
+          voxels = initial;
+          prepare();
+          Check(voxelbench::simulate_quiescent_turn(
+                    &workspace, voxels.data(), count, 16, 16, rotation) == 0 &&
+                    std::memcmp(voxels.data(), expected.data(),
+                        voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                "prepared search must settle to the same blocked clone frame");
+        }
+      }
+    }
+  }
+}
+
 void TestInterlockedPushDoesNotInventMomentum() {
   static voxelbench::PhysicsWorkspace workspace;
   static voxelbench::MotionState state;
@@ -3375,6 +3460,7 @@ int main() {
   Run(TestSparseStackCarryIgnoresUnrelatedSlopes, "TestSparseStackCarryIgnoresUnrelatedSlopes");
   Run(TestTallStacksFollowRampCarrierTicks, "TestTallStacksFollowRampCarrierTicks");
   Run(TestRampPassengersStopWithGroundedCarrier, "TestRampPassengersStopWithGroundedCarrier");
+  Run(TestBlockedCloneRampMomentumCompletes, "TestBlockedCloneRampMomentumCompletes");
   Run(TestInterlockedPushDoesNotInventMomentum, "TestInterlockedPushDoesNotInventMomentum");
   Run(TestCarrierMomentumCannotLeakIntoNextScene, "TestCarrierMomentumCannotLeakIntoNextScene");
   Run(TestBlockedPassengersDoNotAnchorTheirCarrier, "TestBlockedPassengersDoNotAnchorTheirCarrier");
