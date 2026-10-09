@@ -115,9 +115,13 @@ bool TranslateMovingObjects(
         }
         continue;
       }
-      if (allow_push &&
-          DeliberatePushMayRecruit(object, other_object)) {
-        AddMandatoryObject(other_object, queue_end);
+      const int32_t push_target = allow_push
+          ? DeliberatePushContactObject(voxels, other_object, width, height)
+          : other_object;
+      if (allow_push && push_target >= 0 &&
+          (g_mandatory_objects[push_target] != 0 ||
+           DeliberatePushMayRecruit(object, push_target))) {
+        AddMandatoryObject(push_target, queue_end);
         continue;
       }
       return false;
@@ -172,8 +176,13 @@ bool TranslateMovingObjects(
               (other >= 0 && g_mandatory_objects[other] != 0)) {
             continue;
           }
-          if (allow_push && DeliberatePushMayRecruit(object, other)) {
-            AddMandatoryObject(other, queue_end);
+          const int32_t push_target = allow_push
+              ? DeliberatePushContactObject(voxels, other, width, height)
+              : other;
+          if (allow_push && push_target >= 0 &&
+              (g_mandatory_objects[push_target] != 0 ||
+               DeliberatePushMayRecruit(object, push_target))) {
+            AddMandatoryObject(push_target, queue_end);
             continue;
           }
           return false;

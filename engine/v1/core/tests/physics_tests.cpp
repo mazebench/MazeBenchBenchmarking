@@ -618,6 +618,65 @@ void TestIndependentCloneCommands() {
         "an unblocked clone should still receive the shared command");
 }
 
+void TestActorPolycubesPushThroughMountedLifts() {
+  for (const bool player_body : {false, true}) {
+    for (const bool remote_slope : {false, true}) {
+      for (const char* box_role : {"weightless-pushable", "pushable"}) {
+        for (int32_t obstruction = 0; obstruction < 5; ++obstruction) {
+          std::vector<voxelbench::Voxel> start;
+          if (!player_body) start.push_back({0, 3, 1, Role("player"), -1});
+          const size_t actor_begin = start.size();
+          const uint32_t actor_role = Role(player_body ? "player" : "clone");
+          start.push_back({2, 3, 1, actor_role, 0});
+          start.push_back({2, 3, 2, actor_role, 0});
+          start.push_back({3, 3, 2, actor_role, 0});
+          start.push_back({3, 2, 1,
+              Role(obstruction == 3 ? "wall" : box_role), 0});
+          start.push_back({3, 2, 2, Role("player-lift"), 1});
+          const size_t moving_end = start.size();
+          if (obstruction == 1) start.push_back({3, 1, 1, Role("wall"), -1});
+          if (obstruction == 2) start.push_back({3, 1, 2, Role("wall"), -1});
+          if (obstruction == 4) {
+            start.push_back({3, 1, 1, Role("pushable"), -1});
+            start.push_back({3, 0, 1, Role("pushable"), -1});
+          }
+          for (int32_t y = 0; y < 6; ++y) {
+            for (int32_t x = 0; x < 6; ++x) {
+              start.push_back({x, y, 0,
+                  Role(remote_slope && x == 5 && y == 5
+                      ? "ice-slope-up" : "floor"), -1});
+            }
+          }
+          auto expected = start;
+          if (!player_body) --expected[0].y;
+          if (obstruction == 0) {
+            for (size_t i = actor_begin; i < moving_end; ++i) --expected[i].y;
+          }
+          for (const bool reversed : {false, true}) {
+            auto voxels = start;
+            auto reference = expected;
+            if (reversed) {
+              std::reverse(voxels.begin(), voxels.end());
+              std::reverse(reference.begin(), reference.end());
+            }
+            Check(voxelbench::simulate_turn(voxels.data(),
+                      static_cast<int32_t>(voxels.size()), 6, 6, 0) == 0,
+                  "actor contact with a mounted lift should complete");
+            for (size_t i = 0; i < voxels.size(); ++i) {
+              Check(voxels[i].x == reference[i].x &&
+                        voxels[i].y == reference[i].y &&
+                        voxels[i].z == reference[i].z &&
+                        voxels[i].role == reference[i].role &&
+                        voxels[i].generic_id == reference[i].generic_id,
+                    "only a valid complete carrier push may move the actor, box and lift");
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 void TestBlueSlopeAndBoxShareTheirGenericBody() {
   voxelbench::Voxel voxels[] = {
       {1, 3, 1, Role("player"), -1},
@@ -3148,6 +3207,7 @@ int main() {
   Run(TestIceStopsAtObstacle, "TestIceStopsAtObstacle");
   Run(TestUnknownRoleBlocks, "TestUnknownRoleBlocks");
   Run(TestIndependentCloneCommands, "TestIndependentCloneCommands");
+  Run(TestActorPolycubesPushThroughMountedLifts, "TestActorPolycubesPushThroughMountedLifts");
   Run(TestBlueSlopeAndBoxShareTheirGenericBody, "TestBlueSlopeAndBoxShareTheirGenericBody");
   Run(TestYellowSlopeAndCloneShareTheirGenericBody, "TestYellowSlopeAndCloneShareTheirGenericBody");
   Run(TestInterlockingCloneCommandComponent, "TestInterlockingCloneCommandComponent");

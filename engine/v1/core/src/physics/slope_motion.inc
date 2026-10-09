@@ -85,7 +85,10 @@ bool TranslateSlopeMomentumObjects(
         const int32_t occupant = FindVoxelAt(
             voxels, next_x, next_y, next_z, width, height);
         if (occupant < 0 || occupant == player_index) continue;
-        const int32_t other = g_voxel_object[occupant];
+        const int32_t other = allow_push
+            ? DeliberatePushContactObject(
+                  voxels, g_voxel_object[occupant], width, height)
+            : g_voxel_object[occupant];
         if (other < 0 || other == object ||
             g_mandatory_objects[other] != 0) {
           continue;

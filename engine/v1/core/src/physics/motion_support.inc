@@ -27,6 +27,26 @@ bool ObjectCanTransmitDeliberatePush(int32_t object) {
       g_object_kind[object] == kPlayerObject;
 }
 
+int32_t DeliberatePushContactObject(
+    Voxel* voxels, int32_t object, int32_t width, int32_t height) {
+  if (object < 0 || g_object_kind[object] != kMechanismObject) return object;
+  const int32_t fixture = g_object_head[object];
+  if (fixture < 0 || voxels[fixture].role != kPlayerLiftRole ||
+      !PlayerLiftIsRaised(voxels[fixture])) {
+    return object;
+  }
+  // A raised mounted lift transmits contact to its box, rather than becoming
+  // independently pushable. Recruit the carrier into the ordinary push closure
+  // so its weight and every obstruction still validate before anything moves.
+  const int32_t attachment = MechanismAttachmentVoxel(
+      voxels, object, width, height);
+  const int32_t carrier = attachment >= 0 ? g_voxel_object[attachment] : -1;
+  return carrier >= 0 &&
+          (g_object_kind[carrier] == kNormalObject ||
+           g_object_kind[carrier] == kWeightlessObject)
+      ? carrier : object;
+}
+
 bool DeliberatePushMayRecruit(int32_t source, int32_t target) {
   if (!ObjectCanTransmitDeliberatePush(source) || target < 0) return false;
   if (g_object_kind[target] == kWeightlessObject) return true;
