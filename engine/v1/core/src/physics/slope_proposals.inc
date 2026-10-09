@@ -225,6 +225,13 @@ bool ObjectProposalVacatesCell(
     int32_t y,
     int32_t z);
 
+bool DeferredSlopeProposalIsClear(
+    Voxel* voxels,
+    int32_t object,
+    int32_t player_index,
+    int32_t width,
+    int32_t height);
+
 bool AddAutonomousSlopeObjects(
     Voxel* voxels,
     int32_t player_index,
@@ -293,7 +300,16 @@ bool AddAutonomousSlopeObjects(
       // move it without changing its shape.
       continue;
     }
+    const uint8_t previous_direction = g_object_direction[object];
     g_object_direction[object] = static_cast<uint8_t>(downhill);
+    // Slope gravity cannot borrow the deliberate push's contact permissions.
+    // Only seed a free downhill proposal here. A body blocked by a source
+    // cell that really vacates is recruited by the propagation pass below.
+    if (!DeferredSlopeProposalIsClear(
+            voxels, object, player_index, width, height)) {
+      g_object_direction[object] = previous_direction;
+      continue;
+    }
     g_mandatory_objects[object] = 1;
     g_moving_objects[object] = 1;
     added = true;
@@ -383,13 +399,6 @@ bool AddAutonomousSlopeObjects(
   }
   return added;
 }
-
-bool DeferredSlopeProposalIsClear(
-    Voxel* voxels,
-    int32_t object,
-    int32_t player_index,
-    int32_t width,
-    int32_t height);
 
 bool PromoteDeferredSlopeMomentum(
     Voxel* voxels,

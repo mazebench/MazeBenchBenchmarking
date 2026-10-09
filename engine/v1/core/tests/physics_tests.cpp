@@ -1978,6 +1978,74 @@ void TestCappedSearchDoesNotClaimAnOptimalProof() {
         "the same route should become exact when the full frontier is retained");
 }
 
+void TestDistantPushCannotShoveBlockedSlopeBodies() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  constexpr int32_t dx[] = {0, 1, 0, -1};
+  constexpr int32_t dy[] = {-1, 0, 1, 0};
+  const char* ramps[] = {"ice-slope-up", "ice-slope-right",
+                         "ice-slope-down", "ice-slope-left"};
+  for (int32_t rotation = 0; rotation < 4; ++rotation) {
+    const int32_t direction = (2 + rotation) % 4;
+    for (int32_t scenario = 0; scenario < 3; ++scenario) {
+      // An unrelated two-cell box rests on a ramp, blocked downhill by
+      // another two-cell box on Floor. The player walks or pushes far away.
+      std::vector<voxelbench::Voxel> start = {
+          {5, 1, 1, Role("player"), -1},
+          {2, 3, 2, Role("weightless-pushable"), 7},
+          {3, 3, 2, Role("weightless-pushable"), 7},
+          {2, 4, 1, Role("weightless-pushable"), 6},
+          {3, 4, 1, Role("weightless-pushable"), 6},
+      };
+      const bool pushing = scenario != 0;
+      if (pushing) start.push_back({5, 3, 1, Role("weightless-pushable"), 1});
+      const int32_t dynamic_count = static_cast<int32_t>(start.size());
+      if (scenario == 2) start.push_back({5, 4, 1, Role("wall"), -1});
+      start.push_back({2, 3, 1, Role(ramps[rotation]), -1});
+      start.push_back({3, 3, 1, Role(ramps[rotation]), -1});
+      for (int32_t x = 0; x < 6; ++x) {
+        for (int32_t y = 0; y < 6; ++y) start.push_back({x, y, 0, Role("floor"), -1});
+      }
+      for (auto& voxel : start) {
+        for (int32_t turn = 0; turn < rotation; ++turn) {
+          const int32_t old_x = voxel.x;
+          voxel.x = 5 - voxel.y;
+          voxel.y = old_x;
+        }
+      }
+      for (const bool prepared : {false, true}) {
+        auto voxels = start;
+        voxelbench::reset_workspace(&workspace);
+        if (prepared) {
+          Check(voxelbench::prepare_scene(
+                    &workspace, voxels.data(), static_cast<int32_t>(voxels.size()),
+                    6, 6, dynamic_count),
+                "isolated ramp assembly should prepare for search");
+        }
+        for (int32_t command = 0; command < 2; ++command) {
+          auto expected = voxels;
+          if (command == 0 || scenario != 2) {
+            expected[0].x += dx[direction];
+            expected[0].y += dy[direction];
+          }
+          if (command == 1 && scenario == 1) {
+            expected[5].x += dx[direction];
+            expected[5].y += dy[direction];
+          }
+          voxelbench::reset_motion_state(&state);
+          Check(voxelbench::step_command_tick(
+                    &workspace, &state, voxels.data(), static_cast<int32_t>(voxels.size()),
+                    6, 6, direction) == voxelbench::TickResult::kComplete && state.tick == 1,
+                "each isolated walk or push completes in one tick");
+          Check(std::memcmp(voxels.data(), expected.data(),
+                    voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                "a local walk, push, or blocked push cannot shove a distant ramp assembly");
+        }
+      }
+    }
+  }
+}
+
 void TestSlopeCarrierMovesStationaryRider() {
   voxelbench::Voxel voxels[] = {
       {0, 2, 1, Role("player"), -1},
@@ -3665,6 +3733,7 @@ int main() {
   Run(TestSearchStoresLargePolycubeAsOneEntity, "TestSearchStoresLargePolycubeAsOneEntity");
   Run(TestGeneralSearchChecksRaisedPolycubeCollisions, "TestGeneralSearchChecksRaisedPolycubeCollisions");
   Run(TestCappedSearchDoesNotClaimAnOptimalProof, "TestCappedSearchDoesNotClaimAnOptimalProof");
+  Run(TestDistantPushCannotShoveBlockedSlopeBodies, "TestDistantPushCannotShoveBlockedSlopeBodies");
   Run(TestSlopeCarrierMovesStationaryRider, "TestSlopeCarrierMovesStationaryRider");
   Run(TestRemotePolycubeMemberCarriesPerpendicularSlopeRider, "TestRemotePolycubeMemberCarriesPerpendicularSlopeRider");
   Run(TestSlopeAndFlatIceBridgeNeedsDeliberatePush, "TestSlopeAndFlatIceBridgeNeedsDeliberatePush");
