@@ -124,7 +124,7 @@ time order: a temporary boundary can reflect a slope slide back into the room
 or cause a cycle before the command ends. Ignore the cycle's rollback frame as
 movement. Skip already attached rooms; if the neighboring geometry prevents
 entry, retain the original trace and continue checking later edge contacts.
-Repeat this so one command may visit a straight or L-shaped chain of rooms
+Repeat this so one command may traverse a straight or L-shaped chain of rooms
 without loading unrelated rooms.
 
 Rooms attached during a command start from immutable authored data with their
@@ -137,6 +137,13 @@ and must preserve the room identity, state, and room-scoped reset state in each
 undo snapshot. Undoing a transition switches back to the previous room and
 restores its exact pre-command state; ordinary forward re-entry still starts
 from immutable authored room data.
+
+Visitation and authored-start unlocks count only the room where a directional
+command finishes. Intermediate rooms traversed during an Ice slide or punch
+remain unvisited unless an earlier command settled there. Keep their animation
+frames and path telemetry, but do not create entrances, room proofs, or room
+command access for them. Solutions replay/import and new-room searches must
+apply the same rule; the Random Agent's reached-room list uses settled outcomes.
 
 Orange buttons control only the orange walls in their own room, including every
 intermediate tick of a crossing. Combining room geometry must never combine its

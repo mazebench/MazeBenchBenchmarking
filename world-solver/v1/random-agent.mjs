@@ -156,8 +156,8 @@ export async function runRandomAgentV1(engine, sourceWorld, options = {}) {
     });
   };
 
-  const observe = (observedRoom, observedState) => {
-    reachRoom(observedRoom);
+  const observe = (observedRoom, observedState, settled = true) => {
+    if (settled) reachRoom(observedRoom);
     const pixel = randomAgentPixelV1(
       world,
       observedRoom,
@@ -430,7 +430,8 @@ export async function runRandomAgentV1(engine, sourceWorld, options = {}) {
         };
         edgeCache.set(cacheKey, outcome);
       }
-      for (const frame of outcome.observations) observe(frame.room, frame.state);
+      // Trace pixels are telemetry; only the settled outcome is a reached room.
+      for (const frame of outcome.observations) observe(frame.room, frame.state, false);
       if (outcome.observedCell) {
         observeCell(outcome.observedCell.room, outcome.observedCell.x, outcome.observedCell.y);
       }

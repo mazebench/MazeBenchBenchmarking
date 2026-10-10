@@ -19,7 +19,9 @@ Start the site with `node server.mjs` from the repository root if needed.
   options up to ten minutes for harder puzzles. Cancel stops the search
   without changing your moves. A time or memory limit is not an unreachable
   result.
-- Green on the map means **visited**. Unvisited rooms cannot be selected.
+- Green on the map means **visited**: a move must finish in that room.
+  Sliding or being punched through a room does not visit it or unlock its
+  starting position. Unvisited rooms cannot be selected.
   Gold diamonds mark remaining gems; white dots mark collected gems. A room
   with both has some gems left. Hover for exact counts or select a visited
   room to see its collected/remaining total.
@@ -76,8 +78,9 @@ are never offered as selectable spawns.
 
 A crossing records its entrance coordinate and its settled player position.
 Spawn selection resets the authored room at that settled position; intermediate
-rooms crossed during one continuous slide are visited without inventing a place
-the player could stop. Full solution always replays and checks entrance setups;
+rooms passed through during one continuous slide or punch stay unvisited and
+locked. Only the room where the command finishes gets an entrance and an
+unlocked authored start. Full solution always replays and checks entrance setups;
 a setup that cannot reproduce the reset board is reported as blocked.
 Rooms without an authored player have no fabricated default start.
 

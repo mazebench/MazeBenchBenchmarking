@@ -496,6 +496,7 @@ export class BenchmarkGameRuntime {
       animationFrames = frames;
       animationCycle = simulation.cycle || null;
       for (const frame of frames) {
+        this.noteVisited(frame.room, frame.state);
         this.collectMissingGems(frame.room, frame.state);
         // A cycle rollback can restore an earlier board after a gem was credited.
         frame.state = this.withoutCollectedGems(frame.room, frame.state);
@@ -506,8 +507,6 @@ export class BenchmarkGameRuntime {
         this.internal.roomRevision = afterRoom.liveRevision;
       }
       this.internal.roomFile = afterRoom.fileName;
-      // Passing through a room during Ice/punch playback is not a visit and
-      // must not unlock its authored start via a room command.
       this.noteVisited(afterRoom, simulation.final);
       this.collectMissingGems(afterRoom, simulation.final);
       this.internal.state = this.withoutCollectedGems(afterRoom, simulation.final);

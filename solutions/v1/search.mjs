@@ -17,7 +17,7 @@ export async function searchRoute(model, goal, {maximumNodes=8000, maximumMs=150
   const excludedRooms=new Set(goal.excludedRooms || model.visitedRooms), excludedGems=new Set(goal.excludedGems || model.collectedGems);
   const origin=start;
   const reached=node=>goal.kind==='gem' ? node.collected.some(id=>!excludedGems.has(id)&&!origin.collected.includes(id))
-    : goal.kind==='room' ? (node.crossings||[]).some(c=>!excludedRooms.has(c.room))
+    : goal.kind==='room' ? !excludedRooms.has(node.room)
       : node.room===goal.room && (()=>{const p=model.player(node.state);return p&&p.x===goal.x&&p.y===goal.y&&(goal.z==null||p.z===goal.z);})();
   const targets=goal.kind==='location' ? [{...goal,room:model.rooms.get(goal.room)}]
     : goal.kind==='gem' ? model.world.rooms.flatMap(room=>room.objects.filter(o=>model.role(o)==='goal'&&!excludedGems.has(o.solutionObjectId)&&!origin.collected.includes(o.solutionObjectId)).map(o=>({...o,room})))

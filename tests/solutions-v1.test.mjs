@@ -103,7 +103,7 @@ test('ice crossings preserve entrances and count only gems collected by the engi
  const w=world();w.rooms.push(room('c.json',['J','I'],2));w.columns.push('J');
  for(const r of w.rooms){r.objects=r.objects.filter(o=>o.blockId!=='gem');for(const o of r.objects)if(o.blockId==='floor'&&o.y===1)o.blockId='ice';}
  w.rooms[0].objects.push({blockId:'gem',x:3,y:1,z:0});w.rooms[1].objects.push({blockId:'gem',x:1,y:1,z:0});w.rooms[2].objects.push({blockId:'wall',x:3,y:1,z:0},{blockId:'gem',x:2,y:1,z:0});
- const m=await create(w);await m.move('right');assert.equal(m.current.room,'c.json');assert.equal(m.verifiedRooms.size,3);assert.equal(m.verifiedGems.size,1,'passing over a gem during an ice slide is not a collection');
+ const m=await create(w);await m.move('right');assert.equal(m.current.room,'c.json');assert.equal(m.verifiedRooms.size,2);assert.equal(m.verifiedGems.size,1,'passing over a gem during an ice slide is not a collection');
  const entrance=m.spots.get(m.source);assert.deepEqual(entrance.entry,{x:0,y:1,z:0});assert.deepEqual(m.position(entrance.state),{x:2,y:1,z:0});assert.deepEqual(entrance.path,['right']);
  const restored=await create(w);await restored.restore(m.save());assert.deepEqual(restored.snapshot().verifiedGems,m.snapshot().verifiedGems);
 });
@@ -194,7 +194,7 @@ test('native proposals use the real settled state when Ice carries the player th
  for(const r of w.rooms){r.objects=r.objects.filter(o=>o.blockId!=='gem');for(const o of r.objects)if(o.blockId==='floor'&&o.y===1)o.blockId='ice';}
  w.rooms[2].objects.push({blockId:'wall',x:3,y:1,z:0},{blockId:'gem',x:2,y:1,z:0});
  const m=await create(w),native=await nativeEngine(),result=await planRoute(m,native,{kind:'gem'});
- assert.equal(result.status,'found');await m.applyRoute(result.actions);assert.equal(m.verifiedRooms.size,3);assert.equal(m.verifiedGems.size,1);
+ assert.equal(result.status,'found');await m.applyRoute(result.actions);assert.equal(m.verifiedRooms.size,2);assert.equal(m.verifiedGems.size,1);
  assert.deepEqual(m.position(m.current.state),{x:2,y:1,z:0});
 });
 
@@ -253,11 +253,12 @@ test('undo restores full moving-object state, not just the player coordinate',as
  assert.equal(m.key(m.current),m.key(initial));assert.deepEqual(m.current.state,initial.state);
 });
 
-test('undo deletes all intermediate room proofs from a single continuous Ice move',async()=>{
+test('undo deletes the settled room proof from a continuous Ice move without proving intermediate rooms',async()=>{
  const w=world();w.rooms.push(room('c.json',['J','I'],2));
  for(const r of w.rooms){r.objects=r.objects.filter(o=>o.blockId!=='gem');for(const o of r.objects)if(o.blockId==='floor'&&o.y===1)o.blockId='ice';}
  w.rooms[2].objects.push({blockId:'wall',x:3,y:1,z:0},{blockId:'gem',x:2,y:1,z:0});
- const m=await create(w),before=m.save();await m.move('right');assert.equal(m.verifiedRooms.size,3);assert.equal(m.verifiedGems.size,1);
+ const m=await create(w),before=m.save();await m.move('right');assert.equal(m.verifiedRooms.size,2);assert.equal(m.verifiedGems.size,1);
+ assert.deepEqual([...m.roomProofs.keys()],['a.json','c.json']);
  await m.undo();assert.deepEqual(m.save(),before);assert.equal(m.current.room,'a.json');assert.equal(m.verifiedRooms.size,1);assert.equal(m.verifiedGems.size,0);
 });
 

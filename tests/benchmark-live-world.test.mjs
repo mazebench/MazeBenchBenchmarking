@@ -16,9 +16,10 @@ const room=(extras=[])=>({width:16,height:16,objects:[...floor(),...extras]});
 const source=value=>JSON.stringify(encodeVoxelRoom(value))+'\n';
 const player=r=>r.internal.state.objects.find(o=>o.blockId==='player');
 const hasWall=(r,x,y)=>r.internal.state.objects.some(o=>o.blockId==='wall'&&o.x===x&&o.y===y);
-async function fixture(Runtime=BenchmarkGameRuntime,live=true){
+async function fixture(Runtime=BenchmarkGameRuntime,live=true,runtimeFixture=null){
  const root=await mkdtemp('/tmp/maze-live-world-test-');
  for(const name of ['benchmarking','engine/v1','play/v1','render','render-ascii/v1'])await cp(path.join(original,name),path.join(root,name),{recursive:true});
+ if(runtimeFixture)await cp(runtimeFixture,path.join(root,'benchmarking/v1/runtime.mjs'));
  const level=path.join(root,'level-data/v2/main-world');await mkdir(level,{recursive:true});
  const a=room([{x:1,y:15,z:0,blockId:'player'}]),b=room([{x:1,y:15,z:0,blockId:'player'},{x:1,y:1,z:0,blockId:'gem'}]);
  await writeFile(path.join(level,'world.json'),JSON.stringify({storageFormat:V2_WORLD_FORMAT,rooms:{'a.json':['H','I'],'b.json':['H','J']},blocks:V2_BLOCK_CATALOG}));
@@ -80,7 +81,9 @@ for (const Runtime of [BenchmarkGameRuntime, VisionRuntime]) for (const live of 
 }
 
 for(const drift of [false,true]) test(`persistent-gem operator upgrade ${drift?'rejects unrelated drift':'preserves the authenticated checkpoint and session'}`,async()=>{
- const f=await fixture();try{
+ // This historical migration admits one audited runtime pair. Later behavior
+ // changes must not silently expand its allowlist or reseal existing runs.
+ const f=await fixture(BenchmarkGameRuntime,true,new URL('./fixtures/persistent-gems-runtime.mjs.txt',import.meta.url));try{
   await f.runtime.applySequence(['down','down']);
   const executable=path.join(f.root,'fixture-claude'),prompt='Fixture prompt';
   await writeFile(executable,'fixture executable');await writeFile(path.join(f.directory,'prompt.md'),prompt);

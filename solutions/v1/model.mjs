@@ -76,14 +76,20 @@ export class SolutionsModel {
     const frames = simulation.animationFrames?.length ? simulation.animationFrames
       : (simulation.frames?.length ? simulation.frames : [simulation.final]).map(state=>({room,state}));
     for (const id of simulation.collected || []) if (id) collected.add(id);
-    const crossings = []; let prior = room.fileName;
+    const finalRoom = (simulation.room || room).fileName;
+    let prior = room.fileName, entrance = null;
     for (const frame of frames) {
       const name = frame.room.fileName;
-      if (name !== prior) { crossings.push({room:name, position:this.position(frame.state)}); prior=name; }
+      if (name !== prior) {
+        // Only a room where the command settles unlocks a start or resume spot.
+        // Keep the last entry coordinate if momentum leaves and re-enters it.
+        if (name === finalRoom) entrance = {room:name, position:this.position(frame.state)};
+        prior=name;
+      }
       const active = new Set(frame.state.objects.filter(o => inside(o,frame.state)).map(o => o.solutionObjectId));
       for (const id of this.goalIds.get(name) || []) if (!active.has(id)) collected.add(id);
     }
-    const result = { room: (simulation.room || room).fileName, state: simulation.final, collected: [...collected].sort(), crossings,
+    const result = { room: finalRoom, state: simulation.final, collected: [...collected].sort(), crossings: entrance ? [entrance] : [],
       gained: [...collected].filter(id => !node.collected.includes(id)) };
     result.changed = this.key(node) !== this.key(result);
     // Only interactive playback opts in. Search nodes, undo history and saved

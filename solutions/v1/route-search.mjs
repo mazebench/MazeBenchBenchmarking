@@ -17,7 +17,7 @@ export async function planRoute(model,native,goal,options={}) {
     if(!room||!Number.isInteger(goal.x)||!Number.isInteger(goal.y)||goal.x<0||goal.y<0||goal.x>=room.width||goal.y>=room.height||(goal.z!=null&&!Number.isInteger(goal.z)))throw new Error('Choose a valid target coordinate.');
   }
   const reached=node=>goal.kind==='gem'?node.collected.some(id=>!excludedGems.has(id))
-    :goal.kind==='room'?(node.crossings??[]).some(c=>!excludedRooms.has(c.room))
+    :goal.kind==='room'?!excludedRooms.has(node.room)
     :node.room===goal.room&&(()=>{const p=model.player(node.state);return p&&p.x===goal.x&&p.y===goal.y&&(goal.z==null||p.z===goal.z);})();
   const targets=goal.kind==='location'?[{room:model.rooms.get(goal.room),x:goal.x,y:goal.y}]
     :goal.kind==='gem'?model.world.rooms.flatMap(room=>room.objects.filter(o=>model.role(o)==='goal'&&!excludedGems.has(o.solutionObjectId)).map(o=>({room,x:o.x,y:o.y})))
