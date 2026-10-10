@@ -136,6 +136,7 @@ bool AdvanceCloneCommandObjects(
   for (;;) {
     int32_t next_object = -1;
     int64_t next_front = INT64_MIN;
+    int32_t next_bottom = INT32_MAX;
     for (int32_t object = 0; object < g_object_count; ++object) {
       if (!ObjectReceivesActorCommand(voxels, object) ||
           g_clone_command_processed[object] != 0 ||
@@ -143,15 +144,20 @@ bool AdvanceCloneCommandObjects(
         continue;
       }
       int64_t front = INT64_MIN;
+      int32_t bottom = INT32_MAX;
       for (int32_t member = g_object_head[object]; member >= 0;
            member = g_next_object_voxel[member]) {
         const int64_t projection =
             static_cast<int64_t>(voxels[member].x) * dx +
             static_cast<int64_t>(voxels[member].y) * dy;
         if (projection > front) front = projection;
+        if (voxels[member].z < bottom) bottom = voxels[member].z;
       }
-      if (front > next_front) {
+      // Aligned actors resolve bottom first so passengers inherit the
+      // carrier's ramp transform before receiving their own command.
+      if (front > next_front || (front == next_front && bottom < next_bottom)) {
         next_front = front;
+        next_bottom = bottom;
         next_object = object;
       }
     }
@@ -299,6 +305,9 @@ bool AdvanceCloneCommandObjects(
     for (int32_t object = 0; object < g_object_count; ++object) {
       if (g_moving_objects[object] != 0) {
         g_clone_command_moved[object] = 1;
+        // Being carried consumes an actor's input too. Otherwise upper
+        // clones can step again in this same tick and split a climbing stack.
+        if (IsCommandActorObject(object)) g_clone_command_processed[object] = 1;
       }
     }
   }

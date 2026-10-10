@@ -36,6 +36,11 @@ advance by one cell on their respective axes; slope moves may combine axes.
 The authored timeline length, every intermediate frame, and the exact global
 cycle interval are part of the contract, not just the final arrangement.
 
+Aligned clone stacks resolve their supporting actors first. Being carried
+consumes that tick's directional input, so an upper clone cannot take another
+step after inheriting its carrier's full ramp movement. Group IDs and voxel
+storage order must not change the stack's animation or search successor.
+
 The `floor` role is intentionally distinct from ordinary solid support: a
 player may deliberately walk off a floor edge, but cannot deliberately walk
 off other support. Ice momentum may carry it beyond any support.

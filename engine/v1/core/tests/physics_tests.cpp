@@ -462,6 +462,97 @@ void TestTallStacksFollowRampCarrierTicks() {
   }
 }
 
+void TestCloneStacksReceiveOneRampCommand() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  constexpr int32_t heights[] = {0, 1, 2, 3, 3, 2, 1};
+  constexpr int32_t ids[] = {23, 7, 41, 19};
+  constexpr const char* slopes[] = {
+      "ice-slope-up", "ice-slope-right", "ice-slope-down", "ice-slope-left"};
+  constexpr int32_t elevations[] = {2, 3, 4, 4, 3, 2, 1};
+  for (const int32_t actors : {2, 3, 4}) {
+    for (const int32_t layers : {1, 2}) {
+      for (int32_t rotation = 0; rotation < 4; ++rotation) {
+        std::vector<voxelbench::Voxel> start = {{2, 7, 1, Role("player"), -1}};
+        for (int32_t actor = 0; actor < actors; ++actor) {
+          for (int32_t layer = 0; layer < layers; ++layer) {
+            start.push_back({5, 7, 1 + actor * layers + layer, Role("clone"), ids[actor]});
+          }
+        }
+        const int32_t dynamic_count = static_cast<int32_t>(start.size());
+        for (int32_t y = 0; y < 10; ++y) {
+          for (int32_t x = 0; x < 10; ++x) {
+            start.push_back({x, y, 0, Role("floor"), -1});
+          }
+        }
+        for (int32_t y = 1; y <= 6; ++y) {
+          for (int32_t z = 1; z <= heights[y]; ++z) {
+            start.push_back({5, y, z,
+                z == heights[y] ? Role(slopes[(rotation + (y <= 3 ? 2 : 0)) % 4])
+                                : Role("wall"), -1});
+          }
+        }
+        for (auto& voxel : start) for (int32_t turn = 0; turn < rotation; ++turn) {
+          const int32_t x = voxel.x;
+          voxel.x = 9 - voxel.y;
+          voxel.y = x;
+        }
+        for (const bool reversed : {false, true}) {
+          for (const bool prepared : {false, true}) {
+            auto voxels = start;
+            if (reversed) std::reverse(voxels.begin(), voxels.begin() + dynamic_count);
+            const auto initial = voxels;
+            const int32_t count = static_cast<int32_t>(voxels.size());
+            voxelbench::reset_workspace(&workspace);
+            voxelbench::reset_motion_state(&state);
+            if (prepared) Check(voxelbench::prepare_scene(
+                &workspace, voxels.data(), count, 10, 10, dynamic_count),
+                "clone ramp stack should prepare for search");
+            auto result = voxelbench::TickResult::kInvalid;
+            for (int32_t tick = 1; tick <= 7; ++tick) {
+              result = voxelbench::step_tick(
+                  &workspace, &state, voxels.data(), count, 10, 10, rotation);
+              Check(state.tick == tick && result != voxelbench::TickResult::kInvalid,
+                  "clone stack must expose exactly one synchronized transform per tick");
+              for (int32_t i = 0; i < count; ++i) {
+                const size_t index = static_cast<size_t>(i);
+                auto expected = initial[index];
+                if (i < dynamic_count) {
+                  constexpr int32_t dx[] = {0, 1, 0, -1};
+                  constexpr int32_t dy[] = {-1, 0, 1, 0};
+                  const bool clone = expected.role == Role("clone");
+                  const int32_t distance = clone ? tick : 1;
+                  expected.x += dx[rotation] * distance;
+                  expected.y += dy[rotation] * distance;
+                  if (clone) expected.z += elevations[tick - 1] - 1;
+                }
+                Check(std::memcmp(&voxels[index], &expected, sizeof(expected)) == 0,
+                    "every clone passenger follows the carrier once without changing its ID");
+              }
+            }
+            const auto final = voxels;
+            if (result == voxelbench::TickResult::kMore) {
+              Check(voxelbench::step_tick(
+                  &workspace, &state, voxels.data(), count, 10, 10, rotation) ==
+                      voxelbench::TickResult::kComplete && state.tick == 7,
+                  "clone ramp stack must not add an eighth animation tick");
+            }
+            voxels = initial;
+            voxelbench::reset_workspace(&workspace);
+            if (prepared) Check(voxelbench::prepare_scene(
+                &workspace, voxels.data(), count, 10, 10, dynamic_count),
+                "clone stack should reprepare for a final-state successor");
+            Check(voxelbench::simulate_quiescent_turn(
+                &workspace, voxels.data(), count, 10, 10, rotation) == 0 &&
+                std::memcmp(voxels.data(), final.data(), voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                "prepared search and animated clone stacks must finish identically");
+          }
+        }
+      }
+    }
+  }
+}
+
 void TestRampPassengersStopWithGroundedCarrier() {
   static voxelbench::PhysicsWorkspace workspace;
   static voxelbench::MotionState state;
@@ -4200,6 +4291,7 @@ int main() {
   Run(TestRampCrestPushesOnlyUnblockedWeightlessChains, "TestRampCrestPushesOnlyUnblockedWeightlessChains");
   Run(TestSparseStackCarryIgnoresUnrelatedSlopes, "TestSparseStackCarryIgnoresUnrelatedSlopes");
   Run(TestTallStacksFollowRampCarrierTicks, "TestTallStacksFollowRampCarrierTicks");
+  Run(TestCloneStacksReceiveOneRampCommand, "TestCloneStacksReceiveOneRampCommand");
   Run(TestRampPassengersStopWithGroundedCarrier, "TestRampPassengersStopWithGroundedCarrier");
   Run(TestBlockedCloneRampMomentumCompletes, "TestBlockedCloneRampMomentumCompletes");
   Run(TestInterlockedPushDoesNotInventMomentum, "TestInterlockedPushDoesNotInventMomentum");
