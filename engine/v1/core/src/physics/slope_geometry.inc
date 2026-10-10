@@ -202,12 +202,13 @@ bool SlopeEntryIsBlocked(
   }
   // Once on the ramp surface, ordinary directions remain legal. From level
   // terrain, walking can enter only through the high edge. Existing Ice
-  // momentum may also cross a side edge at the same elevation; the following
-  // tick redirects downhill. Standing on Ice alone is not sliding momentum.
+  // momentum may cross the low or side edge at the same elevation. The low
+  // edge consumes momentum from flat Ice, while side entry redirects on the
+  // following tick. Standing on Ice alone is not sliding momentum.
   if (SlopeSupportingVoxel(voxels, voxel, width, height) >= 0) return false;
   const int32_t slope_direction = IceSlopeDirection(voxels[next_support].role);
   return direction != OppositeDirection(slope_direction) &&
-      !(has_ice_momentum && direction != slope_direction);
+      !has_ice_momentum;
 }
 
 int32_t RedirectMovingObjectSlopeDirection(

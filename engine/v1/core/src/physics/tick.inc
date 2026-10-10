@@ -1322,6 +1322,20 @@ TickResult step_tick(
   if (!IsInsideRoom(target_x, target_y, width, height)) {
     return store_and_finish(kMotionComplete, records_initial_tick);
   }
+  const int32_t low_edge_target_support = target_z == INT32_MIN ? -1 : FindVoxelAt(
+      voxels, target_x, target_y, target_z - 1, width, height);
+  const int32_t low_edge_current_support = player.z == INT32_MIN ? -1 : FindVoxelAt(
+      voxels, player.x, player.y, player.z - 1, width, height);
+  // Flat Ice carries the player onto the low edge of an aligned ramp, but
+  // that impact spends the flat-Ice momentum. Momentum already on a ramp
+  // still follows the normal slope chain.
+  const bool ice_momentum_enters_low_slope_edge = automatic_ice_motion &&
+      low_edge_current_support >= 0 &&
+      voxels[low_edge_current_support].role == kIceRole &&
+      player_dz == 0 && low_edge_target_support >= 0 &&
+      IsIceSlopeRole(voxels[low_edge_target_support].role) &&
+      IceSlopeDirection(voxels[low_edge_target_support].role) ==
+          state->direction;
 
   int32_t target_index =
       FindVoxelAt(voxels, target_x, target_y, target_z, width, height);
@@ -1867,7 +1881,7 @@ TickResult step_tick(
         true);
   }
 
-  if (!downhill_underfoot_push &&
+  if (!downhill_underfoot_push && !ice_momentum_enters_low_slope_edge &&
       IsSupportedByIce(voxels, player, width, height)) {
     // A displaced Floating Floor which did not retain momentum is stationary
     // on the following player phase. Clear only that stale proposal so slope
