@@ -1930,6 +1930,94 @@ void TestWalkingOnSupportedWrappingPolycube() {
   }
 }
 
+void TestCloneCommandOwnership() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  for (int32_t rotation = 0; rotation < 4; ++rotation) {
+    for (const bool reversed : {false, true}) {
+      for (const bool prepared : {false, true}) {
+        for (const char* clone_role : {"clone", "yellow-clone-slope-up"}) {
+          constexpr const char* slopes[] = {
+              "yellow-clone-slope-up", "yellow-clone-slope-right",
+              "yellow-clone-slope-down", "yellow-clone-slope-left"};
+          const uint32_t role = Role(clone_role) == Role("clone")
+              ? Role("clone") : Role(slopes[rotation]);
+          std::vector<voxelbench::Voxel> voxels = {
+              {0, 1, 1, Role("player"), -1},
+              {1, 3, 1, role, 7},
+              {3, 3, 1, role, voxelbench::kCloneNoCommandIdFlag | 7},
+              {3, 4, 1, role, voxelbench::kCloneNoCommandIdFlag | 7},
+          };
+          for (int32_t y = 0; y < 6; ++y) {
+            for (int32_t x = 0; x < 6; ++x) {
+              voxels.push_back({x, y, 0, Role("floor"), -1});
+            }
+          }
+          for (auto& voxel : voxels) {
+            for (int32_t turn = 0; turn < rotation; ++turn) {
+              const int32_t x = voxel.x;
+              voxel.x = 5 - voxel.y;
+              voxel.y = x;
+            }
+          }
+          if (reversed) {
+            std::reverse(voxels.begin(), voxels.begin() + 4);
+            std::reverse(voxels.begin() + 4, voxels.end());
+          }
+          const auto initial = voxels;
+          const int32_t count = static_cast<int32_t>(voxels.size());
+          voxelbench::reset_workspace(&workspace);
+          if (prepared) {
+            Check(voxelbench::prepare_scene(
+                      &workspace, voxels.data(), count, 6, 6, 4),
+                  "clone ownership should prepare without changing the ABI");
+          }
+          Check(voxelbench::simulate_command(
+                    &workspace, &state, voxels.data(), count, 6, 6,
+                    (rotation + 1) % 4) == 0 && state.tick == 1,
+                "the originating actors should have exactly one command tick");
+          constexpr int32_t dx[] = {1, 0, -1, 0};
+          constexpr int32_t dy[] = {0, 1, 0, -1};
+          for (size_t i = 0; i < voxels.size(); ++i) {
+            const bool active = initial[i].role == Role("player") ||
+                initial[i].generic_id == 7;
+            Check(voxels[i].x == initial[i].x + (active ? dx[rotation] : 0) &&
+                      voxels[i].y == initial[i].y + (active ? dy[rotation] : 0) &&
+                      voxels[i].z == initial[i].z &&
+                      voxels[i].generic_id == initial[i].generic_id,
+                  "only clones assigned to the starting room receive input");
+          }
+          const auto animated_final = voxels;
+          voxels = initial;
+          voxelbench::reset_workspace(&workspace);
+          if (prepared) {
+            Check(voxelbench::prepare_scene(
+                      &workspace, voxels.data(), count, 6, 6, 4),
+                  "clone ownership should reprepare for search");
+          }
+          Check(voxelbench::simulate_quiescent_turn(
+                    &workspace, voxels.data(), count, 6, 6, (rotation + 1) % 4) == 0 &&
+                    std::memcmp(voxels.data(), animated_final.data(),
+                        voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                "prepared clone commands must retain room ownership");
+        }
+      }
+    }
+  }
+  voxelbench::Voxel carried[] = {
+      {1, 3, 1, Role("player"), -1},
+      {2, 3, 1, Role("weightless-pushable"), 17},
+      {2, 3, 2, Role("clone"), voxelbench::kCloneNoCommandIdFlag | 9},
+      {1, 3, 0, Role("floor"), -1},
+      {2, 3, 0, Role("floor"), -1},
+      {3, 3, 0, Role("floor"), -1},
+  };
+  Check(voxelbench::simulate_turn(carried, 6, 6, 6, 1) == 0 &&
+            carried[0].x == 2 && carried[1].x == 3 && carried[2].x == 3 &&
+            carried[2].z == 2,
+        "input suppression must retain physical riding instead of replacing clones with walls");
+}
+
 void TestPlayerDepartureDoesNotCarryMultiplySupportedBody() {
   voxelbench::Voxel voxels[] = {
       {0, 2, 1, Role("player"), -1},
@@ -4082,6 +4170,7 @@ int main() {
   Run(TestEnteringBeneathSupportedWeightlessBodyDoesNotCarryIt, "TestEnteringBeneathSupportedWeightlessBodyDoesNotCarryIt");
   Run(TestPlayerDepartureDoesNotCarryMultiplySupportedBody, "TestPlayerDepartureDoesNotCarryMultiplySupportedBody");
   Run(TestWalkingOnSupportedWrappingPolycube, "TestWalkingOnSupportedWrappingPolycube");
+  Run(TestCloneCommandOwnership, "TestCloneCommandOwnership");
   Run(TestSearchCollectsEveryGem, "TestSearchCollectsEveryGem");
   Run(TestSearchStoresLargePolycubeAsOneEntity, "TestSearchStoresLargePolycubeAsOneEntity");
   Run(TestGeneralSearchChecksRaisedPolycubeCollisions, "TestGeneralSearchChecksRaisedPolycubeCollisions");

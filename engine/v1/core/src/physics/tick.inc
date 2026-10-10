@@ -6,6 +6,13 @@ bool IsCommandActorObject(int32_t object) {
        g_object_kind[object] == kPlayerObject);
 }
 
+bool ObjectReceivesActorCommand(Voxel* voxels, int32_t object) {
+  return IsCommandActorObject(object) &&
+      (g_object_kind[object] != kCloneObject ||
+       voxels[g_object_head[object]].generic_id < 0 ||
+       (voxels[g_object_head[object]].generic_id & kCloneNoCommandIdFlag) == 0);
+}
+
 // Clone components resolve from front to back, so one may reach the player's
 // current cell before the player's own command is evaluated. Validate the
 // player's local entry and push proposal without committing it; a clone may
@@ -50,7 +57,7 @@ bool PlayerWillVacateForCloneCommand(
   if (target >= 0) {
     const int32_t object = g_voxel_object[target];
     if (object < 0) return false;
-    if (IsCommandActorObject(object)) return true;
+    if (ObjectReceivesActorCommand(voxels, object)) return true;
     if (g_object_kind[object] != kNormalObject &&
         g_object_kind[object] != kWeightlessObject) {
       return false;
@@ -115,7 +122,7 @@ bool AdvanceCloneCommandObjects(
   for (int32_t object = 0; object < g_object_count; ++object) {
     g_clone_command_moved[object] = 0;
     g_clone_command_processed[object] = 0;
-    has_clone |= IsCommandActorObject(object) &&
+    has_clone |= ObjectReceivesActorCommand(voxels, object) &&
         ObjectIsActive(voxels, object, width, height);
   }
   if (!has_clone) {
@@ -130,7 +137,7 @@ bool AdvanceCloneCommandObjects(
     int32_t next_object = -1;
     int64_t next_front = INT64_MIN;
     for (int32_t object = 0; object < g_object_count; ++object) {
-      if (!IsCommandActorObject(object) ||
+      if (!ObjectReceivesActorCommand(voxels, object) ||
           g_clone_command_processed[object] != 0 ||
           !ObjectIsActive(voxels, object, width, height)) {
         continue;
@@ -172,7 +179,7 @@ bool AdvanceCloneCommandObjects(
             ? g_voxel_object[occupant]
             : -1;
         if (other < 0 || other == object ||
-            !IsCommandActorObject(other) ||
+            !ObjectReceivesActorCommand(voxels, other) ||
             g_clone_command_processed[other] != 0 ||
             g_component_objects[other] != 0) {
           continue;

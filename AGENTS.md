@@ -143,6 +143,14 @@ intermediate tick of a crossing. Combining room geometry must never combine its
 control circuits. Settling a destination after projection is insufficient: a
 neighboring button must not lower its walls even for one animation frame.
 
+Clone directional input belongs to the room where the command began. Every
+attached destination room suppresses clone input for that whole command,
+including multi-room slides and punches; the following command selects its
+starting room anew. Temporary layouts namespace clone rigid-body IDs by room
+and encode the canonical `kCloneNoCommandIdFlag` for non-origin clones. Project
+authored IDs back and remove every transient clone property before returning
+room state. Keep ordinary clone collision and passive physics behavior.
+
 The C++ engine accepts a rectangle, so an L-shaped temporary region represents
 unvisited holes with synthetic solid boundary columns. These columns must never
 be projected into room state or rendered. Do not eagerly combine a complete

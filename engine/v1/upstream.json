@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "b987419635998d764bc06a840101c48af16e71cd",
-  "sourceTree": "77d42f363f37af4d3517f338f9e574140db1c763",
+  "sourceCommit": "934b00b9e4ba8c700f108c5dad8636125518094c",
+  "sourceTree": "4f8c9aa937bc907ba3511d5d9fdd7411b9b14b87",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "sourcePath": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "5bc220a268fdbed362e046a53d5028e7ed98bbddbbda308adbb0a93648367eac",
-    "bytes": 499115
+    "sha256": "3b3c782bc7c838435522ac93cf1111508bf499e3f93e5a180ff0af79690ce842",
+    "bytes": 499590
   },
   "files": [
     {
@@ -44,7 +44,7 @@
     {
       "mode": "100644",
       "path": "include/voxelbench/physics.hpp",
-      "sha256": "c7dc5dc8802a2c64f147eee0b5054bcb4ddd055fbe2f3e842e968edde4c0a8c1"
+      "sha256": "756fa93ca8c0217dcf1b50dd4589e668de4fdf2327cf18bdc7bad44af6ed26db"
     },
     {
       "mode": "100644",
@@ -54,7 +54,7 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "d14a06cd8f6ece006ca32ebcfe5b2c72ebd9974eaa2a2db8039a9866dae38b44"
+      "sha256": "f6b8bab98d09efa9bd7f09f295cf5f7f3ba030447edc44281777e66459fa4c2c"
     },
     {
       "mode": "100644",
@@ -154,7 +154,7 @@
     {
       "mode": "100644",
       "path": "src/physics/tick.inc",
-      "sha256": "18c8c83c74adec040e4d2ed088a35f9fdf5899143f89b433eeb10031bfdeb7da"
+      "sha256": "30804397d14f33a6e734b2ec62d9b3d397040b9f8759c3db64c380896c5912f4"
     },
     {
       "mode": "100644",
@@ -254,7 +254,7 @@
     {
       "mode": "100644",
       "path": "tests/physics_tests.cpp",
-      "sha256": "67e28d93c8a96b44c52c064519cf9d763ef18bd56e875376057a950e4a661456"
+      "sha256": "5b6000ed2ed226e2360994c90412cd6da53a915db3f5bb6351eaeaf163f9d430"
     },
     {
       "mode": "100644",
@@ -319,7 +319,7 @@
     {
       "mode": "100644",
       "path": "tests/wasm_api.test.mjs",
-      "sha256": "2e55326b9c6a4349c193b119db72fe564ab805b0650a791ebeea0f0d8ab8e209"
+      "sha256": "c8f947d64bc927b05e8def92a7e8c964b12e02626f81338a7cf6bddf9ca7b1f0"
     },
     {
       "mode": "100644",

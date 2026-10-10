@@ -18,6 +18,11 @@ constexpr int32_t kOrangeScopedIdFlag = 1 << 30;
 constexpr int32_t kOrangeScopeShift = 17;
 constexpr int32_t kOrangeValueMask = (1 << kOrangeScopeShift) - 1;
 constexpr int32_t kOrangeScopeCount = 1 << 13;
+// A host combining rooms may suppress a clone body's initial directional
+// command by tagging its generic_id. The lower 30 bits still identify the
+// body; it retains clone collision, carrying, gravity and punch behavior.
+// Clear this transient tag when starting a command in that clone's own room.
+constexpr int32_t kCloneNoCommandIdFlag = 1 << 30;
 constexpr int32_t kPhysicsWorkspaceBytes = 8 * 1024 * 1024;
 
 struct PhysicsWorkspace {

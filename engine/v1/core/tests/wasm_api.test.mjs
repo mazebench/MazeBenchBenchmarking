@@ -35,6 +35,40 @@ function simulate(engine, voxels, direction, width = 5, height = 5) {
   }));
 }
 
+for (const roleId of ['clone', 'yellow-clone-slope-up']) {
+  test(`${roleId}: an out-of-room clone ignores input and reactivates on the next local command`, async () => {
+    const engine = await loadEngine();
+    const noCommand = 1 << 30;
+    const start = [
+      {x: 0, y: 0, z: 1, roleId: 'player'},
+      {x: 1, y: 2, z: 1, roleId, genericId: 7},
+      {x: 3, y: 2, z: 1, roleId, genericId: noCommand | 7},
+      {x: 3, y: 3, z: 1, roleId, genericId: noCommand | 7},
+      ...Array.from({length: 25}, (_, i) => ({x: i % 5, y: Math.floor(i / 5), z: 0, roleId: 'floor'}))
+    ];
+    const first = simulate(engine, start, 1);
+    assert.deepEqual(first.slice(0, 4).map(v => [v.x, v.y, v.z]),
+      [[1, 0, 1], [2, 2, 1], [3, 2, 1], [3, 3, 1]]);
+    assert.equal(first[2].genericId, noCommand | 7);
+    // Change room ownership for the next command without changing clone roles.
+    const local = first.map((v, i) => i === 1 ? {...v, genericId: noCommand | 7}
+      : i === 2 || i === 3 ? {...v, genericId: 7} : v);
+    const second = simulate(engine, local, 0);
+    assert.deepEqual(second.slice(0, 4).map(v => [v.x, v.y, v.z]),
+      [[1, 0, 1], [2, 2, 1], [3, 1, 1], [3, 2, 1]]);
+  });
+}
+
+test('an input-suppressed clone blocks the player instead of joining a simultaneous walk', async () => {
+  const engine = await loadEngine();
+  const start = [
+    {x: 1, y: 2, z: 1, roleId: 'player'},
+    {x: 2, y: 2, z: 1, roleId: 'clone', genericId: (1 << 30) | 9},
+    ...Array.from({length: 25}, (_, i) => ({x: i % 5, y: Math.floor(i / 5), z: 0, roleId: 'floor'}))
+  ];
+  assert.deepEqual(simulate(engine, start, 1), start);
+});
+
 test("held buttons never shift a partially normalized orange column's anchors", async () => {
   const engine = await loadEngine();
   let voxels = [

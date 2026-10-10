@@ -40,6 +40,13 @@ The `floor` role is intentionally distinct from ordinary solid support: a
 player may deliberately walk off a floor edge, but cannot deliberately walk
 off other support. Ice momentum may carry it beyond any support.
 
+A host temporarily combining rooms may set `kCloneNoCommandIdFlag` on clone
+generic IDs outside the command's starting room. Those clones ignore the
+initial directional input while retaining their physical clone behavior.
+This transient flag and any room-specific body IDs belong to the host's command
+layout, never to saved authored rooms. The next command selects its starting
+room anew.
+
 Entering an Ice ramp sideways from level terrain requires existing sliding
 momentum. The entry tick stays at the same elevation; the next tick turns
 downhill and follows the ramp. A deliberate step remains blocked from the

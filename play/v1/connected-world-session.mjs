@@ -1,4 +1,4 @@
-import { engineRoleIdForObject } from "../../engine/v1/adapter.mjs";
+import { engineGenericIdForObject, engineRoleIdForObject } from "../../engine/v1/adapter.mjs";
 
 const DIRECTIONS = Object.freeze({
   up: { column: 0, row: -1 },
@@ -92,7 +92,7 @@ export class ConnectedWorldSessionV1 {
     };
   }
 
-  buildLayout(visited) {
+  buildLayout(visited, commandRoom) {
     const entries = [...visited.values()];
     const minColumn = Math.min(...entries.map(({ room }) => room.columnIndex));
     const maxColumn = Math.max(...entries.map(({ room }) => room.columnIndex));
@@ -106,7 +106,8 @@ export class ConnectedWorldSessionV1 {
     }));
     const width = (maxColumn - minColumn + 1) * this.roomWidth;
     const height = (maxRow - minRow + 1) * this.roomHeight;
-    const objects = placements.flatMap(({ state, offsetX, offsetY }, roomIndex) =>
+    const cloneGroups = new Map();
+    const objects = placements.flatMap(({ room, state, offsetX, offsetY }, roomIndex) =>
       state.objects
         .filter((object) => isInside(state, object))
         .map((object) => {
@@ -116,6 +117,15 @@ export class ConnectedWorldSessionV1 {
           // The C++ engine keeps this scope through every intermediate tick.
           if (placements.length > 1 && (role === "orange-button" || role === "orange-wall")) {
             shifted.connectedWorldOrangeScope = roomIndex + 1;
+          }
+          if (placements.length > 1 && this.definitionMap.get(object.blockId)?.roleId === "clone") {
+            // Clones receive the input only in its originating room, even if
+            // Ice or a punch carries the player through several other rooms.
+            // Equal authored IDs in separate rooms are separate rigid bodies.
+            const key = `${roomIndex}:${engineGenericIdForObject(object, this.definitionMap)}`;
+            if (!cloneGroups.has(key)) cloneGroups.set(key, cloneGroups.size);
+            shifted.connectedWorldCloneGroup = cloneGroups.get(key);
+            shifted.connectedWorldCloneCommandDisabled = roomKey(room) !== roomKey(commandRoom);
           }
           return shifted;
         }));
@@ -192,7 +202,9 @@ export class ConnectedWorldSessionV1 {
           object.x >= offsetX && object.y >= offsetY &&
           object.x < offsetX + this.roomWidth &&
           object.y < offsetY + this.roomHeight)
-        .map(({ connectedWorldOrangeScope, ...object }) => ({ ...object, x: object.x - offsetX, y: object.y - offsetY }))
+        .map(({ connectedWorldOrangeScope, connectedWorldCloneGroup,
+          connectedWorldCloneCommandDisabled, ...object }) =>
+          ({ ...object, x: object.x - offsetX, y: object.y - offsetY }))
     };
   }
 
@@ -286,7 +298,7 @@ export class ConnectedWorldSessionV1 {
 
     const visited = new Map([[roomKey(room), { room, state: cloneState(state) }]]);
     const blockedExits = new Set();
-    let layout = this.buildLayout(visited);
+    let layout = this.buildLayout(visited, room);
     let simulation = await this.engine.simulateCommand(layout.state, direction, this.definitions);
     // Each attempt either attaches a room or rejects one of its four seams.
     for (let attempt = 0; attempt <= this.rooms.length * 4; attempt += 1) {
@@ -298,7 +310,7 @@ export class ConnectedWorldSessionV1 {
         room: nextRoom,
         state: this.freshRoomState(nextRoom)
       });
-      const expandedLayout = this.buildLayout(visited);
+      const expandedLayout = this.buildLayout(visited, room);
       const expandedSimulation = await this.engine.simulateCommand(
         expandedLayout.state, direction, this.definitions
       );

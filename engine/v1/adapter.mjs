@@ -13,6 +13,7 @@ const ENGINE_FALL_Z = -2_147_483_648;
 const ORANGE_SCOPE_FLAG = 1 << 30;
 const ORANGE_SCOPE_SHIFT = 17;
 const ORANGE_VALUE_MASK = (1 << ORANGE_SCOPE_SHIFT) - 1;
+const CLONE_NO_COMMAND_FLAG = 1 << 30;
 
 function scopedOrangeId(object, value) {
   const scope = object.connectedWorldOrangeScope;
@@ -152,6 +153,10 @@ export function engineGenericIdForObject(object, definitions) {
     return encodedPuncherId(object);
   }
   if (GENERIC_ROLES.has(block.roleId)) {
+    if (block.roleId === "clone" && Number.isInteger(object.connectedWorldCloneGroup)) {
+      return object.connectedWorldCloneGroup |
+        (object.connectedWorldCloneCommandDisabled ? CLONE_NO_COMMAND_FLAG : 0);
+    }
     return Number.isInteger(object.groupId)
       ? object.groupId
       : Number.isInteger(object.genericId) ? object.genericId : 0;
@@ -271,8 +276,14 @@ export function readEngineStateV1(template, definitions, buffer, stride) {
       next.variantId = direction;
       next.stateId = id % 2;
     } else if (GENERIC_ROLES.has(block?.roleId)) {
-      next.genericId = engineGenericId;
-      next.groupId = engineGenericId;
+      // Connected layouts assign temporary clone-body IDs across rooms. Keep
+      // authored IDs in readback so neither the namespace nor the input tag
+      // escapes into rendering, saves, undo, or the next room's command.
+      const id = block.roleId === "clone" && Number.isInteger(object.connectedWorldCloneGroup)
+        ? Number.isInteger(object.groupId) ? object.groupId : object.genericId ?? 0
+        : engineGenericId;
+      next.genericId = id;
+      next.groupId = id;
     }
     return next;
   });
