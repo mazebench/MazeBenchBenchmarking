@@ -3434,6 +3434,88 @@ void TestPunchedBodyTransfersPlayerImpulseAcrossWorkspaceResume() {
   }
 }
 
+void TestPunchedPlayerPushesConvoyAcrossFloorGap() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  const char* slope_roles[] = {"blue-box-slope-up", "blue-box-slope-right",
+      "blue-box-slope-down", "blue-box-slope-left"};
+  for (const bool slope_box : {false, true}) {
+    for (const bool remote_slope : {false, true}) {
+      for (int32_t rotation = 0; rotation < 4; ++rotation) {
+        std::vector<voxelbench::Voxel> initial = {
+            {4, 6, 1, Role("player"), -1},
+            {5, 5, 1, Role(slope_box ? slope_roles[rotation] : "weightless-pushable"), 17},
+            {4, 5, 1, Role("puncher"), ((1 + rotation) % 4) * 2},
+            {3, 5, 1, Role("solid"), -1},
+            {14, 5, 1, Role("solid"), -1},
+        };
+        for (int32_t y = 0; y < 16; ++y) {
+          for (int32_t x = 0; x < 16; ++x) {
+            if ((x == 9 || x == 10) && y == 5) continue;
+            initial.push_back({x, y, 0,
+                Role(remote_slope && x == 0 && y == 0 ? "ice-slope-up" : "floor"), -1});
+          }
+        }
+        auto rotate = [rotation](voxelbench::Voxel voxel) {
+          for (int32_t turn = 0; turn < rotation; ++turn) {
+            const int32_t x = voxel.x;
+            voxel.x = 15 - voxel.y;
+            voxel.y = x;
+          }
+          return voxel;
+        };
+        for (auto& voxel : initial) {
+          if (voxel.role == Role("ice-slope-up")) {
+            const char* ice_roles[] = {"ice-slope-up", "ice-slope-right",
+                "ice-slope-down", "ice-slope-left"};
+            voxel.role = Role(ice_roles[rotation]);
+          }
+          voxel = rotate(voxel);
+        }
+        for (int32_t mode = 0; mode < 4; ++mode) {
+          auto voxels = initial;
+          voxelbench::reset_workspace(&workspace);
+          voxelbench::reset_motion_state(&state);
+          if (mode == 2 || mode == 3) {
+            Check(voxelbench::prepare_scene(&workspace, voxels.data(),
+                      static_cast<int32_t>(voxels.size()), 16, 16, 3),
+                  "punched gap scene should prepare");
+          }
+          if (mode == 3) {
+            Check(voxelbench::simulate_quiescent_turn(&workspace, voxels.data(),
+                      static_cast<int32_t>(voxels.size()), 16, 16, rotation) == 0,
+                  "fast punched gap command should settle");
+          } else {
+            bool complete = false;
+            for (int32_t tick = 1; tick <= 12; ++tick) {
+              if (mode == 1) voxelbench::reset_workspace(&workspace);
+              const auto result = voxelbench::step_tick(&workspace, &state,
+                  voxels.data(), static_cast<int32_t>(voxels.size()), 16, 16, rotation);
+              const auto player = rotate({state.tick == 1 ? 4 : 3 + state.tick, 5, 1, 0, 0});
+              const auto box = rotate({4 + state.tick, 5, 1, 0, 0});
+              Check(voxels[0].x == player.x && voxels[0].y == player.y && voxels[0].z == 1 &&
+                        voxels[1].x == box.x && voxels[1].y == box.y && voxels[1].z == 1,
+                    "punch impulse should carry player and box across the gap on each tick");
+              if (result == voxelbench::TickResult::kComplete) {
+                complete = true;
+                Check(state.tick == 9, "the stop wall should end the convoy on tick nine");
+                break;
+              }
+            }
+            Check(complete, "punched gap command should settle without a cycle");
+          }
+          const auto player = rotate({12, 5, 1, 0, 0});
+          const auto box = rotate({13, 5, 1, 0, 0});
+          Check(voxels[0].x == player.x && voxels[0].y == player.y && voxels[0].z == 1 &&
+                    voxels[1].x == box.x && voxels[1].y == box.y && voxels[1].z == 1 &&
+                    voxels[2].generic_id == initial[2].generic_id,
+                "wall collision should stop the punched convoy and leave the puncher rearmed");
+        }
+      }
+    }
+  }
+}
+
 void TestPunchedCarrierKeepsMountedFixtureAcrossGap() {
   static voxelbench::PhysicsWorkspace workspace;
   static voxelbench::MotionState state;
@@ -3967,6 +4049,7 @@ int main() {
   Run(TestInitialPuncherContactWaitsForCommand, "TestInitialPuncherContactWaitsForCommand");
   Run(TestBlockedPunchRearmsForNextCommand, "TestBlockedPunchRearmsForNextCommand");
   Run(TestPunchedBodyTransfersPlayerImpulseAcrossWorkspaceResume, "TestPunchedBodyTransfersPlayerImpulseAcrossWorkspaceResume");
+  Run(TestPunchedPlayerPushesConvoyAcrossFloorGap, "Punched player pushes convoy across floor gap");
   Run(TestPunchedCarrierKeepsMountedFixtureAcrossGap, "TestPunchedCarrierKeepsMountedFixtureAcrossGap");
   Run(TestWallMountedPuncherRetainsHeightAcrossWorkspaceResume, "TestWallMountedPuncherRetainsHeightAcrossWorkspaceResume");
   Run(TestSearchSolvesAndReplaysPuncherCommands, "TestSearchSolvesAndReplaysPuncherCommands");

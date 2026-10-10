@@ -699,6 +699,42 @@ test("punchers encode direction, expose their sprung frame, and reset", async ()
   assert.equal(result.final.objects[1].stateId, 0);
 });
 
+test("a punched player and blue slope box cross a floor gap without losing their impulse", async () => {
+  const { engine } = await loadEngine();
+  const slopeBlocks = [...blocks, {
+    id: "blue-slope", roleId: "weightless-pushable", visual: { kind: "slope" }
+  }];
+  const room = {
+    width: 16, height: 16,
+    objects: [
+      { x: 4, y: 6, z: 0, blockId: "player" },
+      { x: 5, y: 5, z: 0, blockId: "blue-slope", orientation: "up", groupId: 17 },
+      { x: 4, y: 5, z: 0, blockId: "puncher", orientation: "right", stateId: 0 },
+      { x: 3, y: 5, z: 0, blockId: "wall" },
+      { x: 14, y: 5, z: 0, blockId: "wall" }
+    ]
+  };
+  for (let y = 0; y < 16; ++y) {
+    for (let x = 0; x < 16; ++x) {
+      if ((x === 9 || x === 10) && y === 5) continue;
+      room.objects.push({ x, y, z: 0, blockId: "floor" });
+    }
+  }
+  const result = await engine.simulateCommand(room, "up", slopeBlocks);
+  assert.equal(result.cycle, null);
+  assert.equal(result.frames.length, 9);
+  result.frames.forEach((frame, index) => {
+    assert.deepEqual(
+      frame.objects.slice(0, 2).map(({ x, y, z }) => ({ x, y, z })),
+      [{ x: index === 0 ? 4 : 4 + index, y: 5, z: 0 },
+       { x: 5 + index, y: 5, z: 0 }],
+      `animation frame ${index + 1}`
+    );
+    assert.equal(frame.objects[2].stateId, index === 1 ? 1 : 0);
+  });
+  assert.ok(engineStatesEqualV1(result.final, result.frames.at(-1), slopeBlocks));
+});
+
 test("a floating floor fills a Row-0 hole on the following tick", async () => {
   const { engine } = await loadEngine();
   const room = {

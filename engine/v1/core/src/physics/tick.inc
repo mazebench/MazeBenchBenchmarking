@@ -1510,7 +1510,9 @@ TickResult step_tick(
     if (!target_support_stays) {
       const int32_t current_support = player.z == INT32_MIN ? -1 : FindVoxelAt(
           voxels, player.x, player.y, player.z - 1, width, height);
-      const bool may_leave_support = started_on_ice ||
+      // A punch carries its existing convoy across unsupported spans. The
+      // walking ledge restriction must not interrupt that inertial motion.
+      const bool may_leave_support = automatic_punch_motion || started_on_ice ||
           (current_support >= 0 &&
            (voxels[current_support].role == kFloorRole ||
             g_voxel_object[current_support] == object));
