@@ -335,7 +335,13 @@ bool AddAutonomousSlopeObjects(
     for (int32_t object = 0; object < g_object_count; ++object) {
       if (g_mandatory_objects[object] != 0 ||
           g_object_kind[object] == kMechanismObject ||
-          !ObjectIsActive(voxels, object, width, height)) {
+          !ObjectIsActive(voxels, object, width, height) ||
+          !ObjectIsFullyOnIce(voxels, object, width, height) ||
+          ObjectBridgesSlopeAndFlatIce(voxels, object, width, height)) {
+        // A vacated cell removes a collision, not a stationary foothold.
+        // Propagated slope gravity must obey the same friction and level-foot
+        // rules as the initial autonomous proposal. Otherwise a wrapping
+        // polycube can follow a player walking on its own supported surface.
         continue;
       }
       const int32_t downhill = ObjectDownhillSlopeDirection(

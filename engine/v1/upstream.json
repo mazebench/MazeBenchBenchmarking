@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "88e65f100174dff72bc3e89d1070fda92b1ed5e0",
-  "sourceTree": "0ed22af1c6581387f49351a06f7151c77cc22905",
+  "sourceCommit": "b987419635998d764bc06a840101c48af16e71cd",
+  "sourceTree": "77d42f363f37af4d3517f338f9e574140db1c763",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "sourcePath": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "cd74beb70c0e3a91aa8426adeb4d7d1db33c90af40e84b3e550b4be7ec641340",
-    "bytes": 498617
+    "sha256": "5bc220a268fdbed362e046a53d5028e7ed98bbddbbda308adbb0a93648367eac",
+    "bytes": 499115
   },
   "files": [
     {
@@ -149,7 +149,7 @@
     {
       "mode": "100644",
       "path": "src/physics/slope_proposals.inc",
-      "sha256": "5eb8b9fac49462a62ba2ecd2965ad65a66ddc476ae8a7ae19b3a7ec0b0029cb5"
+      "sha256": "efa0d037c72fc33df240cb713d66995afd0fdd537bd00ca67a575b24b482fbb0"
     },
     {
       "mode": "100644",
@@ -254,7 +254,12 @@
     {
       "mode": "100644",
       "path": "tests/physics_tests.cpp",
-      "sha256": "d07c1574ade7bc7f0f7a5df0ab550dbf43b150102d0aa4c8fa26321c286c71c5"
+      "sha256": "67e28d93c8a96b44c52c064519cf9d763ef18bd56e875376057a950e4a661456"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/polycube-walking.test.mjs",
+      "sha256": "19fa2cc944ee8ad85671e1133ea941b70e49ce9df8cfc5f557bd9bcab31e11bd"
     },
     {
       "mode": "100644",

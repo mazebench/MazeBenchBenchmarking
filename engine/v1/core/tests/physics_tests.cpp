@@ -1851,6 +1851,85 @@ void TestEnteringBeneathSupportedWeightlessBodyDoesNotCarryIt() {
         "entering underneath must not acquire or translate the body");
 }
 
+void TestWalkingOnSupportedWrappingPolycube() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  for (const bool flat_ice_foot : {false, true}) {
+    for (int32_t rotation = 0; rotation < 4; ++rotation) {
+      std::vector<voxelbench::Voxel> initial = {
+          {3, 3, 3, Role("player"), -1},
+          {3, 4, 3, Role("weightless-pushable"), 3},
+      };
+      for (int32_t y = 2; y <= 4; ++y) {
+        for (int32_t x = 1; x <= 3; ++x) {
+          initial.push_back({x, y, 2, Role("weightless-pushable"), 3});
+        }
+      }
+      initial.push_back({1, 2, 1, Role("ice-slope-down"), -1});
+      initial.push_back({3, 3, 1, Role(flat_ice_foot ? "ice" : "wall"), -1});
+      for (int32_t y = 0; y < 6; ++y) {
+        for (int32_t x = 0; x < 6; ++x) {
+          initial.push_back({x, y, 0, Role("floor"), -1});
+        }
+      }
+      for (auto& voxel : initial) {
+        for (int32_t turn = 0; turn < rotation; ++turn) {
+          const int32_t x = voxel.x;
+          voxel.x = 5 - voxel.y;
+          voxel.y = x;
+        }
+        if (voxel.role == Role("ice-slope-down")) {
+          constexpr const char* slopes[] = {
+              "ice-slope-down", "ice-slope-left", "ice-slope-up", "ice-slope-right"};
+          voxel.role = Role(slopes[rotation]);
+        }
+      }
+      for (const bool reversed : {false, true}) {
+        auto input = initial;
+        if (reversed) std::reverse(input.begin(), input.end());
+        const auto before = input;
+        for (const bool prepared : {false, true}) {
+          auto voxels = before;
+          voxelbench::reset_workspace(&workspace);
+          voxelbench::reset_motion_state(&state);
+          const int32_t count = static_cast<int32_t>(voxels.size());
+          if (prepared) {
+            Check(voxelbench::prepare_scene(
+                      &workspace, voxels.data(), count, 6, 6, count),
+                  "walking regression should prepare its scene");
+          }
+          Check(voxelbench::step_command_tick(
+                    &workspace, &state, voxels.data(), count, 6, 6, rotation) ==
+                    voxelbench::TickResult::kComplete && state.tick == 1,
+                "walking on the supported body should have one animation tick");
+          constexpr int32_t dx[] = {0, 1, 0, -1};
+          constexpr int32_t dy[] = {-1, 0, 1, 0};
+          for (size_t i = 0; i < voxels.size(); ++i) {
+            const bool player = before[i].role == Role("player");
+            Check(voxels[i].x == before[i].x + (player ? dx[rotation] : 0) &&
+                      voxels[i].y == before[i].y + (player ? dy[rotation] : 0) &&
+                      voxels[i].z == before[i].z,
+                  "only the player walks; a vacated cell cannot drag the stable polycube");
+          }
+          const auto animated_final = voxels;
+          voxels = before;
+          voxelbench::reset_workspace(&workspace);
+          if (prepared) {
+            Check(voxelbench::prepare_scene(
+                      &workspace, voxels.data(), count, 6, 6, count),
+                  "walking regression should reprepare for search");
+          }
+          Check(voxelbench::simulate_quiescent_turn(
+                    &workspace, voxels.data(), count, 6, 6, rotation) == 0 &&
+                    std::memcmp(voxels.data(), animated_final.data(),
+                        voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                "prepared search must keep the same stationary supporting body");
+        }
+      }
+    }
+  }
+}
+
 void TestPlayerDepartureDoesNotCarryMultiplySupportedBody() {
   voxelbench::Voxel voxels[] = {
       {0, 2, 1, Role("player"), -1},
@@ -4002,6 +4081,7 @@ int main() {
   Run(TestPushCannotWalkPlayerOffWallSupport, "TestPushCannotWalkPlayerOffWallSupport");
   Run(TestEnteringBeneathSupportedWeightlessBodyDoesNotCarryIt, "TestEnteringBeneathSupportedWeightlessBodyDoesNotCarryIt");
   Run(TestPlayerDepartureDoesNotCarryMultiplySupportedBody, "TestPlayerDepartureDoesNotCarryMultiplySupportedBody");
+  Run(TestWalkingOnSupportedWrappingPolycube, "TestWalkingOnSupportedWrappingPolycube");
   Run(TestSearchCollectsEveryGem, "TestSearchCollectsEveryGem");
   Run(TestSearchStoresLargePolycubeAsOneEntity, "TestSearchStoresLargePolycubeAsOneEntity");
   Run(TestGeneralSearchChecksRaisedPolycubeCollisions, "TestGeneralSearchChecksRaisedPolycubeCollisions");
