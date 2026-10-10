@@ -205,6 +205,9 @@ void PreparePunchContactProposals(
       if (!PunchWasActivated(object) || g_mandatory_objects[object] == 0) continue;
       for (int32_t member = g_object_head[object]; member >= 0;
            member = g_next_object_voxel[member]) {
+        if (!VoxelDestinationIsInsideRoom(voxels[member],
+                voxels[member].x + g_object_dx[object],
+                voxels[member].y + g_object_dy[object], width, height)) continue;
         const int32_t occupant = FindVoxelAt(voxels,
             voxels[member].x + g_object_dx[object],
             voxels[member].y + g_object_dy[object],
@@ -277,7 +280,7 @@ void ResolvePunchProposals(
         const int32_t x = voxel.x + g_object_dx[object];
         const int32_t y = voxel.y + g_object_dy[object];
         const int32_t z = voxel.z + g_object_dz[object];
-        if (!IsInsideRoom(x, y, width, height)) {
+        if (!VoxelDestinationIsInsideRoom(voxel, x, y, width, height)) {
           g_component_objects[object] = 1;
           continue;
         }

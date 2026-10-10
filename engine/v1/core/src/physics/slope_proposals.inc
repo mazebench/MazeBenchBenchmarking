@@ -105,7 +105,7 @@ bool CanPushSlopeContactChain(
           const int32_t x = voxels[member].x + kDx[direction];
           const int32_t y = voxels[member].y + kDy[direction];
           const int32_t z = voxels[member].z + dz;
-          if (!IsInsideRoom(x, y, width, height)) {
+          if (!VoxelDestinationIsInsideRoom(voxels[member], x, y, width, height)) {
             clear = false;
             break;
           }
@@ -549,7 +549,7 @@ bool DeferredSlopeProposalIsClear(
     const int32_t next_x = voxels[member].x + g_object_dx[object];
     const int32_t next_y = voxels[member].y + g_object_dy[object];
     const int32_t next_z = voxels[member].z + g_object_dz[object];
-    if (!IsInsideRoom(next_x, next_y, width, height)) return false;
+    if (!VoxelDestinationIsInsideRoom(voxels[member], next_x, next_y, width, height)) return false;
     const int32_t occupant = FindVoxelAt(
         voxels, next_x, next_y, next_z, width, height);
     if (occupant < 0 || occupant == player_index ||
@@ -682,7 +682,7 @@ bool SlopeObjectDestinationIsClear(
     const int32_t next_x = voxels[member].x + g_object_dx[object];
     const int32_t next_y = voxels[member].y + g_object_dy[object];
     const int32_t next_z = voxels[member].z + g_object_dz[object];
-    if (!IsInsideRoom(next_x, next_y, width, height)) return false;
+    if (!VoxelDestinationIsInsideRoom(voxels[member], next_x, next_y, width, height)) return false;
     const int32_t occupant = FindVoxelAt(
         voxels, next_x, next_y, next_z, width, height);
     if (g_object_kind[object] == kMechanismObject &&

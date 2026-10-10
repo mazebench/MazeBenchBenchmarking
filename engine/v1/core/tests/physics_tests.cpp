@@ -1930,6 +1930,84 @@ void TestWalkingOnSupportedWrappingPolycube() {
   }
 }
 
+void TestConnectedRoomBodyBoundaries() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  constexpr int32_t grid_id = voxelbench::kPlayerRoomGridIdFlag |
+      (6 << voxelbench::kRoomGridDimensionBits) | 6;
+  for (int32_t rotation = 0; rotation < 4; ++rotation) {
+    for (const bool reversed : {false, true}) {
+      for (const bool prepared : {false, true}) {
+        for (const char* box_role : {"pushable", "weightless-pushable", "blue-box-slope-up"}) {
+          constexpr const char* slopes[] = {"blue-box-slope-up", "blue-box-slope-right",
+              "blue-box-slope-down", "blue-box-slope-left"};
+          const uint32_t role = Role(box_role) == Role("blue-box-slope-up")
+              ? Role(slopes[rotation]) : Role(box_role);
+          std::vector<voxelbench::Voxel> voxels = {
+              {5, 2, 1, Role("player"), grid_id},
+              {4, 4, 1, Role("clone"), 7},
+              {5, 4, 1, role, 11},
+              {1, 1, 1, Role("clone"), 8},
+          };
+          for (int32_t y = 0; y < 12; ++y) {
+            for (int32_t x = 0; x < 12; ++x) {
+              voxels.push_back({x, y, 0, Role("floor"), -1});
+            }
+          }
+          for (auto& voxel : voxels) for (int32_t turn = 0; turn < rotation; ++turn) {
+            const int32_t x = voxel.x;
+            voxel.x = 11 - voxel.y;
+            voxel.y = x;
+          }
+          if (reversed) {
+            std::reverse(voxels.begin(), voxels.begin() + 4);
+            std::reverse(voxels.begin() + 4, voxels.end());
+          }
+          const auto initial = voxels;
+          const int32_t count = static_cast<int32_t>(voxels.size());
+          voxelbench::reset_workspace(&workspace);
+          if (prepared) Check(voxelbench::prepare_scene(
+              &workspace, voxels.data(), count, 12, 12, 4), "room grid should prepare");
+          const auto observer = [](const voxelbench::Voxel* frame, int32_t n,
+              const voxelbench::MotionState*, void* context) {
+            const auto& start = *static_cast<const std::vector<voxelbench::Voxel>*>(context);
+            for (int32_t i = 0; i < n; ++i) {
+              const auto index = static_cast<size_t>(i);
+              if (frame[i].role == Role("player")) continue;
+              Check(frame[i].x / 6 == start[index].x / 6 &&
+                        frame[i].y / 6 == start[index].y / 6,
+                    "only the player may cross a room boundary on any tick");
+            }
+          };
+          auto observer_start = initial;
+          Check(voxelbench::simulate_command(&workspace, &state, voxels.data(), count,
+                    12, 12, (rotation + 1) % 4, observer, &observer_start) == 0,
+                "bounded clone push should settle");
+          constexpr int32_t dx[] = {1, 0, -1, 0};
+          constexpr int32_t dy[] = {0, 1, 0, -1};
+          for (size_t i = 0; i < voxels.size(); ++i) {
+            const bool moves = initial[i].role == Role("player") || initial[i].generic_id == 8;
+            Check(voxels[i].x == initial[i].x + (moves ? dx[rotation] : 0) &&
+                      voxels[i].y == initial[i].y + (moves ? dy[rotation] : 0) &&
+                      voxels[i].z == initial[i].z && voxels[i].generic_id == initial[i].generic_id,
+                  "boundary blocks the clone and pushed body without blocking the player or local clones");
+          }
+          const auto animated_final = voxels;
+          voxels = initial;
+          voxelbench::reset_workspace(&workspace);
+          if (prepared) Check(voxelbench::prepare_scene(
+              &workspace, voxels.data(), count, 12, 12, 4), "room grid should reprepare");
+          Check(voxelbench::simulate_quiescent_turn(&workspace, voxels.data(), count,
+                    12, 12, (rotation + 1) % 4) == 0 &&
+                    std::memcmp(voxels.data(), animated_final.data(),
+                        voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                "search and animation must apply the same body boundaries");
+        }
+      }
+    }
+  }
+}
+
 void TestCloneCommandOwnership() {
   static voxelbench::PhysicsWorkspace workspace;
   static voxelbench::MotionState state;
@@ -4171,6 +4249,7 @@ int main() {
   Run(TestPlayerDepartureDoesNotCarryMultiplySupportedBody, "TestPlayerDepartureDoesNotCarryMultiplySupportedBody");
   Run(TestWalkingOnSupportedWrappingPolycube, "TestWalkingOnSupportedWrappingPolycube");
   Run(TestCloneCommandOwnership, "TestCloneCommandOwnership");
+  Run(TestConnectedRoomBodyBoundaries, "TestConnectedRoomBodyBoundaries");
   Run(TestSearchCollectsEveryGem, "TestSearchCollectsEveryGem");
   Run(TestSearchStoresLargePolycubeAsOneEntity, "TestSearchStoresLargePolycubeAsOneEntity");
   Run(TestGeneralSearchChecksRaisedPolycubeCollisions, "TestGeneralSearchChecksRaisedPolycubeCollisions");

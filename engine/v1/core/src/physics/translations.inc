@@ -35,7 +35,7 @@ bool TranslateMovingObjects(
       const Voxel& voxel = voxels[member];
       const int32_t next_x = voxel.x + dx;
       const int32_t next_y = voxel.y + dy;
-      if (!IsInsideRoom(next_x, next_y, width, height)) return false;
+      if (!VoxelDestinationIsInsideRoom(voxel, next_x, next_y, width, height)) return false;
       const int32_t occupant = FindVoxelAt(
           voxels, next_x, next_y, voxel.z + dz, width, height);
       if (g_object_kind[0] == kMechanismObject &&
@@ -84,7 +84,7 @@ bool TranslateMovingObjects(
         const Voxel& voxel = voxels[member];
         const int32_t next_x = voxel.x + dx;
         const int32_t next_y = voxel.y + dy;
-        if (!IsInsideRoom(next_x, next_y, width, height)) return false;
+        if (!VoxelDestinationIsInsideRoom(voxel, next_x, next_y, width, height)) return false;
         const int32_t occupant = FindVoxelAt(
             voxels, next_x, next_y, voxel.z + dz, width, height);
         if (g_object_kind[object] == kMechanismObject &&
@@ -164,7 +164,7 @@ bool TranslateMovingObjects(
             const Voxel& voxel = voxels[member];
             const int32_t next_x = voxel.x + dx;
             const int32_t next_y = voxel.y + dy;
-            if (!IsInsideRoom(next_x, next_y, width, height)) return false;
+            if (!VoxelDestinationIsInsideRoom(voxel, next_x, next_y, width, height)) return false;
             const int32_t occupant = FindVoxelAt(
                 voxels, next_x, next_y, voxel.z + dz, width, height);
             if (g_object_kind[object] == kMechanismObject &&

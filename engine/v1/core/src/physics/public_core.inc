@@ -6,6 +6,8 @@ void reset_workspace(PhysicsWorkspace* workspace) {
   data->dynamic_column_generation = 1;
   data->object_count = 0;
   data->weightless_object_count = 0;
+  data->room_grid_width = 0;
+  data->room_grid_height = 0;
   for (int32_t index = 0; index < kVoxelCapacity / 64; ++index) {
     data->slope_push_seen[index] = 0;
     data->slope_push_pending[index] = 0;

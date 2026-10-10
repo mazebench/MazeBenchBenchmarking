@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench-temp/MazeBenchEngineUnitTest.git",
-  "sourceCommit": "934b00b9e4ba8c700f108c5dad8636125518094c",
-  "sourceTree": "4f8c9aa937bc907ba3511d5d9fdd7411b9b14b87",
+  "sourceCommit": "b90fda05bba534b7e6ff7a031264215dc38daa24",
+  "sourceTree": "2ed133260599495a6e1fdc58208ae9bb1d37df39",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "sourcePath": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "3b3c782bc7c838435522ac93cf1111508bf499e3f93e5a180ff0af79690ce842",
-    "bytes": 499590
+    "sha256": "182d43f96213b76761a003f60788356716c6fefb0809c43b8d8e7a8f0f5f19f5",
+    "bytes": 504054
   },
   "files": [
     {
@@ -44,7 +44,7 @@
     {
       "mode": "100644",
       "path": "include/voxelbench/physics.hpp",
-      "sha256": "756fa93ca8c0217dcf1b50dd4589e668de4fdf2327cf18bdc7bad44af6ed26db"
+      "sha256": "e39286721ca74295f66bcec829059ee14c3c7b8308e5152924dd944769fbff87"
     },
     {
       "mode": "100644",
@@ -54,7 +54,7 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "f6b8bab98d09efa9bd7f09f295cf5f7f3ba030447edc44281777e66459fa4c2c"
+      "sha256": "de740e20bf1072d7917fafc1e2092c6f8cfd305e353e8cb5bc7c6585a1831f3f"
     },
     {
       "mode": "100644",
@@ -99,7 +99,7 @@
     {
       "mode": "100644",
       "path": "src/physics/motion_support.inc",
-      "sha256": "966a3eec043811f52134d02cbeca0c5f862e35c231c0f02f02cd7171ada2b253"
+      "sha256": "e21e902195a95356d449ba4cd4b59e2d05a9a15349c84f9aad80a4564a1aa74c"
     },
     {
       "mode": "100644",
@@ -109,7 +109,7 @@
     {
       "mode": "100644",
       "path": "src/physics/objects.inc",
-      "sha256": "f34ecfcf91d56a6e1f60c4434828366ee6a6669ecf043e4e0f7ab7e0016df0d5"
+      "sha256": "7d5a8acf362c94da9d38918467931fca8c8df44bb055a1b189629f1f9d076b64"
     },
     {
       "mode": "100644",
@@ -119,17 +119,17 @@
     {
       "mode": "100644",
       "path": "src/physics/passive_commands.inc",
-      "sha256": "1aa02083eec6fab85b3837a3e8f85681050a9ef475f0c5a528641fc4e230bd9c"
+      "sha256": "5cda848a7775991fe62ddf31761676d1c2b83b5b970561fbdc92b7377ecab571"
     },
     {
       "mode": "100644",
       "path": "src/physics/public_core.inc",
-      "sha256": "efb7f123cde7cf929a9f0d26b3ede091d30cd7f7f280e9f9805f6c83206d3f52"
+      "sha256": "68d521d9cb022bfd3ed9635800250c7aab87695799f5c23b41a538af43589255"
     },
     {
       "mode": "100644",
       "path": "src/physics/punchers.inc",
-      "sha256": "280726a5681f919a90fd02f6b6bb69e3b76209b50a6d7fab4a08ad04cdd2474c"
+      "sha256": "5937b5910802afe6ef5d29eed16ba90133ff57417d584a02a2b42c894f8e9862"
     },
     {
       "mode": "100644",
@@ -144,27 +144,27 @@
     {
       "mode": "100644",
       "path": "src/physics/slope_motion.inc",
-      "sha256": "8aab3c03c2917e639ce9931fcb35f30bd144971caeb26ca1f13c84cb81040e84"
+      "sha256": "c394a26d05ed41c5af2bace3ee9d8462455d378b83cc3c92bcda300cd12e7adf"
     },
     {
       "mode": "100644",
       "path": "src/physics/slope_proposals.inc",
-      "sha256": "efa0d037c72fc33df240cb713d66995afd0fdd537bd00ca67a575b24b482fbb0"
+      "sha256": "032758f428aa233dd9db1d18e22a6b4df0e40634c49b70df43fa0f7a391f5362"
     },
     {
       "mode": "100644",
       "path": "src/physics/tick.inc",
-      "sha256": "30804397d14f33a6e734b2ec62d9b3d397040b9f8759c3db64c380896c5912f4"
+      "sha256": "58097a71bedbc36662361d794b4d83fa1cfde811209e7f5618d7cc4edad9bd5f"
     },
     {
       "mode": "100644",
       "path": "src/physics/translations.inc",
-      "sha256": "a59accf38dc027a1588ace351b518d6641eec083c4a1e1cd03ccbe00dff9e164"
+      "sha256": "0b923259454955af06aa1a614e7607116808c20f576485a60659882de1dc7acd"
     },
     {
       "mode": "100644",
       "path": "src/physics/workspace.inc",
-      "sha256": "d9fb0dc9480c77d1481e500deffe36d3bd54d8fdab571345eef56d9611b2b705"
+      "sha256": "fc2def858fa1dac62f2ce4d8bd393b513f317a15776ce1e1d563d30b481ebdb1"
     },
     {
       "mode": "100644",
@@ -254,7 +254,7 @@
     {
       "mode": "100644",
       "path": "tests/physics_tests.cpp",
-      "sha256": "5b6000ed2ed226e2360994c90412cd6da53a915db3f5bb6351eaeaf163f9d430"
+      "sha256": "d52ae5f4bfc59879d20fdc7c67664940f0507891323a9a0ec6382e4697c8bb41"
     },
     {
       "mode": "100644",
@@ -319,7 +319,7 @@
     {
       "mode": "100644",
       "path": "tests/wasm_api.test.mjs",
-      "sha256": "c8f947d64bc927b05e8def92a7e8c964b12e02626f81338a7cf6bddf9ca7b1f0"
+      "sha256": "a765b951432f1d4d4887655e7d7dc0a4006709d2019f9c02e3bffe13f6565446"
     },
     {
       "mode": "100644",

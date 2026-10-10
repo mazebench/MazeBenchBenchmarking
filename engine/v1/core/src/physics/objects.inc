@@ -17,12 +17,25 @@ void AddVoxelToObject(int32_t voxel, int32_t object) {
 void BuildObjects(Voxel* voxels, int32_t count) {
   g_object_count = 0;
   g_weightless_object_count = 0;
+  ActiveWorkspace().room_grid_width = 0;
+  ActiveWorkspace().room_grid_height = 0;
   ActiveWorkspace().scene_has_orange_mechanisms = false;
   ActiveWorkspace().scene_has_player_gates = false;
   ResetHash();
   int32_t player_count = 0;
   for (int32_t index = 0; index < count; ++index) {
     player_count += voxels[index].role == kPlayerRole ? 1 : 0;
+    const Voxel& voxel = voxels[index];
+    if (voxel.role == kPlayerRole && voxel.generic_id >= 0 &&
+        (voxel.generic_id & kPlayerRoomGridIdFlag) != 0) {
+      const int32_t room_width = voxel.generic_id & kRoomGridDimensionMask;
+      const int32_t room_height =
+          (voxel.generic_id >> kRoomGridDimensionBits) & kRoomGridDimensionMask;
+      if (room_width > 0 && room_height > 0) {
+        ActiveWorkspace().room_grid_width = room_width;
+        ActiveWorkspace().room_grid_height = room_height;
+      }
+    }
   }
   const int32_t player_object = player_count > 1
       ? CreateObject(kPlayerObject)

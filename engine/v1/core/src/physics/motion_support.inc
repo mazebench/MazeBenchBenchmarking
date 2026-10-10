@@ -167,8 +167,11 @@ void TranslateHiddenOrangeWallsWithProposals(
         if (attached) break;
       }
       if (!attached) continue;
-      wall.x += uniform ? uniform_dx : g_object_dx[object];
-      wall.y += uniform ? uniform_dy : g_object_dy[object];
+      const int32_t dx = uniform ? uniform_dx : g_object_dx[object];
+      const int32_t dy = uniform ? uniform_dy : g_object_dy[object];
+      if (!VoxelStaysInRoomGrid(wall, wall.x + dx, wall.y + dy)) break;
+      wall.x += dx;
+      wall.y += dy;
       wall.z += uniform ? uniform_dz : g_object_dz[object];
       break;
     }
@@ -371,7 +374,7 @@ bool ResolveCarriedCollisions(
       const Voxel& voxel = voxels[member];
       const int32_t next_x = voxel.x + dx;
       const int32_t next_y = voxel.y + dy;
-      if (!IsInsideRoom(next_x, next_y, width, height)) {
+      if (!VoxelDestinationIsInsideRoom(voxel, next_x, next_y, width, height)) {
         g_rejected_carriers[object] = 1;
         changed = true;
         break;

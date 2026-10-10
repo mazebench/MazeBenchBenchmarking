@@ -23,6 +23,14 @@ constexpr int32_t kOrangeScopeCount = 1 << 13;
 // body; it retains clone collision, carrying, gravity and punch behavior.
 // Clear this transient tag when starting a command in that clone's own room.
 constexpr int32_t kCloneNoCommandIdFlag = 1 << 30;
+// Optional uniform room grid for a host's temporary connected layout. Tag the
+// player's generic_id with flag | (room_height << 15) | room_width. Positive
+// dimensions use 15 bits each. Only player voxels may cross these cell borders;
+// every other voxel's horizontal proposal must stay in its current grid cell.
+// Hosts remove the tag on projection. No topology or save state is stored here.
+constexpr int32_t kPlayerRoomGridIdFlag = 1 << 30;
+constexpr int32_t kRoomGridDimensionBits = 15;
+constexpr int32_t kRoomGridDimensionMask = (1 << kRoomGridDimensionBits) - 1;
 constexpr int32_t kPhysicsWorkspaceBytes = 8 * 1024 * 1024;
 
 struct PhysicsWorkspace {

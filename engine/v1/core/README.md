@@ -47,6 +47,14 @@ This transient flag and any room-specific body IDs belong to the host's command
 layout, never to saved authored rooms. The next command selects its starting
 room anew.
 
+For connected layouts, the host may tag the player's generic ID with
+`kPlayerRoomGridIdFlag | (room_height << kRoomGridDimensionBits) | room_width`.
+Both positive dimensions fit in 15 bits. Only the player can cross the resulting
+uniform grid; other bodies, fixtures, and every voxel of a polycube stay in their
+current room during deliberate pushes, carrying, Ice slides, and punches.
+Untagged scenes retain ordinary single-room physics. The tag is transient host
+metadata and must not appear in authored rooms or projected save state.
+
 Entering an Ice ramp sideways from level terrain requires existing sliding
 momentum. The entry tick stays at the same elevation; the next tick turns
 downhill and follows the ramp. A deliberate step remains blocked from the

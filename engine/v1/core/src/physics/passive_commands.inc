@@ -163,7 +163,7 @@ int32_t TrySimulatePassiveQuiescentTurn(
              member = g_next_object_voxel[member]) {
           const int32_t member_x = voxels[member].x + dx;
           const int32_t member_y = voxels[member].y + dy;
-          if (!IsInsideRoom(member_x, member_y, width, height)) {
+          if (!VoxelDestinationIsInsideRoom(voxels[member], member_x, member_y, width, height)) {
             definitely_blocked = true;
             break;
           }

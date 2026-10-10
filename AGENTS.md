@@ -146,10 +146,19 @@ neighboring button must not lower its walls even for one animation frame.
 Clone directional input belongs to the room where the command began. Every
 attached destination room suppresses clone input for that whole command,
 including multi-room slides and punches; the following command selects its
-starting room anew. Temporary layouts namespace clone rigid-body IDs by room
-and encode the canonical `kCloneNoCommandIdFlag` for non-origin clones. Project
-authored IDs back and remove every transient clone property before returning
-room state. Keep ordinary clone collision and passive physics behavior.
+starting room anew. Temporary layouts namespace clone and weightless rigid-body
+IDs by room and encode the canonical `kCloneNoCommandIdFlag` for non-origin
+clones. Project authored IDs back and remove every transient body property
+before returning room state. Keep ordinary clone collision and passive physics
+behavior.
+
+Only the player may cross a room seam. Encode the uniform room dimensions on
+the temporary player's generic ID with `kPlayerRoomGridIdFlag`. The canonical
+movement validators keep every non-player body, passenger, and fixture in its
+own room during pushes, Ice/ramp slides, punches, and carrying. Reject the move
+before committing any crossing voxel, including part of a polycube; do not
+filter transported objects out after simulation. Strip the temporary room-grid
+properties on projection so saves and undo retain authored player metadata.
 
 The C++ engine accepts a rectangle, so an L-shaped temporary region represents
 unvisited holes with synthetic solid boundary columns. These columns must never

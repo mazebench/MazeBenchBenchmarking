@@ -35,6 +35,37 @@ function simulate(engine, voxels, direction, width = 5, height = 5) {
   }));
 }
 
+for (const boxRole of ['pushable', 'weightless-pushable', 'blue-box-slope-up']) {
+  test(`${boxRole}: only the player may cross an optional room grid`, async () => {
+    const engine = await loadEngine();
+    const start = [
+      {x: 5, y: 1, z: 1, roleId: 'player', genericId: (1 << 30) | (4 << 15) | 6},
+      {x: 4, y: 3, z: 1, roleId: 'clone', genericId: 7},
+      {x: 5, y: 3, z: 1, roleId: boxRole, genericId: 9},
+      ...Array.from({length: 96}, (_, i) => ({x: i % 12, y: Math.floor(i / 12), z: 0, roleId: 'floor'}))
+    ];
+    const bounded = simulate(engine, start, 1, 12, 8);
+    assert.deepEqual(bounded.slice(0, 3).map(v => [v.x, v.y, v.z]),
+      [[6, 1, 1], [4, 3, 1], [5, 3, 1]]);
+    assert.equal(bounded[0].genericId, start[0].genericId);
+    const unscoped = start.map((v, i) => i === 0 ? {...v, genericId: -1} : v);
+    assert.deepEqual(simulate(engine, unscoped, 1, 12, 8).slice(0, 3).map(v => [v.x, v.y, v.z]),
+      [[6, 1, 1], [5, 3, 1], [6, 3, 1]], 'ordinary one-room physics must not retain a prior room grid');
+  });
+}
+
+test('a player cannot push a box out of its room but may push an entrance box inside its own room', async () => {
+  const engine = await loadEngine();
+  const start = [
+    {x: 4, y: 1, z: 1, roleId: 'player', genericId: (1 << 30) | (4 << 15) | 6},
+    {x: 5, y: 1, z: 1, roleId: 'pushable'},
+    ...Array.from({length: 48}, (_, i) => ({x: i % 12, y: Math.floor(i / 12), z: 0, roleId: 'floor'}))
+  ];
+  assert.deepEqual(simulate(engine, start, 1, 12, 4), start);
+  const entered = start.map((v, i) => i < 2 ? {...v, x: v.x + 1} : v);
+  assert.deepEqual(simulate(engine, entered, 1, 12, 4).slice(0, 2).map(v => [v.x, v.y]), [[6, 1], [7, 1]]);
+});
+
 for (const roleId of ['clone', 'yellow-clone-slope-up']) {
   test(`${roleId}: an out-of-room clone ignores input and reactivates on the next local command`, async () => {
     const engine = await loadEngine();

@@ -106,7 +106,7 @@ export class ConnectedWorldSessionV1 {
     }));
     const width = (maxColumn - minColumn + 1) * this.roomWidth;
     const height = (maxRow - minRow + 1) * this.roomHeight;
-    const cloneGroups = new Map();
+    const bodyGroups = new Map();
     const objects = placements.flatMap(({ room, state, offsetX, offsetY }, roomIndex) =>
       state.objects
         .filter((object) => isInside(state, object))
@@ -118,14 +118,23 @@ export class ConnectedWorldSessionV1 {
           if (placements.length > 1 && (role === "orange-button" || role === "orange-wall")) {
             shifted.connectedWorldOrangeScope = roomIndex + 1;
           }
-          if (placements.length > 1 && this.definitionMap.get(object.blockId)?.roleId === "clone") {
+          if (placements.length > 1 && role === "player") {
+            // Opening the rectangle for player travel must preserve the room
+            // borders for all other bodies, including pushed/carried objects.
+            shifted.connectedWorldRoomWidth = this.roomWidth;
+            shifted.connectedWorldRoomHeight = this.roomHeight;
+          }
+          const bodyRole = this.definitionMap.get(object.blockId)?.roleId;
+          if (placements.length > 1 && (bodyRole === "clone" || bodyRole === "weightless-pushable")) {
             // Clones receive the input only in its originating room, even if
             // Ice or a punch carries the player through several other rooms.
             // Equal authored IDs in separate rooms are separate rigid bodies.
-            const key = `${roomIndex}:${engineGenericIdForObject(object, this.definitionMap)}`;
-            if (!cloneGroups.has(key)) cloneGroups.set(key, cloneGroups.size);
-            shifted.connectedWorldCloneGroup = cloneGroups.get(key);
-            shifted.connectedWorldCloneCommandDisabled = roomKey(room) !== roomKey(commandRoom);
+            const key = `${roomIndex}:${bodyRole}:${engineGenericIdForObject(object, this.definitionMap)}`;
+            if (!bodyGroups.has(key)) bodyGroups.set(key, bodyGroups.size);
+            shifted.connectedWorldBodyGroup = bodyGroups.get(key);
+            if (bodyRole === "clone") {
+              shifted.connectedWorldCloneCommandDisabled = roomKey(room) !== roomKey(commandRoom);
+            }
           }
           return shifted;
         }));
@@ -202,8 +211,9 @@ export class ConnectedWorldSessionV1 {
           object.x >= offsetX && object.y >= offsetY &&
           object.x < offsetX + this.roomWidth &&
           object.y < offsetY + this.roomHeight)
-        .map(({ connectedWorldOrangeScope, connectedWorldCloneGroup,
-          connectedWorldCloneCommandDisabled, ...object }) =>
+        .map(({ connectedWorldOrangeScope, connectedWorldBodyGroup,
+          connectedWorldCloneCommandDisabled, connectedWorldRoomWidth,
+          connectedWorldRoomHeight, ...object }) =>
           ({ ...object, x: object.x - offsetX, y: object.y - offsetY }))
     };
   }

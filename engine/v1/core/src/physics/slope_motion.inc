@@ -83,7 +83,7 @@ bool TranslateSlopeMomentumObjects(
           const int32_t next_x = voxels[member].x + g_object_dx[object];
           const int32_t next_y = voxels[member].y + g_object_dy[object];
           const int32_t next_z = voxels[member].z + g_object_dz[object];
-          if (!IsInsideRoom(next_x, next_y, width, height)) continue;
+          if (!VoxelDestinationIsInsideRoom(voxels[member], next_x, next_y, width, height)) continue;
           const int32_t occupant = FindVoxelAt(
               voxels, next_x, next_y, next_z, width, height);
           if (occupant < 0 || occupant == player_index) continue;

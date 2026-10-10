@@ -168,6 +168,9 @@ bool AdvanceCloneCommandObjects(
       const int32_t object = g_object_queue[queue_begin++];
       for (int32_t member = g_object_head[object]; member >= 0;
            member = g_next_object_voxel[member]) {
+        if (!VoxelDestinationIsInsideRoom(voxels[member],
+                voxels[member].x + dx, voxels[member].y + dy,
+                width, height)) continue;
         const int32_t occupant = FindVoxelAt(
             voxels,
             voxels[member].x + dx,

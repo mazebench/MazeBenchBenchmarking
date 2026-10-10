@@ -14,6 +14,9 @@ const ORANGE_SCOPE_FLAG = 1 << 30;
 const ORANGE_SCOPE_SHIFT = 17;
 const ORANGE_VALUE_MASK = (1 << ORANGE_SCOPE_SHIFT) - 1;
 const CLONE_NO_COMMAND_FLAG = 1 << 30;
+const PLAYER_ROOM_GRID_FLAG = 1 << 30;
+const ROOM_GRID_DIMENSION_BITS = 15;
+const ROOM_GRID_DIMENSION_MASK = (1 << ROOM_GRID_DIMENSION_BITS) - 1;
 
 function scopedOrangeId(object, value) {
   const scope = object.connectedWorldOrangeScope;
@@ -143,6 +146,15 @@ function encodedPuncherId(object) {
 export function engineGenericIdForObject(object, definitions) {
   const block = definitionMap(definitions).get(object.blockId);
   if (!block) return -1;
+  if (block.roleId === "player" && object.connectedWorldRoomWidth !== undefined) {
+    const width = object.connectedWorldRoomWidth;
+    const height = object.connectedWorldRoomHeight;
+    if (!Number.isInteger(width) || width < 1 || width > ROOM_GRID_DIMENSION_MASK ||
+        !Number.isInteger(height) || height < 1 || height > ROOM_GRID_DIMENSION_MASK) {
+      throw new Error("Invalid connected-room grid dimensions.");
+    }
+    return PLAYER_ROOM_GRID_FLAG | (height << ROOM_GRID_DIMENSION_BITS) | width;
+  }
   if (block.roleId === "player-lift") return encodedLiftId(object);
   if (block.visual?.kind === "gate" || block.roleId === "player-gate") return encodedGateId(object);
   if (block.roleId === "orange-button") return scopedOrangeId(object, encodedButtonId(object));
@@ -153,9 +165,9 @@ export function engineGenericIdForObject(object, definitions) {
     return encodedPuncherId(object);
   }
   if (GENERIC_ROLES.has(block.roleId)) {
-    if (block.roleId === "clone" && Number.isInteger(object.connectedWorldCloneGroup)) {
-      return object.connectedWorldCloneGroup |
-        (object.connectedWorldCloneCommandDisabled ? CLONE_NO_COMMAND_FLAG : 0);
+    if (Number.isInteger(object.connectedWorldBodyGroup)) {
+      return object.connectedWorldBodyGroup |
+        (block.roleId === "clone" && object.connectedWorldCloneCommandDisabled ? CLONE_NO_COMMAND_FLAG : 0);
     }
     return Number.isInteger(object.groupId)
       ? object.groupId
@@ -276,10 +288,10 @@ export function readEngineStateV1(template, definitions, buffer, stride) {
       next.variantId = direction;
       next.stateId = id % 2;
     } else if (GENERIC_ROLES.has(block?.roleId)) {
-      // Connected layouts assign temporary clone-body IDs across rooms. Keep
+      // Connected layouts assign temporary rigid-body IDs across rooms. Keep
       // authored IDs in readback so neither the namespace nor the input tag
       // escapes into rendering, saves, undo, or the next room's command.
-      const id = block.roleId === "clone" && Number.isInteger(object.connectedWorldCloneGroup)
+      const id = Number.isInteger(object.connectedWorldBodyGroup)
         ? Number.isInteger(object.groupId) ? object.groupId : object.genericId ?? 0
         : engineGenericId;
       next.genericId = id;

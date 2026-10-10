@@ -356,6 +356,8 @@ struct WorkspaceData {
   int32_t next_dynamic_column_voxel[kVoxelCapacity];
   int32_t object_count;
   int32_t weightless_object_count;
+  int32_t room_grid_width;
+  int32_t room_grid_height;
   bool dense_columns;
   bool linear_spatial;
   int32_t spatial_voxel_count;
@@ -470,6 +472,20 @@ struct WorkspaceScope {
 
 bool IsInsideRoom(int32_t x, int32_t y, int32_t width, int32_t height) {
   return x >= 0 && x < width && y >= 0 && y < height;
+}
+
+bool VoxelStaysInRoomGrid(const Voxel& voxel, int32_t x, int32_t y) {
+  const WorkspaceData& data = ActiveWorkspace();
+  return voxel.role == kPlayerRole || data.room_grid_width == 0 ||
+      (x >= 0 && y >= 0 &&
+       voxel.x / data.room_grid_width == x / data.room_grid_width &&
+       voxel.y / data.room_grid_height == y / data.room_grid_height);
+}
+
+bool VoxelDestinationIsInsideRoom(
+    const Voxel& voxel, int32_t x, int32_t y,
+    int32_t width, int32_t height) {
+  return IsInsideRoom(x, y, width, height) && VoxelStaysInRoomGrid(voxel, x, y);
 }
 
 int32_t HashSlot(uint64_t key) {
