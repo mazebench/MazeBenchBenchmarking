@@ -91,6 +91,15 @@ Do not describe the whole applications as one-to-one merely because the engine
 hashes match. State precisely whether parity refers to C++ source, WASM, adapter
 serialization, command/tick playback, input, or rendering.
 
+## Model collision volume
+
+Solid models occupy a vertical wall column of `visual.height` unit voxels.
+The Benchmarking engine adapter appends their upper collision cells after the
+authored objects; readback keeps only the authored template. Use the `count`
+returned by `engine.writeState()` for every native physics/search upload, not
+`state.objects.length`, and include the expanded count in capacity checks.
+These extra cells must never enter room saves, rendered objects, or gem IDs.
+
 ## Play animation timing
 
 Play Mode presents each C++ engine tick as one animation frame. Its default

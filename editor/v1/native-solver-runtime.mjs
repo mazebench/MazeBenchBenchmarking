@@ -1,7 +1,8 @@
 import {
   ENGINE_V1_DIRECTIONS,
   countActiveRoleV1,
-  createEngineStateV1
+  createEngineStateV1,
+  engineVoxelCountV1
 } from "../../engine/v1/adapter.mjs";
 
 const STATUS_LABELS = Object.freeze({
@@ -44,7 +45,7 @@ export function createEditorSolverSessionV1(engine, stateOrRoom, definitions, op
     }
   }
   const state = createEngineStateV1(stateOrRoom);
-  if (state.objects.length > engine.exports.search_voxel_capacity()) {
+  if (engineVoxelCountV1(state, definitions) > engine.exports.search_voxel_capacity()) {
     throw new Error(`Editor search supports at most ${engine.exports.search_voxel_capacity()} objects.`);
   }
   if (countActiveRoleV1(state, definitions, "player") < 1) {
@@ -59,9 +60,9 @@ export function createEditorSolverSessionV1(engine, stateOrRoom, definitions, op
   const algorithm = heuristicWeight === 0 && interactionWeight === 0
     ? "exact-shortest"
     : "fast-astar";
-  engine.writeState(state, definitions);
+  const { count } = engine.writeState(state, definitions);
   if (engine.exports.editor_solver_begin(
-    state.objects.length,
+    count,
     state.width,
     state.height,
     heuristicWeight,

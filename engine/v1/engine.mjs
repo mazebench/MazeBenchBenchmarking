@@ -4,6 +4,8 @@ import {
   ENGINE_V1_VOXEL_STRIDE,
   countActiveRoleV1,
   createEngineStateV1,
+  engineCollisionStateV1,
+  engineVoxelCountV1,
   normalizeEngineDirectionV1,
   readEngineStateV1,
   roomFromEngineStateV1,
@@ -81,22 +83,24 @@ export class MazeBenchEngineV1 {
   }
 
   writeState(state, definitions) {
-    if (state.objects.length > this.exports.voxel_capacity()) {
+    const count = engineVoxelCountV1(state, definitions);
+    if (count > this.exports.voxel_capacity()) {
       throw new Error(`engine/v1 supports at most ${this.exports.voxel_capacity()} objects.`);
     }
     const stride = this.exports.voxel_stride();
     const buffer = new Int32Array(
       this.exports.memory.buffer,
       this.exports.voxel_buffer(),
-      state.objects.length * stride
+      count * stride
     );
-    writeEngineStateV1(state, definitions, (roleId) => this.roleCode(roleId), buffer, stride);
-    return { buffer, stride };
+    writeEngineStateV1(engineCollisionStateV1(state, definitions), definitions,
+      (roleId) => this.roleCode(roleId), buffer, stride);
+    return { buffer, stride, count };
   }
 
   async simulateCommand(stateOrRoom, direction, definitions) {
     const state = createEngineStateV1(stateOrRoom);
-    const { buffer, stride } = this.writeState(state, definitions);
+    const { buffer, stride, count } = this.writeState(state, definitions);
     const code = normalizeEngineDirectionV1(direction);
     const readState = () => readEngineStateV1(state, definitions, buffer, stride);
     this.exports.reset_command();
@@ -104,7 +108,7 @@ export class MazeBenchEngineV1 {
     let previousTick = 0;
     for (let iteration = 0; iteration < 100_000; iteration += 1) {
       const status = this.exports.step_command_tick(
-        state.objects.length,
+        count,
         state.width,
         state.height,
         code
@@ -139,7 +143,7 @@ export class MazeBenchEngineV1 {
 
   solve(stateOrRoom, definitions, options = {}) {
     const state = createEngineStateV1(stateOrRoom);
-    if (state.objects.length > this.exports.search_voxel_capacity()) {
+    if (engineVoxelCountV1(state, definitions) > this.exports.search_voxel_capacity()) {
       throw new Error(`engine/v1 search supports at most ${this.exports.search_voxel_capacity()} objects.`);
     }
     if (countActiveRoleV1(state, definitions, "player") < 1) {
@@ -148,7 +152,7 @@ export class MazeBenchEngineV1 {
     if (countActiveRoleV1(state, definitions, "goal") < 1) {
       throw new Error("Place at least one gem before running a solver.");
     }
-    this.writeState(state, definitions);
+    const { count } = this.writeState(state, definitions);
     const capacity = this.exports.search_node_capacity();
     const maximumNodes = Math.max(1, Math.min(
       capacity,
@@ -156,7 +160,7 @@ export class MazeBenchEngineV1 {
     ));
     const startedAt = performance.now();
     const statusCode = this.exports.search_solve(
-      state.objects.length,
+      count,
       state.width,
       state.height,
       maximumNodes
@@ -185,13 +189,13 @@ export class MazeBenchEngineV1 {
 
   findEdges(stateOrRoom, definitions, options = {}) {
     const state = createEngineStateV1(stateOrRoom);
-    if (state.objects.length > this.exports.search_voxel_capacity()) {
+    if (engineVoxelCountV1(state, definitions) > this.exports.search_voxel_capacity()) {
       throw new Error(`engine/v1 search supports at most ${this.exports.search_voxel_capacity()} objects.`);
     }
     if (countActiveRoleV1(state, definitions, "player") < 1) {
       throw new Error("Place a player before finding room edges.");
     }
-    this.writeState(state, definitions);
+    const { count } = this.writeState(state, definitions);
     const capacity = this.exports.search_node_capacity();
     const maximumNodes = Math.max(1, Math.min(
       capacity,
@@ -199,7 +203,7 @@ export class MazeBenchEngineV1 {
     ));
     const startedAt = performance.now();
     const statusCode = this.exports.search_edges(
-      state.objects.length,
+      count,
       state.width,
       state.height,
       maximumNodes
@@ -221,7 +225,7 @@ export class MazeBenchEngineV1 {
     for (let index = 0; index < maximumEdges; index += 1) {
       if (this.exports.search_edge_solution(
         index,
-        state.objects.length,
+        count,
         state.width,
         state.height
       ) !== 1) {

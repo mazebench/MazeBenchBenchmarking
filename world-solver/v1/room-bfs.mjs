@@ -95,8 +95,8 @@ export async function runRoomBfsV1(engine, world, options = {}) {
     ? new ConnectedWorldSessionV1(engine, definitions, world.rooms)
     : null;
   const canonicalStateKey = (state) => {
-    const { buffer, stride } = engine.writeState(state, definitions);
-    const records = Array.from({ length: state.objects.length }, (_, index) =>
+    const { buffer, stride, count } = engine.writeState(state, definitions);
+    const records = Array.from({ length: count }, (_, index) =>
       Array.from(buffer.subarray(index * stride, (index + 1) * stride)).join(","));
     records.sort();
     return `${state.width}x${state.height}|${records.join(";")}`;
@@ -335,10 +335,11 @@ export async function runRoomBfsV1(engine, world, options = {}) {
     for (const record of authoredGoalRecords.get(frame.room.fileName) || []) {
       if (!activeGoalKeys.has(record.key)) recordGem(frame.room, record.key);
     }
-    engine.writeState(prepared.state, definitions);
+    const { count } = engine.writeState(prepared.state, definitions);
+    frame.voxelCount = count;
     const started = metaStrategy === "super-astar"
       ? engine.exports.super_astar_begin(
-          prepared.state.objects.length,
+          count,
           prepared.state.width,
           prepared.state.height,
           prepared.dynamicVoxelCount,
@@ -347,14 +348,14 @@ export async function runRoomBfsV1(engine, world, options = {}) {
         )
       : metaStrategy === "row-astar"
         ? engine.exports.row_astar_begin(
-            prepared.state.objects.length,
+            count,
             prepared.state.width,
             prepared.state.height,
             prepared.dynamicVoxelCount,
             heuristicWeight
           )
       : engine.exports.room_bfs_begin(
-          prepared.state.objects.length,
+          count,
           prepared.state.width,
           prepared.state.height,
           prepared.dynamicVoxelCount
@@ -441,7 +442,7 @@ export async function runRoomBfsV1(engine, world, options = {}) {
     if (!nextRoom) return null;
     if (metaStrategy === "row-astar") {
       const count = engine.exports.row_astar_edge_load_state(edge);
-      if (count !== frame.preparedState.objects.length) {
+      if (count !== frame.voxelCount) {
         throw new Error(`Row A* could not restore an edge state in ${room.position.join("×")}.`);
       }
       const stride = engine.exports.voxel_stride();

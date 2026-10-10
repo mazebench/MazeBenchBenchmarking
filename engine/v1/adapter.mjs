@@ -182,6 +182,34 @@ export function createEngineStateV1(room) {
   };
 }
 
+function solidModelHeight(block) {
+  if (block?.roleId !== "solid" || block.visual?.kind !== "model") return 1;
+  const height = Number(block.visual.height);
+  return Number.isFinite(height) ? Math.max(1, Math.floor(height)) : 1;
+}
+
+export function engineVoxelCountV1(state, definitions) {
+  const blocks = definitionMap(definitions);
+  return state.objects.reduce((count, object) =>
+    count + solidModelHeight(blocks.get(object.blockId)), 0);
+}
+
+// Model height is host metadata: C++ receives only unit voxels. Append the
+// upper wall cells after every authored object so existing indices, mechanism
+// identities and dynamic-prefix layouts stay stable. Readback uses the original
+// template, keeping these collision-only cells out of rendering and saves.
+export function engineCollisionStateV1(state, definitions) {
+  const blocks = definitionMap(definitions);
+  const upperWalls = [];
+  for (const object of state.objects) {
+    const height = solidModelHeight(blocks.get(object.blockId));
+    for (let dz = 1; dz < height; ++dz) {
+      upperWalls.push({ ...object, z: object.z + dz });
+    }
+  }
+  return upperWalls.length ? { ...state, objects: [...state.objects, ...upperWalls] } : state;
+}
+
 export function writeEngineStateV1(state, definitions, roleCode, buffer, stride) {
   const blocks = definitionMap(definitions);
   state.objects.forEach((object, index) => {

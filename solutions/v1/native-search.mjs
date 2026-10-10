@@ -1,10 +1,11 @@
 import { DIRECTIONS } from './model.mjs';
+import { engineVoxelCountV1 } from '../../engine/v1/adapter.mjs';
 
 // Upload a room once. Expansion, hashing, passive movement and A* stay native.
 export function createNativeRoomSearch(model, native, node, goal, {boundaryMask=0, heuristicWeight=3, excludedGems=new Set()}={}) {
   const state=node.state, e=native.exports;
   if(typeof e.solutions_solver_begin!=='function')throw new Error('Solutions solver is unavailable.');
-  if(state.objects.length>e.search_voxel_capacity())throw new Error('Room exceeds the native search capacity.');
+  if(engineVoxelCountV1(state,model.blocks)>e.search_voxel_capacity())throw new Error('Room exceeds the native search capacity.');
   let mask=0n, ordinal=0;
   for(const object of state.objects) {
     if(model.role(object)!=='goal')continue;
@@ -12,8 +13,8 @@ export function createNativeRoomSearch(model, native, node, goal, {boundaryMask=
     ordinal++;
   }
   const kind=goal?.kind==='location'&&goal.room===node.room?1:goal?.kind==='gem'&&mask?2:0;
-  native.writeState(state,model.blocks);
-  if(e.solutions_solver_begin(state.objects.length,state.width,state.height,kind,
+  const {count}=native.writeState(state,model.blocks);
+  if(e.solutions_solver_begin(count,state.width,state.height,kind,
     // Storage records the player on a surface at z; the engine uses z + 1.
     goal?.x??0,goal?.y??0,(goal?.z??0)+1,goal?.z==null?1:0,
     Number(mask&0xffffffffn),Number(mask>>32n),boundaryMask,heuristicWeight)!==1)throw new Error('Room is not supported by native search.');

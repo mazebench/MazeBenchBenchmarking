@@ -206,14 +206,14 @@ export async function runRandomAgentV1(engine, sourceWorld, options = {}) {
     const started = nativeWorldReady
       ? engine.exports.random_world_resume(
           roomIndex,
-          template.objects.length,
+          resident.count,
           template.width,
           template.height,
           dynamicVoxelCount,
           seed
         )
       : engine.exports.random_agent_begin(
-          template.objects.length,
+          resident.count,
           template.width,
           template.height,
           dynamicVoxelCount,
@@ -236,7 +236,7 @@ export async function runRandomAgentV1(engine, sourceWorld, options = {}) {
     buffer = new Int32Array(
       engine.exports.memory.buffer,
       engine.exports.voxel_buffer(),
-      template.objects.length * stride
+      cached.voxelCount * stride
     );
     state = template;
   };
@@ -260,7 +260,7 @@ export async function runRandomAgentV1(engine, sourceWorld, options = {}) {
       const roomIndex = authoredRoom.rowIndex * world.columns.length + authoredRoom.columnIndex;
       if (engine.exports.random_world_add_room(
         roomIndex,
-        prepared.state.objects.length,
+        resident.count,
         prepared.state.width,
         prepared.state.height,
         prepared.dynamicVoxelCount,
@@ -276,7 +276,8 @@ export async function runRandomAgentV1(engine, sourceWorld, options = {}) {
         goalEntries: prepared.state.objects.map((object, index) => ({ object, index }))
           .filter(({ object }) => engineRoleIdForObject(object, definitions) === "goal")
           .map(({ object, index }) => ({ id: object.randomAgentObjectId, index })),
-        stride: resident.stride
+        stride: resident.stride,
+        voxelCount: resident.count
       };
     }
     const startRoomIndex = startRoom.rowIndex * world.columns.length + startRoom.columnIndex;
