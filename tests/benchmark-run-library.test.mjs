@@ -34,6 +34,17 @@ async function fixture(t) {
   return { supervisor, add };
 }
 
+test("library exposes quota reset metadata without sending raw provider diagnostics", async t => {
+  const { supervisor, add } = await fixture(t);
+  const run = await add(0, { status: "failed" });
+  run.metadata.error = "API error 429 [request_id=private]: Subscription quota exhausted. Your usage window resets at 2026-10-12T23:21:10Z.";
+  await writeFile(path.join(run.directory, "run.json"), JSON.stringify(run.metadata));
+  const [value] = await new RunLibrary().list(supervisor);
+  assert.deepEqual(value.rate_limit, { reset_at: "2026-10-12T23:21:10.000Z" });
+  assert.equal(value.error, undefined);
+  assert.equal(JSON.stringify(value).includes("request_id"), false);
+});
+
 test("library projects verified counters, caches unchanged summaries, and reflects commits and liveness", async t => {
   const { supervisor, add } = await fixture(t);
   const run = await add(0, { status: "running" });

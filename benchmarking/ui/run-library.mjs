@@ -1,14 +1,19 @@
+import { formatRateLimit } from "../run-errors.mjs";
 const dates = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
 const count = value => (value || 0).toLocaleString();
 const text = (element, value) => { if (element.textContent !== String(value)) element.textContent = value; };
 
 export function providerName(provider) {
-  return ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity", "muse-code": "Meta Muse Code" })[provider] || provider;
+  return ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity", "muse-code": "Meta Muse Code", "prime-agent": "Prime Agent" })[provider] || provider;
 }
 
 export function runCompany(run) {
   const model = String(run.model || "").toLowerCase();
+  if (run.provider === "prime-agent" && model.includes("/")) {
+    const vendor = model.split("/")[0];
+    return ({openai: "OpenAI", anthropic: "Anthropic (Claude)", google: "Google", meta: "Meta", "meta-llama": "Meta", xai: "xAI", deepseek: "DeepSeek", alibaba: "Alibaba", mistral: "Mistral"})[vendor] || vendor;
+  }
   if (model.startsWith("claude")) return "Anthropic (Claude)";
   if (model.startsWith("gemini")) return "Google";
   if (model.startsWith("muse-")) return "Meta";
@@ -38,8 +43,9 @@ export function runCardValues(run) {
   const numbered = ["ice-maze", "slotski"].includes(run.world);
   return {
     href: `./run.html?id=${encodeURIComponent(run.id)}`,
-    condition: `${run.observation_mode === "vision" ? "Vision · " : ""}${run.tools_enabled ? "Python on" : "Python off"}`,
-    status: String(run.status || "unknown").replaceAll("-", " "),
+    condition: `${run.observation_mode === "vision" ? "Vision · " : ""}${run.provider === "prime-agent" ? "Native Python" : run.tools_enabled ? "Python on" : "Python off"}`,
+    status: run.rate_limit && run.status === "failed" ? "Rate limited" : String(run.status || "unknown").replaceAll("-", " "),
+    rateLimit: run.status === "failed" ? formatRateLimit(run.rate_limit) : null,
     context: `${worldName(run)} · ${run.effort} reasoning`,
     timestamp: `${run.created_at ? dates.format(new Date(run.created_at)) : "—"} · ${duration(run)}`,
     meta: `${worldName(run)} · ${providerName(run.provider || "codex")} · ${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"} · ${run.service_tier === "fast" ? "Fast" : "Standard speed"}` : ""} · ${run.created_at ? dates.format(new Date(run.created_at)) : "—"} · ${duration(run)}`,
@@ -61,7 +67,7 @@ export function runPage(runs, requestedPage = 0, size = 24) {
 
 function createCard() {
   const card = document.createElement("article");
-  card.innerHTML = `<a class="record-card-link"><div class="record-top"><strong class="record-model"></strong><span class="record-status"></span></div><div class="record-context"><span class="condition"></span><span class="record-meta"></span></div><span class="run-progress"><i></i></span><div class="record-metrics">${"<span><small></small><b></b></span>".repeat(4)}</div></a><div class="record-footer"><span class="record-date"></span><button type="button" class="record-delete danger" aria-label="Delete run"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></svg></button></div>`;
+  card.innerHTML = `<a class="record-card-link"><div class="record-top"><strong class="record-model"></strong><span class="record-status"></span></div><div class="record-context"><span class="condition"></span><span class="record-meta"></span></div><p class="record-rate-limit" hidden></p><span class="run-progress"><i></i></span><div class="record-metrics">${"<span><small></small><b></b></span>".repeat(4)}</div></a><div class="record-footer"><span class="record-date"></span><button type="button" class="record-delete danger" aria-label="Delete run"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></svg></button></div>`;
   return card;
 }
 
@@ -70,8 +76,11 @@ function updateCard(card, run, values) {
   card.querySelectorAll("a").forEach(link => { if (link.getAttribute("href") !== values.href) link.setAttribute("href", values.href); });
   text(card.querySelector(".condition"), values.condition);
   const status = card.querySelector(".record-status");
-  status.className = `record-status ${run.status}`;
+  status.className = `record-status ${values.rateLimit ? "rate-limited" : run.status}`;
   text(status, values.status);
+  const rateLimit = card.querySelector(".record-rate-limit");
+  rateLimit.hidden = !values.rateLimit;
+  text(rateLimit, values.rateLimit || "");
   text(card.querySelector(".record-model"), run.model);
   text(card.querySelector(".record-meta"), values.context);
   card.querySelector(".record-context").title = values.meta;

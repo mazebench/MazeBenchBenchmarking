@@ -144,6 +144,12 @@ export class TokenTelemetry {
 
   async readTimeline(runDirectory) {
     const metadata = JSON.parse(safeReadFile(runDirectory, "run.json"));
+    if (metadata.provider === "prime-agent") {
+      return { available: false, totals: metadata.usage || null, samples: [], compactions: [],
+        current_tokens: null, context_window: null, compaction_threshold: null,
+        reason: metadata.usage ? "Prime reports cumulative token usage. Context size and compaction timing are not reported here." : "Waiting for Prime Agent token usage.",
+        api_estimate: { usd: null, basis: "See your Prime account for inference and sandbox charges." } };
+    }
     const isAntigravity = metadata.provider === "antigravity";
     const isMessagesProvider = ["claude-code", "grok-build", "antigravity"].includes(metadata.provider);
     let model;

@@ -1,9 +1,10 @@
 import { heatmapVisits } from "./heatmap.mjs";
 import { runTabVisible } from "./run-tabs.mjs";
 import { benchmarkFetch, visionUrl } from "./benchmark-api.mjs";
+import { rateLimitDetails, formatRateLimit } from "../run-errors.mjs";
 const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
-const providerName = provider => ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity", "muse-code": "Meta Muse Code" })[provider || "codex"] || provider;
+const providerName = provider => ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity", "muse-code": "Meta Muse Code", "prime-agent": "Prime Agent" })[provider || "codex"] || provider;
 import { drawNovelty } from "../ui/novelty-chart.mjs";
 import { renderIceLevelTimings } from "./ice-level-timings.mjs";
 
@@ -417,18 +418,18 @@ function renderWorkspace(run) {
   if (signature === workspaceSignature) return;
   workspaceSignature = signature;
   elements["workspace-files"].replaceChildren();
-  elements["workspace-title"].textContent = run.tools_enabled ? "Python workspace" : "Python unavailable";
+  elements["workspace-title"].textContent = run.provider === "prime-agent" ? "Prime workspace" : run.tools_enabled ? "Python workspace" : "Python unavailable";
   const isolation = run.isolation || {};
   elements["isolation-status"].textContent = !run.capability_boundary_verified
     ? "legacy · not validated"
-    : run.tools_enabled
+    : run.provider === "prime-agent" ? "Remote VM · framework-only network" : run.tools_enabled
       ? isolation.verified ? "OS isolation · checked" : "isolation pending"
       : "maze tools · checked";
   const files = run.workspace_files || [];
   if (!run.tools_enabled || !files.length) {
     const empty = document.createElement("p");
     empty.className = "panel-empty";
-    empty.textContent = run.tools_enabled ? "The model has not written any files." : "This condition has no writable workspace.";
+    empty.textContent = run.provider === "prime-agent" ? "Files stay inside the remote Prime sandbox and are not mirrored here. Pausing retains them; stopping ends the sandbox." : run.tools_enabled ? "The model has not written any files." : "This condition has no writable workspace.";
     elements["workspace-files"].append(empty);
     return;
   }
@@ -646,18 +647,21 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   document.body.classList.toggle("ice-world", numberedWorld(run));
   document.title = `${run.model} · MazeBench record`;
   elements["model-monogram"].textContent = modelMonogram(run.model);
-  elements["run-kicker"].textContent = `${worldName(run)} · ${providerName(run.provider)}${run.observation_mode === "vision" ? " · Vision" : ""} · Python ${run.tools_enabled ? "on" : "off"}`;
+  elements["run-kicker"].textContent = `${worldName(run)} · ${providerName(run.provider)}${run.observation_mode === "vision" ? " · Vision" : ""} · ${run.provider === "prime-agent" ? "Native Python" : `Python ${run.tools_enabled ? "on" : "off"}`}`;
   elements["run-title"].textContent = run.model;
   elements["run-subtitle"].textContent = `${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"}` : ""} · ${run.service_tier === "fast" ? "Fast" : "Standard"} · ${compactDate(run.created_at)}`;
   elements["run-id"].textContent = run.id;
-  elements["run-status"].textContent = statusLabel(run.status);
+  const rateLimit = run.status === "failed" ? run.rate_limit || rateLimitDetails(run.error) : null;
+  elements["run-status"].textContent = rateLimit ? "Rate limited" : statusLabel(run.status);
   elements["run-status"].className = `status-pill ${run.status}`;
   elements["run-failure"].hidden = run.status !== "failed";
-  elements["run-failure-reason"].textContent = run.error || "The runner stopped before finishing. Inspect the activity record for details.";
+  elements["run-failure"].classList.toggle("rate-limited", Boolean(rateLimit));
+  elements["run-failure"].querySelector("strong").textContent = rateLimit ? "Rate limit reached" : "Run failed";
+  elements["run-failure-reason"].textContent = formatRateLimit(rateLimit) || run.error || "The runner stopped before finishing. Inspect the activity record for details.";
   const terminalGame = ["won", "action-limit"].includes(run.game_status);
   const activeRun = Boolean(run.runner_active);
-  const resumableBoundary = Boolean(run.capability_boundary_verified);
-  elements["pause-run"].hidden = !activeRun || run.status === "pausing";
+  const resumableBoundary = Boolean(run.capability_boundary_verified) && (run.provider !== "prime-agent" || activeRun);
+  elements["pause-run"].hidden = !activeRun || ["pausing", "paused"].includes(run.status);
   elements["pause-run"].disabled = !activeRun;
   elements["resume-run"].hidden = terminalGame || !resumableBoundary ||
     (!["paused", "stopped", "interrupted"].includes(run.status) && !(run.world === "slotski" && run.status === "failed") && !run.compaction_recoverable);
@@ -678,7 +682,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["stat-deaths"].textContent = run.world === "slotski" ? `${(run.target_row || 0) + 1} / ${(run.board_height || 5) - 1}` : run.world === "ice-maze" ? `${run.goals_covered || 0} / ${run.goals_total || 0}` : formatNumber(run.deaths || 0);
   elements["progress-chart"].setAttribute("aria-label", numberedWorld(run) ? "Levels solved and action progress" : "Gem and action progress");
   document.getElementById("board-legend").textContent = run.world === "slotski" ? "A target · letters are blocks · . empty · vv exit" : run.world === "ice-maze" ? "# wall · . ice · o goal · P player · @ covered goal" : "Move history playback";
-  elements["stat-tokens"].textContent = tokenUsage ? formatNumber(usageTotal(tokenUsage)) : "—";
+  elements["stat-tokens"].textContent = tokenUsage || run.usage ? formatNumber(usageTotal(tokenUsage || run.usage)) : "—";
   elements["novelty-value"].textContent = `${Math.round((run.novelty_rate || 0) * 100)}% overall`;
   const progress = run.action_limit ? Math.min(100, (run.action_count || 0) / run.action_limit * 100) : 0;
   elements["progress-value"].textContent = run.game_status === "won" ? "objective complete" : run.action_limit ? `${Math.round(progress)}% of budget` : "unlimited run";

@@ -34,7 +34,7 @@
             <span>Python workspace</span>
             <span class="toggle-control"><input id="tools-enabled" type="checkbox" role="switch"><i aria-hidden="true"></i><strong id="tools-label">Off</strong></span>
           </label>
-          <label><span>Agent</span><select id="provider"><option value="codex">Codex</option><option value="claude-code">Claude Code</option><option value="grok-build">Grok Build</option><option value="antigravity">Google Antigravity</option><option value="muse-code">Meta Muse Code</option></select></label>
+          <label><span>Agent</span><select id="provider"><option value="codex">Codex</option><option value="claude-code">Claude Code</option><option value="grok-build">Grok Build</option><option value="antigravity">Google Antigravity</option><option value="muse-code">Meta Muse Code</option><option value="prime-agent">Prime Agent</option></select></label>
           <label><span>Model</span><select id="model" required></select></label>
           <label><span>Reasoning</span><select id="effort" required></select></label>
           <details class="run-options">
@@ -49,7 +49,7 @@
             <button id="launch-pair" type="button" disabled>Launch matched pair</button>
           </div>
         </form>
-        <p class="launch-note">A matched pair starts two runs: one with Python off and one with Python on.</p>
+        <p id="launch-note" class="launch-note">A matched pair starts two runs: one with Python off and one with Python on.</p>
         <p id="launch-status" class="launch-status" role="status" aria-live="polite"></p>
         <details id="runtime-details" class="runtime-status">
           <summary><span>Agent setup</span><span id="agent-readiness" role="status" aria-live="polite">Checking…</span></summary>

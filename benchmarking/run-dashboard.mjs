@@ -12,6 +12,8 @@ import { CLAUDE_POLICY } from "./providers/claude-policy.mjs";
 import { GROK_POLICY } from "./grok/policy.mjs";
 import { POLICY as ANTIGRAVITY_POLICY } from "./antigravity/policy.mjs";
 
+import { POLICY as PRIME_POLICY } from "./prime/policy.mjs";
+import { rateLimitDetails } from "./run-errors.mjs";
 import { POLICY as MUSE_POLICY } from "./muse/policy.mjs";
 
 const fields = ["id", "pair_id", "provider", "world", "model", "observation_mode", "effort", "tools_enabled", "sequence_enabled", "service_tier", "action_limit", "start_room", "created_at", "updated_at", "completed_at", "paused_at", "stopped_at", "status", "continuation_count", "world_updates", "world_revision", "isolation", "usage"];
@@ -28,6 +30,8 @@ export class RunDashboard {
       history_epoch: snapshot.history_epoch || metadata.integrity?.manifest_sha256 || metadata.created_at,
       runner_active: supervisor.active.has(id), error: metadata.error ? publicRunError(metadata.error) : null,
       display: snapshot.display ?? await optional(directory, "display.json", null) };
+    const rateLimit = metadata.status === "failed" ? rateLimitDetails(metadata.error) : null;
+    if (rateLimit) run.rate_limit = rateLimit;
     const policy = metadata.capability_policy;
     run.capability_boundary_verified = policy?.version === CAPABILITY_POLICY_VERSION && policy?.model_catalog?.tool_mode === "direct" && policy?.model_catalog?.javascript_host === "disabled" && metadata.integrity?.version === CAPABILITY_POLICY_VERSION;
     run.compaction_recoverable = metadata.status === "failed" && isRecoverableCompactionError(metadata.error);
@@ -36,6 +40,10 @@ export class RunDashboard {
       const [name, session] = providerPolicies[metadata.provider];
       run.capability_boundary_verified = policy?.name === name && metadata.integrity?.version === CAPABILITY_POLICY_VERSION && !existsSync(path.join(directory, "integrity-violation.json"));
       run.compaction_recoverable = metadata.status === "failed" && run.capability_boundary_verified && Boolean(metadata[session]);
+    }
+    if (metadata.provider === "prime-agent") {
+      run.capability_boundary_verified = policy?.name === PRIME_POLICY && metadata.integrity?.version === CAPABILITY_POLICY_VERSION && !existsSync(path.join(directory, "integrity-violation.json"));
+      run.compaction_recoverable = false;
     }
     if (!run.runner_active && ["queued", "running", "continuing", "pausing"].includes(run.status)) {
       run.recorded_status = run.status; run.status = "interrupted";

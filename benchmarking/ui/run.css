@@ -88,6 +88,7 @@ summary::-webkit-details-marker { display: none; }
 .pair-card.selected { border-color: #64b5ff66; background: #0a84ff0d; }
 .run-failure { margin-bottom: 20px; padding: 18px; border-radius: 14px; }
 .run-failure p { line-height: 1.6; overflow-wrap: anywhere; }
+.run-failure.rate-limited { border-color: #735e35; background: #28241c; }
 .interview-panel { margin: 0; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); box-shadow: none; }
 .interview-heading { padding: 22px; gap: 20px; border-color: var(--line); background: none; }
 .interview-mark, .interview-heading .eyebrow { display: none; }

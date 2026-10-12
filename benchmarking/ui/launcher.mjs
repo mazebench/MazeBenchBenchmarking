@@ -2,7 +2,7 @@ import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs"
 import { RunListView, providerName, runCompany, selectRuns } from "./run-library.mjs";
 const elements = Object.fromEntries([
   "world", "world-description", "world-objective", "connection-status", "launch-form", "provider", "model", "effort", "action-limit", "run-options-summary",
-  "tools-enabled", "tools-label", "sequence-option", "sequence-enabled", "observation-option", "observation-mode", "vision-preview", "vision-preview-image", "vision-preview-status", "vision-room", "vision-left", "vision-right", "vision-tilt", "launch-single", "launch-pair",
+  "tools-enabled", "tools-label", "launch-note", "sequence-option", "sequence-enabled", "observation-option", "observation-mode", "vision-preview", "vision-preview-image", "vision-preview-status", "vision-room", "vision-left", "vision-right", "vision-tilt", "launch-single", "launch-pair",
   "launch-status", "refresh", "run-list", "record-count", "codex-version", "codex-update-status", "check-codex", "runtime-details", "agent-readiness", "run-pagination", "run-page", "previous-runs", "next-runs", "run-company", "run-model", "run-sort"
 ].map((id) => [id, document.getElementById(id)]));
 
@@ -13,13 +13,13 @@ let codexReady = false;
 let installationStatus = {};
 
 function providerCompatible(provider) {
-  return !["grok-build", "antigravity", "muse-code"].includes(provider) || (elements.world.value === "main-world" && elements["observation-mode"].value === "ascii");
+  return !["grok-build", "antigravity", "muse-code", "prime-agent"].includes(provider) || (elements.world.value === "main-world" && elements["observation-mode"].value === "ascii");
 }
 
 function updateReadiness() {
   const provider = elements.provider.value;
   const status = installationStatus[provider];
-  const needsAuth = ["claude-code", "grok-build", "antigravity", "muse-code"].includes(provider);
+  const needsAuth = ["claude-code", "grok-build", "antigravity", "muse-code", "prime-agent"].includes(provider);
   codexReady = Boolean(status?.available && status?.tested && (!needsAuth || status.authenticated) && providerCompatible(provider) && models.some(model => model.id === elements.model.value && (model.provider || "codex") === provider));
   elements["codex-version"].textContent = status?.version ? `${providerName(provider)} ${status.version.replace(/^codex-cli /, "")}` : "Checking agent…";
   const labels = { "up-to-date": "Up to date", "update-available": `Update available: ${status?.latest_version}. Run codex update, then restart the server.`, "newer-than-release": "Newer than the current stable release", unknown: "Latest release check unavailable" };
@@ -40,7 +40,7 @@ async function checkCodex(force = false) {
   elements["check-codex"].disabled = true;
   try {
     installationStatus = await api(`/api/benchmark/v1/providers${force ? "?force=1" : ""}`);
-  } catch (error) { installationStatus = Object.fromEntries(["codex", "claude-code", "grok-build", "antigravity", "muse-code"].map(provider => [provider, { error: error.message }])); }
+  } catch (error) { installationStatus = Object.fromEntries(["codex", "claude-code", "grok-build", "antigravity", "muse-code", "prime-agent"].map(provider => [provider, { error: error.message }])); }
   finally { elements["check-codex"].disabled = false; updateReadiness(); }
 }
 
@@ -85,25 +85,36 @@ function renderRuns(runs, page) {
 }
 
 function updateEfforts() {
-  const selected = models.find((model) => model.id === elements.model.value) || models[0];
+  const selected = models.find((model) => model.id === elements.model.value && (model.provider || "codex") === elements.provider.value) || models[0];
   elements.effort.replaceChildren();
   for (const effort of selected?.efforts || ["medium"]) {
     const option = document.createElement("option");
     option.value = effort;
-    option.textContent = effort;
+    option.textContent = effort === "default" ? "Model default" : effort;
     option.selected = effort === selected?.default_effort;
     elements.effort.append(option);
   }
 }
 
+let standardPythonEnabled = false;
 function updateModels() {
+  const prime = elements.provider.value === "prime-agent";
+  if (prime && !elements["tools-enabled"].disabled) standardPythonEnabled = elements["tools-enabled"].checked;
+  if (!prime && elements["tools-enabled"].disabled) elements["tools-enabled"].checked = standardPythonEnabled;
+  elements["tools-enabled"].disabled = prime;
+  if (prime) elements["tools-enabled"].checked = true;
+  elements["tools-label"].textContent = prime ? "Native" : elements["tools-enabled"].checked ? "On" : "Off";
+  elements["launch-pair"].hidden = prime;
+  elements["launch-note"].textContent = prime
+    ? "Prime Agent uses its own Python workspace in a remote sandbox, billed to your Prime account. Pausing keeps the sandbox alive; stopping or restarting the server ends the session."
+    : "A matched pair starts two runs: one with Python off and one with Python on.";
   const providerModels = models.filter(model => (model.provider || "codex") === elements.provider.value);
   elements.model.replaceChildren();
   for (const model of providerModels) {
     const option = document.createElement("option");
     option.value = model.id;
     option.textContent = model.name;
-    const preferred = ({ codex: "gpt-5.6-terra", "claude-code": "claude-sonnet-5-5", "grok-build": "grok-4.7", antigravity: "gemini-3.8-flash-medium", "muse-code": "muse-wonder-1.0" })[elements.provider.value];
+    const preferred = ({ codex: "gpt-5.6-terra", "claude-code": "claude-sonnet-5-5", "grok-build": "grok-4.7", antigravity: "gemini-3.8-flash-medium", "muse-code": "muse-wonder-1.0", "prime-agent": "openai/gpt-4.1-mini" })[elements.provider.value];
     option.selected = model.id === preferred;
     elements.model.append(option);
   }

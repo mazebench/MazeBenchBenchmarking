@@ -6,6 +6,7 @@ import { readdir } from "node:fs/promises";
 import { journalHead, verifyJournal } from "./storage/journal.mjs";
 import { readCheckpointJson } from "./v1/checkpoint-json.mjs";
 import { safeOpenFile } from "./v1/safe-files.mjs";
+import { rateLimitDetails } from "./run-errors.mjs";
 
 const RUN_ID = /^run-[0-9TZ-]+-[a-f0-9]{6}$/;
 const TRANSIENT = new Set(["queued", "running", "continuing", "pausing"]);
@@ -97,6 +98,8 @@ export class RunLibrary {
         const metadata = await readCheckpointJson(directory, "run.json");
         const summary = await this.summary(directory);
         const run = { ...pick(metadata, METADATA), ...summary, runner_active: supervisor.active.has(entry.name) };
+        const rateLimit = metadata.status === "failed" ? rateLimitDetails(metadata.error) : null;
+        if (rateLimit) run.rate_limit = rateLimit;
         if (this.markInterrupted && !run.runner_active && TRANSIENT.has(run.status)) {
           run.recorded_status = run.status;
           run.status = "interrupted";

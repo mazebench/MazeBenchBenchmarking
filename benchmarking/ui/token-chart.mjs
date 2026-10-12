@@ -35,9 +35,10 @@ function render(value) {
     ? `${pricing.basis} Rates checked ${pricing.pricing_date}: $${rates.input} input, $${rates.cached_input} cached input, $${rates.cache_writes} cache writes, and $${rates.output} output per million tokens. Requests over 272,000 input tokens use 2× input/cache rates and 1.5× output rates. ${pricing.request_count} reported responses counted, with duplicate records removed. Unreported usage and non-token fees are excluded.`
     : pricing?.basis || "No verified API price or detailed usage is available for this record.";
   if (!value.available || !value.samples.length) {
-    current.textContent = "Waiting for token data";
-    chart.innerHTML = '<text x="550" y="110" text-anchor="middle" class="token-empty">Token usage appears after the first model response.</text>';
-    detail.textContent = "Updates after each model response.";
+    current.textContent = value.totals ? "Context not reported" : "Waiting for token data";
+    chart.innerHTML = '<text x="550" y="110" text-anchor="middle" class="token-empty"></text>';
+    chart.firstElementChild.textContent = value.totals ? "Token totals are shown below." : "Token usage appears after the first model response.";
+    detail.textContent = value.reason || "Updates after each model response.";
     return;
   }
   const samples = value.samples;
