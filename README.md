@@ -14,7 +14,7 @@ Keep the terminal open while using the site. Press **Ctrl+C** to stop the server
 
 Once the server is running, you can go directly to:
 
-- Benchmarks: Run eval with Codex / Claude Code / Grok / Antigravity
+- Benchmarks: Run eval with Codex / Claude Code / Grok / Antigravity / [Meta Muse Code](benchmarking/muse/README.md)
 - Play: Explore the world for yourself
 - Room editor: Edit and save levels in MazeBench
 

@@ -12,6 +12,8 @@ import { CLAUDE_POLICY } from "./providers/claude-policy.mjs";
 import { GROK_POLICY } from "./grok/policy.mjs";
 import { POLICY as ANTIGRAVITY_POLICY } from "./antigravity/policy.mjs";
 
+import { POLICY as MUSE_POLICY } from "./muse/policy.mjs";
+
 const fields = ["id", "pair_id", "provider", "world", "model", "observation_mode", "effort", "tools_enabled", "sequence_enabled", "service_tier", "action_limit", "start_room", "created_at", "updated_at", "completed_at", "paused_at", "stopped_at", "status", "continuation_count", "world_updates", "world_revision", "isolation", "usage"];
 const optional = async (directory, file, fallback) => readCheckpointJson(directory, file).catch(error => { if (error.code === "ENOENT") return fallback; throw error; });
 
@@ -29,7 +31,7 @@ export class RunDashboard {
     const policy = metadata.capability_policy;
     run.capability_boundary_verified = policy?.version === CAPABILITY_POLICY_VERSION && policy?.model_catalog?.tool_mode === "direct" && policy?.model_catalog?.javascript_host === "disabled" && metadata.integrity?.version === CAPABILITY_POLICY_VERSION;
     run.compaction_recoverable = metadata.status === "failed" && isRecoverableCompactionError(metadata.error);
-    const providerPolicies = { "claude-code": [CLAUDE_POLICY, "claude_session_id"], "grok-build": [GROK_POLICY, "grok_session_id"], antigravity: [ANTIGRAVITY_POLICY, "antigravity_session_id"] };
+    const providerPolicies = { "claude-code": [CLAUDE_POLICY, "claude_session_id"], "grok-build": [GROK_POLICY, "grok_session_id"], antigravity: [ANTIGRAVITY_POLICY, "antigravity_session_id"], "muse-code": [MUSE_POLICY, "muse_session_id"] };
     if (providerPolicies[metadata.provider]) {
       const [name, session] = providerPolicies[metadata.provider];
       run.capability_boundary_verified = policy?.name === name && metadata.integrity?.version === CAPABILITY_POLICY_VERSION && !existsSync(path.join(directory, "integrity-violation.json"));

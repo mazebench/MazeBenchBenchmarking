@@ -4,16 +4,17 @@ const count = value => (value || 0).toLocaleString();
 const text = (element, value) => { if (element.textContent !== String(value)) element.textContent = value; };
 
 export function providerName(provider) {
-  return ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity" })[provider] || provider;
+  return ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity", "muse-code": "Meta Muse Code" })[provider] || provider;
 }
 
 export function runCompany(run) {
   const model = String(run.model || "").toLowerCase();
   if (model.startsWith("claude")) return "Anthropic (Claude)";
   if (model.startsWith("gemini")) return "Google";
+  if (model.startsWith("muse-")) return "Meta";
   if (model.startsWith("grok")) return "xAI";
   if (/^(gpt-|o\d)/.test(model)) return "OpenAI";
-  return ({ codex: "OpenAI", "claude-code": "Anthropic (Claude)", "grok-build": "xAI", antigravity: "Google" })[run.provider || "codex"] || run.provider;
+  return ({ codex: "OpenAI", "claude-code": "Anthropic (Claude)", "grok-build": "xAI", antigravity: "Google", "muse-code": "Meta" })[run.provider || "codex"] || run.provider;
 }
 
 export function selectRuns(runs, { company = "", model = "", sort = "newest" } = {}) {
