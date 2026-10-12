@@ -3432,6 +3432,103 @@ void TestBlockedLoweredLiftRetriesAfterRiderLeaves() {
         "the unobstructed vacated lift should finish raised");
 }
 
+void TestBlockedSideLiftIceLaneSurvivesResumeAndSearch() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  for (int32_t rotation = 0; rotation < 4; ++rotation) {
+    for (const bool reversed : {false, true}) {
+      std::vector<voxelbench::Voxel> initial = {
+          {1, 4, 2, Role("player"), -1},
+          {1, 3, 2, Role("player-lift"), 4},
+          {2, 3, 2, Role("player-lift"), 6},
+          {3, 3, 2, Role("player-lift"), 6},
+          {4, 3, 2, Role("player-lift"), 6},
+      };
+      constexpr int32_t dynamic_count = 5;
+      for (int32_t y = 0; y < 8; ++y) {
+        for (int32_t x = 0; x < 8; ++x) {
+          initial.push_back({x, y, 0, Role("floor"), -1});
+        }
+      }
+      initial.push_back({1, 4, 1, Role("wall"), -1});
+      initial.push_back({1, 3, 1, Role("wall"), -1});
+      initial.push_back({0, 3, 2, Role("wall"), -1});
+      for (int32_t x = 2; x <= 4; ++x) {
+        initial.push_back({x, 3, 1, Role("ice"), -1});
+        initial.push_back({x, 4, 2, Role("wall"), -1});
+      }
+      // Keep original coordinates to express exact tick expectations after
+      // rotations and independent permutations of bodies and terrain.
+      if (reversed) {
+        std::reverse(initial.begin(), initial.begin() + dynamic_count);
+        std::reverse(initial.begin() + dynamic_count, initial.end());
+      }
+      const auto unrotated = initial;
+      const auto rotate = [&](voxelbench::Voxel voxel) {
+        for (int32_t turn = 0; turn < rotation; ++turn) {
+          const int32_t old_x = voxel.x;
+          voxel.x = 7 - voxel.y;
+          voxel.y = old_x;
+        }
+        if (voxel.role == Role("player-lift")) {
+          const int32_t outward = voxel.generic_id / 2 - 1;
+          voxel.generic_id = ((outward + rotation) % 4 + 1) * 2 +
+              voxel.generic_id % 2;
+        }
+        return voxel;
+      };
+      for (auto& voxel : initial) voxel = rotate(voxel);
+      const int32_t count = static_cast<int32_t>(initial.size());
+      for (const bool prepared : {false, true}) {
+        for (const bool resumed : {false, true}) {
+          auto voxels = initial;
+          const auto prepare = [&]() {
+            voxelbench::reset_workspace(&workspace);
+            if (prepared) {
+              Check(voxelbench::prepare_scene(&workspace, voxels.data(), count,
+                        8, 8, dynamic_count), "Ice lift lane should prepare");
+            }
+          };
+          prepare();
+          voxelbench::reset_motion_state(&state);
+          for (int32_t tick = 1; tick <= 6; ++tick) {
+            if (resumed) prepare();
+            const auto result = voxelbench::step_command_tick(&workspace, &state,
+                voxels.data(), count, 8, 8, rotation);
+            Check(state.tick == tick && result == (tick == 6
+                      ? voxelbench::TickResult::kComplete
+                      : voxelbench::TickResult::kMore),
+                  "blocked lifts must share Ice/fall ticks without stopping the rider");
+            auto expected = unrotated;
+            for (auto& voxel : expected) {
+              if (voxel.role == Role("player")) {
+                voxel.x = tick <= 5 ? tick : 5;
+                voxel.y = 3;
+                voxel.z = tick == 6 ? 1 : 2;
+              } else if (voxel.role == Role("player-lift")) {
+                const int32_t raise_tick = voxel.x == 1 ? 2 : voxel.x + 2;
+                if (tick >= raise_tick) ++voxel.generic_id;
+              }
+              voxel = rotate(voxel);
+            }
+            Check(std::memcmp(voxels.data(), expected.data(),
+                      voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                  "each blocked lift must rise exactly one tick after departure");
+          }
+          const auto animated_final = voxels;
+          voxels = initial;
+          prepare();
+          Check(voxelbench::simulate_quiescent_turn(&workspace, voxels.data(),
+                    count, 8, 8, rotation) == 0 &&
+                    std::memcmp(voxels.data(), animated_final.data(),
+                        voxels.size() * sizeof(voxelbench::Voxel)) == 0,
+                "prepared final-state physics must match every animated lift retry");
+        }
+      }
+    }
+  }
+}
+
 void TestSideLiftDepartureTiming() {
   static voxelbench::PhysicsWorkspace workspace;
   static voxelbench::MotionState state;
@@ -5293,6 +5390,7 @@ int main() {
   Run(TestPlayerLiftToggleUsesItsOwnAnimationTick, "TestPlayerLiftToggleUsesItsOwnAnimationTick");
   Run(TestLeavingAuthoredLoweredLiftKeepsItLowered, "TestLeavingAuthoredLoweredLiftKeepsItLowered");
   Run(TestBlockedLoweredLiftRetriesAfterRiderLeaves, "TestBlockedLoweredLiftRetriesAfterRiderLeaves");
+  Run(TestBlockedSideLiftIceLaneSurvivesResumeAndSearch, "TestBlockedSideLiftIceLaneSurvivesResumeAndSearch");
   Run(TestSideLiftDepartureTiming, "TestSideLiftDepartureTiming");
   Run(TestMountedLiftPushIgnoresRemoteRamp, "TestMountedLiftPushIgnoresRemoteRamp");
   Run(TestMountedLiftTransmitsItsCarriersPush, "TestMountedLiftTransmitsItsCarriersPush");

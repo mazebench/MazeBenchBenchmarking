@@ -10,11 +10,11 @@ constexpr int32_t kMotionPlayerPunchUp = 8;
 constexpr int32_t kMotionPlayerPunchDown = 9;
 constexpr int32_t kMotionPlayerGates = 10;
 constexpr int32_t kMotionActorLift = 11;
+constexpr int32_t kMotionVacatedLift = 12;
 constexpr uint8_t kResumeNothing = 0;
 constexpr uint8_t kResumePlayerIce = 1;
 constexpr uint8_t kResumeObjectIce = 2;
 constexpr uint8_t kResumeCommand = 3;
-constexpr uint8_t kResumeVacatedLift = 4;
 
 constexpr uint8_t kPunchMomentumBase = 9;
 constexpr uint8_t kLatentPunchMomentumBase = 13;
@@ -69,7 +69,7 @@ void StoreObjectMotion(MotionState* state, int32_t count,
   for (int32_t index = 0; index < motion_count; ++index) {
     state->falling[index] = 0;
     state->gravity_armed[index] = preserve_lift_entries
-        ? state->gravity_armed[index] & kActorLiftEntryPending : 0;
+        ? state->gravity_armed[index] & kLiftContinuationMask : 0;
   }
   for (int32_t object = 0; object < g_object_count; ++object) {
     for (int32_t member = g_object_head[object]; member >= 0;

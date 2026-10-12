@@ -638,11 +638,21 @@ TickResult step_tick(
   bool orange_advanced_this_tick = false;
   bool gate_advanced_this_tick = false;
   bool actor_lift_advanced_this_tick = false;
+  // Retry by fixture index rather than reconstructing the departure from the
+  // player's current position: Ice and gravity may already have continued.
+  const bool vacated_lift_advanced_this_tick = AdvanceVacatedPlayerLifts(
+      state, voxels, count, player_index);
+  if (vacated_lift_advanced_this_tick) {
+    (void)RefreshOrangeButtonVisibility(voxels, count);
+    BuildSpatialIndex(voxels, count, width, height);
+    MarkObjectsForDeferredGravity(voxels, width, height, false);
+  }
   auto store_and_finish = [&](int32_t phase,
                               bool advanced,
                               bool gravity_already_checked = false) {
     advanced |= orange_advanced_this_tick || clone_command_advanced ||
-        puncher_visual_advanced || gate_advanced_this_tick || actor_lift_advanced_this_tick;
+        puncher_visual_advanced || gate_advanced_this_tick || actor_lift_advanced_this_tick ||
+        vacated_lift_advanced_this_tick;
     if (clone_command_tick) {
       (void)AppendCloneCommandMomentum(
           state, voxels, state->direction, width, height);
@@ -668,6 +678,8 @@ TickResult step_tick(
     }
     if (phase == kMotionComplete &&
         HasPendingActorLifts(state)) phase = kMotionActorLift;
+    if (phase == kMotionComplete &&
+        HasPendingVacatedPlayerLifts(state, voxels)) phase = kMotionVacatedLift;
     if (phase == kMotionComplete &&
         PlayerGatesNeedTick(voxels, count, width, height)) {
       phase = kMotionPlayerGates;
@@ -881,46 +893,11 @@ TickResult step_tick(
           true);
     }
   }
-  if (state->phase == kMotionActorLift) {
+  if (state->phase == kMotionActorLift || state->phase == kMotionVacatedLift) {
     return store_and_finish(kMotionComplete, false);
   }
 
   if (state->phase == kMotionPlayerLift) {
-    if (state->reserved[0] == kResumeVacatedLift) {
-      const Voxel& player = voxels[player_index];
-      const int32_t from_x = player.x - dx;
-      const int32_t from_y = player.y - dy;
-      const int32_t from_z = player.z;
-      state->reserved[0] = kResumeNothing;
-      const bool raised = RaiseVacatedPlayerLift(
-          voxels,
-          count,
-          player_index,
-          from_x,
-          from_y,
-          from_z);
-      if (raised) {
-        (void)RefreshOrangeButtonVisibility(voxels, count);
-      }
-      BuildSpatialIndex(voxels, count, width, height);
-      MarkObjectsForDeferredGravity(voxels, width, height, false);
-      const bool entry_lift_pending = PlayerLiftCanToggleOnEntry(
-          voxels,
-          count,
-          player_index,
-          from_x,
-          from_y,
-          width,
-          height);
-      const bool gravity_continues = ObjectsNeedGravityTick(
-          voxels, count, width, height, false);
-      return store_and_finish(
-          entry_lift_pending
-              ? kMotionPlayerLift
-              : gravity_continues ? kMotionGravity : kMotionComplete,
-          raised,
-          true);
-    }
     bool lift_will_raise = false;
     const int32_t lift_index = PlayerLiftAtPlayer(
         voxels,
@@ -1496,7 +1473,7 @@ TickResult step_tick(
   const int32_t player_from_x = player.x;
   const int32_t player_from_y = player.y;
   const int32_t player_from_z = player.z;
-  const bool vacated_lift_retry_pending = !automatic_player_motion &&
+  const bool vacated_lift_retry_pending = !automatic_punch_motion &&
       player_dz == 0 &&
       VacatedPlayerLiftNeedsRetry(
           voxels, count, player_index, width, height);
@@ -2012,7 +1989,11 @@ TickResult step_tick(
             player_from_x,
             player_from_y,
             width,
-            height);
+            height) &&
+        // A blocked lift cannot redirect a sliding rider. Keep the incoming
+        // Ice proposal; after departure the empty fixture retries next tick.
+        (!automatic_ice_motion || !VacatedPlayerLiftNeedsRetry(
+            voxels, count, player_index, width, height));
   } else {
     // A rider follows its carrier, not the target cell that was computed
     // before the carrier's translation.
@@ -2026,9 +2007,8 @@ TickResult step_tick(
   g_ignored_support_voxel = -1;
 
   if (vacated_lift_retry_pending) {
-    ClearHorizontalMomentum(state, count);
-    state->reserved[0] = kResumeVacatedLift;
-    return store_and_finish(kMotionPlayerLift, true, true);
+    QueueVacatedPlayerLiftRetry(
+        state, voxels, player_from_x, player_from_y, player_from_z);
   }
 
   if (player_lift_pending) {

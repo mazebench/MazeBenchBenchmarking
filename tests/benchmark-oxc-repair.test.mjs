@@ -13,6 +13,7 @@ import { OXC_REPAIR, replayCorrectedOxcEntry } from "../scripts/repair-benchmark
 
 const root = path.resolve(import.meta.dirname, "..");
 const originalRoom = execFileSync("git", ["show", `${OXC_REPAIR.sourceCommit}^:${OXC_REPAIR.file}`], { cwd: root });
+const correctedRoom = decodeVoxelRoom(JSON.parse(execFileSync("git", ["show", `${OXC_REPAIR.sourceCommit}:${OXC_REPAIR.file}`], { cwd: root })));
 // This one-off repair reproduces a historical falling-lift bug. Keep its
 // original engine so fixing that bug does not erase the repair's input state.
 const originalEngine = execFileSync("git", ["show", `${OXC_REPAIR.sourceCommit}^:engine/v1/voxel_physics.wasm`], { cwd: root });
@@ -22,10 +23,17 @@ async function fixture(historicalEngine = true) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "mazebench-oxc-test-"));
   await createRunIntegrity(root, directory, {});
   const runtime = await BenchmarkGameRuntime.create(root, directory, { startRoom: "OxB", actionLimit: null });
+  // This repair changed one exact historical revision. Later editor changes
+  // to OxC must not turn its fixture into an unrelated level migration.
+  runtime.assets.rooms = runtime.assets.rooms.map(room => room.fileName === path.basename(OXC_REPAIR.file)
+    ? { ...room, ...correctedRoom } : room);
+  runtime.assets.roomsByFile = new Map(runtime.assets.rooms.map(room => [room.fileName, room]));
+  runtime.assets.roomsByLabel = new Map([...runtime.assets.roomsByLabel].map(([label, room]) =>
+    [label, runtime.assets.roomsByFile.get(room.fileName)]));
   if (historicalEngine) {
     runtime.assets.engine = await instantiateMazeBenchEngineV1(originalEngine);
-    runtime.assets.connectedWorld = new ConnectedWorldSessionV1(runtime.assets.engine, runtime.assets.blocks, runtime.assets.rooms);
   }
+  runtime.assets.connectedWorld = new ConnectedWorldSessionV1(runtime.assets.engine, runtime.assets.blocks, runtime.assets.rooms);
   const player = runtime.internal.state.objects.find(o => o.blockId === "player");
   Object.assign(player, { x: 4, y: 14, z: 1 });
   runtime.internal.gemsCollected = ["already-collected-fixture-gem"];

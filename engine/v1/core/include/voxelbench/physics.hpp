@@ -68,7 +68,8 @@ struct MotionState {
   uint8_t horizontal_momentum[kVoxelCapacity];
   uint8_t falling[kVoxelCapacity];
   // Bit 0 arms gravity. Bit 7 queues an actor's horizontal lift entry for the
-  // next tick; it is continuation state, never an authored room property.
+  // next tick. Bit 5 queues a vacated blocked lift's next-tick retry. These
+  // are continuation state, never authored room properties.
   uint8_t gravity_armed[kVoxelCapacity];
 };
 

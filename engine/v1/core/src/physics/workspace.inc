@@ -51,6 +51,9 @@ constexpr uint8_t kPlayerObject = 4;
 // changing the public MotionState layout or the WebAssembly ABI.
 constexpr uint8_t kActorLiftEntryPending = 0x80;
 constexpr uint8_t kActorLiftSelected = 0x40;
+constexpr uint8_t kVacatedLiftRetryPending = 0x20;
+constexpr uint8_t kLiftContinuationMask =
+    kActorLiftEntryPending | kVacatedLiftRetryPending;
 
 bool IsTerrainIceSlopeRole(uint32_t role) {
   return role == kIceSlopeUpRole || role == kIceSlopeRightRole ||

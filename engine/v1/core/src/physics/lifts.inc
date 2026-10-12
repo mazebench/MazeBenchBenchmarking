@@ -495,6 +495,43 @@ bool RaiseVacatedPlayerLift(
   return false;
 }
 
+void QueueVacatedPlayerLiftRetry(
+    MotionState* state, Voxel* voxels,
+    int32_t from_x, int32_t from_y, int32_t from_z) {
+  for (int32_t object = 0; object < g_object_count; ++object) {
+    const int32_t index = g_object_head[object];
+    const Voxel& lift = voxels[index];
+    if (lift.role == kPlayerLiftRole && lift.x == from_x &&
+        lift.y == from_y && lift.z == from_z) {
+      state->gravity_armed[index] |= kVacatedLiftRetryPending;
+    }
+  }
+}
+
+bool HasPendingVacatedPlayerLifts(const MotionState* state, Voxel* voxels) {
+  for (int32_t object = 0; object < g_object_count; ++object) {
+    const int32_t index = g_object_head[object];
+    if (voxels[index].role == kPlayerLiftRole &&
+        (state->gravity_armed[index] & kVacatedLiftRetryPending) != 0) return true;
+  }
+  return false;
+}
+
+bool AdvanceVacatedPlayerLifts(
+    MotionState* state, Voxel* voxels, int32_t count, int32_t player_index) {
+  bool advanced = false;
+  for (int32_t object = 0; object < g_object_count; ++object) {
+    const int32_t index = g_object_head[object];
+    const Voxel& lift = voxels[index];
+    if (lift.role != kPlayerLiftRole ||
+        (state->gravity_armed[index] & kVacatedLiftRetryPending) == 0) continue;
+    state->gravity_armed[index] &= static_cast<uint8_t>(~kVacatedLiftRetryPending);
+    advanced |= RaiseVacatedPlayerLift(
+        voxels, count, player_index, lift.x, lift.y, lift.z);
+  }
+  return advanced;
+}
+
 bool VacatedPlayerLiftNeedsRetry(
     Voxel* voxels,
     int32_t count,
