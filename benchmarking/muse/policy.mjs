@@ -9,7 +9,7 @@ import {safeReadFile} from '../v1/safe-files.mjs';
 export {immutable} from '../antigravity/policy.mjs';
 
 export const POLICY='muse-mcp-only-v1';
-export const VERSION='1.4.6-R6000.1';
+export const VERSION='1.4.7-R6101.1';
 export const EFFORTS=['minimal','low','medium','high','xhigh','max'];
 export const digest=value=>createHash('sha256').update(value).digest('hex');
 export const toolNames=enabled=>['maze_observe','maze_action','maze_sequence',...(enabled?['python_exec']:[])];
@@ -36,7 +36,7 @@ export function environment(home) {
 }
 export function inspectInstallation(command=defaultBinary()) {
   const executable=realpathSync(command);
-  const expected={arm64:'c713165a287d64afb8816f8351a240b457a23524f4ade06bca0e41dfde410460',x64:'2a4ecde03c43bd81c01d7dbd978c894db940c5f6e235e3e3da503376bd0fb45f'}[process.arch];
+  const expected={arm64:'87ff5a31b63e30b6ac04d3e8298285517e753c126fb6f3aee80accf28c4562f1',x64:'6d766da6601a0aae8bd22294c0854970286e1b9ade3009f0d0289b7875a10c58'}[process.arch];
   const tested=process.platform==='darwin'&&executableHash(executable)===expected;
   return {executable,version:tested?VERSION:'unverified',tested};
 }

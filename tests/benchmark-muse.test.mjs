@@ -43,6 +43,21 @@ test('Muse uses only the chosen game tools and a private environment',()=>{
     for(const flag of ['--yolo','--disable-sandbox','--trust-workspace','--base-url'])assert(!args.includes(flag));
   }
 });
+test('Muse Full preserves its exact catalog model and advertised reasoning presets',async()=>{
+  const models=catalogModels({providerId:'meta',source:'providerCatalog',models:[
+    {modelId:'muse-wonder-1.0',variants:EFFORTS,defaultReasoningEffort:'high'},
+    {modelId:'muse-wonder-full-1.0',variants:EFFORTS,defaultReasoningEffort:'high'}
+  ]});
+  const full=models.find(model=>model.id==='muse-wonder-full-1.0');
+  assert.deepEqual(full.efforts,EFFORTS);
+  const supervisor=new BenchmarkSupervisor(process.cwd(),{museStatus:async()=>({models})});
+  const spec=await supervisor.validateSpec({provider:'muse-code',model:full.id,effort:'max'});
+  assert.equal(spec.model,full.id);
+  assert.equal(spec.effort,'max');
+  await assert.rejects(supervisor.validateSpec({provider:'muse-code',model:full.id,effort:'ultra'}));
+  const unavailable=new BenchmarkSupervisor(process.cwd(),{museStatus:async()=>({models:models.filter(model=>model.id!==full.id)})});
+  await assert.rejects(unavailable.validateSpec({provider:'muse-code',model:full.id}));
+});
 test('private Muse credentials use environment auth without legacy Keychain migration',async t=>{
   const home=await mkdtemp(path.join(os.tmpdir(),'muse-auth-test-'));
   t.after(()=>rm(home,{recursive:true,force:true}));

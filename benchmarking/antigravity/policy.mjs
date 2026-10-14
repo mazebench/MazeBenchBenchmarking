@@ -8,7 +8,7 @@ import { verifyRunIntegrity, assertRunConfiguration, verifyCheckpoint } from "..
 import { safeReadFile } from "../v1/safe-files.mjs";
 
 export const POLICY = "antigravity-mcp-only-v1";
-export const VERIFIED_VERSIONS = new Set(["1.2.13"]);
+export const VERIFIED_VERSIONS = new Set(["1.2.13", "1.3.5"]);
 export const TRANSPORT_TOOLS = ["call_mcp_tool", "list_resources", "manage_task", "read_resource"];
 export const digest = value => createHash("sha256").update(value).digest("hex");
 export const toolNames = enabled => ["maze_observe", "maze_action", "maze_sequence", ...(enabled ? ["python_exec"] : [])];
@@ -55,7 +55,7 @@ export function agentDefinition({ command, args, env = {}, toolsEnabled }) {
   ].join("\n");
 }
 export function argumentsFor({ model, prompt, conversationId, logFile }) {
-  if (!/^gemini-3\.8-flash-(low|medium|high)$/.test(model)) throw new Error("Unsupported Antigravity model.");
+  if (!/^(gemini-3\.8-flash-(low|medium|high)|gemini-4-argon-(medium|high))$/.test(model)) throw new Error("Unsupported Antigravity model.");
   if (conversationId && !/^[a-f0-9-]{36}$/.test(conversationId)) throw new Error("Invalid Antigravity conversation ID.");
   return ["-p", prompt, "--agent", "mazebench", "--model", model, "--disable-slash-commands", "--output-format", "stream-json", "--print-timeout", "0", "--log-file", logFile,
     ...(conversationId ? ["--conversation", conversationId] : [])];

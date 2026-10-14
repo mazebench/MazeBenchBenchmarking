@@ -5,10 +5,15 @@ existing Meta subscription login and lists models from the authenticated Muse
 catalog. Main World ASCII runs support the usual action limit, pause/resume,
 and optional isolated Python workspace.
 
-The verified CLI is Muse Code `1.4.6-R6000.1`, installed separately at
-`~/.mazebench/muse/bin/muse-1.4.6-R6000.1`. Its official macOS arm64/x64 binary
+The verified CLI is Muse Code `1.4.7-R6101.1`, installed separately at
+`~/.mazebench/muse/bin/muse-1.4.7-R6101.1`. Its official macOS arm64/x64 binary
 hashes are pinned in `policy.mjs`; unverified versions cannot launch runs.
 This leaves other checkouts' Muse installations unchanged.
+
+[`muse-wonder-full-1.0`](https://dev.meta.ai/models/muse-wonder) requires Power
+Usage or Maximum Usage. The launcher uses the authenticated catalog's exact model
+IDs and reasoning presets. Full's High and Max presets have passed live MazeBench
+smoke runs with CLI 1.4.7; ordinary Wonder is never substituted.
 
 The private login lives at
 `~/.mazebench/muse/auth/credential.json` (mode 0600). Each run receives a

@@ -66,6 +66,16 @@ test("Antigravity fails closed on unknown versions, unavailable inventory or fai
   const offline = await antigravityInstallationStatus("agy", async () => { throw new Error("offline"); }, installation, () => true);
   assert.deepEqual(offline.models, []); assert.equal(offline.authenticated, false); assert.equal(offline.launch_ready, false);
 });
+test("Argon is listed only when the authenticated Google inventory offers its exact preset", async () => {
+  const run = async (_, args) => ({stdout: args[0] === 'models'
+    ? 'gemini-4-argon-high\tGemini 4 Argon (High)\ngemini-4-argon-unknown\tUnknown\n'
+    : 'Gemini Models\tWeekly Limit Remaining\t100%\n'});
+  const status = await antigravityInstallationStatus('agy',run,()=>({executable:'agy',version:'1.3.5'}),()=>true);
+  assert.deepEqual(status.models.map(model=>model.id),['gemini-4-argon-high']);
+  assert.equal(status.tested,true);
+  assert(argumentsFor({model:'gemini-4-argon-high',prompt:'play',logFile:'/log'}).includes('gemini-4-argon-high'));
+  assert.throws(()=>argumentsFor({model:'gemini-4-argon-max',prompt:'play',logFile:'/log'}));
+});
 test("Antigravity specs preserve exact preset, unlimited moves and Python condition", async () => {
   const supervisor = new BenchmarkSupervisor(process.cwd());
   const spec = await supervisor.validateSpec({ provider: "antigravity", model: "gemini-3.8-flash-high", effort: "high", tools_enabled: false, action_limit: null });

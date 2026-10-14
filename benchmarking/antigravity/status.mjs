@@ -11,7 +11,12 @@ export const ANTIGRAVITY_MODELS = ["medium", "high", "low"].map(effort => ({
   id: "gemini-3.8-flash-" + effort,
   name: "Gemini 3.8 Flash (" + (effort === "high" ? "High · maximum" : effort) + ")",
   provider: ANTIGRAVITY_PROVIDER, default_effort: effort, efforts: [effort]
-}));
+})).concat(["high", "medium"].map(effort => ({
+  id: "gemini-4-argon-" + effort,
+  name: "Gemini 4 Argon (" + effort + ")",
+  provider: ANTIGRAVITY_PROVIDER, default_effort: effort, efforts: [effort],
+  description: "Requires Google AI Ultra or an eligible Gemini Enterprise plan."
+})));
 
 export async function antigravityInstallationStatus(command = "agy", run = execute, inspect = inspectInstallation, hasToken = existsSync) {
   const home = authHome();

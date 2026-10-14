@@ -1,7 +1,11 @@
 # Google Antigravity — restricted subscription runner
 
-Main World ASCII runs support Gemini 3.8 Flash Low, Medium and High through
-Antigravity CLI 1.2.13. High is the highest preset exposed by the model inventory.
+Main World ASCII runs support Gemini 3.8 Flash Low, Medium and High, plus Gemini
+4 Argon Medium and High when the authenticated model inventory includes them.
+Antigravity CLI 1.2.13 and 1.3.5 have passed the capability checks. Argon requires
+Google AI Ultra or an eligible Gemini Enterprise subscription; Google AI Pro
+does not include it. The launcher never invents account access or substitutes
+a different model.
 Python is optional; action limits may be unlimited. Pause, stop and resume retain
 the same Google conversation and authenticated game checkpoint. Interviews are
 not implemented for this provider.
@@ -44,10 +48,14 @@ are exposed as benchmark records. No API key or API billing is used.
 `node --test tests/benchmark-antigravity.test.mjs` tests policy and routing.
 
 `node scripts/check-antigravity-capabilities-v1.mjs` runs the real CLI against a
-loopback fake Gemini endpoint with dummy credentials. It tests all three presets,
+loopback fake Gemini endpoint with dummy credentials. It tests all three Flash presets,
 both Python conditions, new and resumed conversations, personal instruction
 isolation, effective schemas, forbidden shell/file/browser-JavaScript/notebook/
 subagent calls, unknown MCP servers, and outside-file sentinels.
+
+The offline fixture validates the Flash transport and tool boundary. Argon needs
+a separate live check with an entitled account; it has not been live-validated
+with the current Pro account.
 
 `node scripts/check-antigravity-live-v1.mjs` is an explicit operator-only,
 subscription-consuming smoke test. It keeps separate validation records and
