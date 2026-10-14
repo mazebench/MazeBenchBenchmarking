@@ -2,6 +2,7 @@ import { benchmarkFetch } from "./benchmark-api.mjs";
 import { runCompany, selectRuns } from "./run-library.mjs";
 import { comparisonCondition } from "./heatmap-import.mjs";
 import { prepareHeatmap, comparisonBounds, croppedBounds, comparisonScale, defaultComparison, drawComparisonMap, displayModelName, tileAt, roomAt } from "./heatmap-comparison.mjs";
+import { createGemComparison } from "./gem-comparison.mjs";
 
 const $ = id => document.getElementById(id);
 const number = value => (value || 0).toLocaleString();
@@ -10,9 +11,34 @@ const percent = value => `${new Intl.NumberFormat(undefined, { maximumSignifican
 const params = new URLSearchParams(location.search);
 let runs = [], fullWorld = params.get("area") === "world", selectedTile = null, serial = 0, refreshing = false;
 let screenshotMode = false, previousScroll = 0;
+let gemMode = params.get("view") === "gems";
 let panelCount = params.get("models") === "3" || params.has("third") ? 3 : 2;
 const cache = new Map(), pending = new Map();
 if (params.get("scale") === "share") $("color-scale").value = "share";
+
+document.title = "MazeBench — Compare runs";
+document.querySelector(".compare-heading h1").textContent = "Compare runs";
+document.querySelector(".compare-heading p").textContent = "Main World · Explore the paths. Compare the progress.";
+$("screenshot-mode").title = "Show a clean comparison. Press Escape or click to return.";
+const viewSwitch = document.createElement("div");
+viewSwitch.className = "comparison-view-switch map-segments";
+viewSwitch.setAttribute("role", "group"); viewSwitch.setAttribute("aria-label", "Comparison view");
+viewSwitch.innerHTML = '<button type="button" data-view="heatmaps">Heatmaps</button><button type="button" data-view="gems">Gems vs. moves</button>';
+document.querySelector(".compare-toolbar").before(viewSwitch);
+const gemComparison = createGemComparison({ onChange: () => {
+  if (gemMode) $("screenshot-mode").disabled = !gemComparison.canScreenshot();
+} });
+function updateView() {
+  document.documentElement.classList.toggle("gem-view", gemMode);
+  for (const button of viewSwitch.querySelectorAll("button")) button.setAttribute("aria-pressed", String((button.dataset.view === "gems") === gemMode));
+  gemComparison.setActive(gemMode);
+}
+updateView();
+viewSwitch.addEventListener("click", event => {
+  const button = event.target.closest("button[data-view]");
+  if (!button || (button.dataset.view === "gems") === gemMode) return;
+  gemMode = button.dataset.view === "gems"; updateView(); loadSelection();
+});
 
 const panels = ["left", "right", "third"].map((side, index) => {
   const element = document.createElement("section");
@@ -132,6 +158,7 @@ function updateURL() {
     else url.searchParams.delete(panel.side);
   }
   url.searchParams.set("models", String(panelCount));
+  if (gemMode) url.searchParams.set("view", "gems"); else url.searchParams.delete("view");
   if (fullWorld) url.searchParams.set("area", "world"); else url.searchParams.delete("area");
   if ($("color-scale").value === "share") url.searchParams.set("scale", "share"); else url.searchParams.delete("scale");
   history.replaceState(null, "", url);
@@ -153,12 +180,29 @@ function renderPanel(panel) {
   panel.canvas.setAttribute("aria-label", data ? `${run.model}: ${number(data.map.points.length)} tiles visited, ${number(data.map.total)} visits. Use arrow keys to inspect tiles.` : "Heatmap unavailable");
 }
 
+function fitScreenshotLabels(visible) {
+  const labels = visible.map(panel => panel.element.querySelector(".screenshot-model-name"));
+  for (const label of labels) label.style.removeProperty("font-size");
+  if (!screenshotMode) return;
+  // Keep every name complete, on one line, and at the same size.
+  const size = Math.min(...labels.map(label => {
+    const preferred = parseFloat(getComputedStyle(label).fontSize);
+    const range = document.createRange();
+    range.selectNodeContents(label);
+    const width = range.getBoundingClientRect().width;
+    return preferred * Math.min(1, Math.max(1, label.clientWidth - 2) / Math.max(1, width));
+  }));
+  for (const label of labels) label.style.fontSize = `${Math.floor(size * 100) / 100}px`;
+}
+
 function drawMaps() {
+  if (gemMode) { gemComparison.draw(); return; }
   const visible = activePanels();
   const maps = visible.map(panel => panel.data?.map), bounds = comparisonBounds(maps, fullWorld);
   const scale = $("color-scale").value, colors = comparisonScale(maps, scale);
   const crops = maps.map(croppedBounds);
   const grid = $("comparison-panels");
+  fitScreenshotLabels(visible);
   const labelHeight = screenshotMode ? Math.max(...visible.map(panel => panel.element.querySelector(".screenshot-model-name").clientHeight)) : 0;
   // Crop each run independently but keep the same tile size across maps.
   const screenshotCell = screenshotMode ? Math.max(1, Math.min(
@@ -188,6 +232,7 @@ function setScreenshotMode(active) {
   selectedTile = null;
   document.documentElement.classList.toggle("screenshot-mode", active);
   for (const panel of panels) panel.canvas.tabIndex = active ? -1 : 0;
+  document.querySelector(".gem-chart").tabIndex = active ? -1 : 0;
   if (active) {
     document.querySelector(".compare-main").focus({ preventScroll: true });
     window.scrollTo(0, 0);
@@ -216,6 +261,7 @@ async function loadSelection() {
   const generation = ++serial;
   selectedTile = null;
   updateURL(); comparisonNote();
+  if (gemMode) { await gemComparison.load(); return; }
   $("comparison-status").classList.remove("error");
   $("comparison-status").textContent = "Loading heatmaps…";
   let failed = false;
@@ -263,6 +309,7 @@ async function refresh(initial = false) {
     const choices = initial ? defaultComparison(runs, params.get("left"), params.get("right"), params.get("third"), 3) : panels.map(panel => panel.run.value);
     cache.clear(); pending.clear();
     panels.forEach((panel, index) => populateModels(panel, choices[index]));
+    gemComparison.setRuns(runs, choices.slice(0, panelCount));
     await loadSelection();
     const warnings = [local.status === "rejected" ? "Local runs unavailable" : "", imported.status === "rejected" ? "Imported heatmaps unavailable" : ""].filter(Boolean);
     if (warnings.length) { $("comparison-status").textContent = warnings.join(" · "); $("comparison-status").classList.add("error"); }
@@ -285,4 +332,6 @@ $("full-world").addEventListener("click", () => { fullWorld = true; selectedTile
 $("color-scale").addEventListener("change", () => { updateURL(); drawMaps(); });
 const observer = new ResizeObserver(drawMaps);
 for (const panel of panels) observer.observe(panel.canvas);
+observer.observe($("comparison-panels"));
+window.addEventListener("resize", drawMaps);
 refresh(true);

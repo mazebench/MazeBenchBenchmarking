@@ -53,9 +53,9 @@ both Python conditions, new and resumed conversations, personal instruction
 isolation, effective schemas, forbidden shell/file/browser-JavaScript/notebook/
 subagent calls, unknown MCP servers, and outside-file sentinels.
 
-The offline fixture validates the Flash transport and tool boundary. Argon needs
-a separate live check with an entitled account; it has not been live-validated
-with the current Pro account.
+The offline fixture validates the Flash transport and tool boundary. Argon High
+(Python off) and Medium (Python on) also passed live two-action MazeBench smoke
+runs with CLI 1.3.5 and the upgraded account, including checkpoint integrity.
 
 `node scripts/check-antigravity-live-v1.mjs` is an explicit operator-only,
 subscription-consuming smoke test. It keeps separate validation records and

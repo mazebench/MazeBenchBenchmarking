@@ -7,6 +7,7 @@ import { StringDecoder } from "node:string_decoder";
 import { safeReadFile, safeDirectory } from "./v1/safe-files.mjs";
 import { createClaudeTimeline, consumeClaudeEvent, claudeTelemetry } from "./claude-telemetry.mjs";
 import { createAntigravityTimeline, consumeAntigravityEvent, antigravityTelemetry } from "./antigravity-telemetry.mjs";
+import { findMuseSession, museRunHomes, createMuseTimeline, consumeMuseEvent, museTelemetry } from "./muse-telemetry.mjs";
 
 const finite = value => typeof value === "number" && Number.isFinite(value) && value >= 0;
 const PRICING_SOURCE = "https://developers.openai.com/api/docs/pricing";
@@ -106,8 +107,9 @@ export function consumeTokenEvent(timeline, event) {
 }
 
 export class TokenTelemetry {
-  constructor({ codexHome = path.join(os.homedir(), ".codex") } = {}) {
+  constructor({ codexHome = path.join(os.homedir(), ".codex"), museHomes = museRunHomes() } = {}) {
     this.codexHome = codexHome;
+    this.museHomes = museHomes;
     this.cache = new Map();
     this.pending = new Map();
   }
@@ -151,6 +153,7 @@ export class TokenTelemetry {
         api_estimate: { usd: null, basis: "See your Prime account for inference and sandbox charges." } };
     }
     const isAntigravity = metadata.provider === "antigravity";
+    const isMuse = metadata.provider === "muse-code";
     const isMessagesProvider = ["claude-code", "grok-build", "antigravity"].includes(metadata.provider);
     let model;
     try {
@@ -160,7 +163,8 @@ export class TokenTelemetry {
     const limits = modelTokenLimits(model);
     let cached = this.cache.get(runDirectory);
     const messagesFile = isAntigravity ? "antigravity-events.jsonl" : metadata.provider === "grok-build" ? "grok-events.jsonl" : "claude-events.jsonl";
-    const file = cached?.file || (isMessagesProvider ? path.join(runDirectory, messagesFile) : await this.findRollout(metadata));
+    const file = cached?.file || (isMuse ? await findMuseSession(metadata, this.museHomes) : isMessagesProvider ? path.join(runDirectory, messagesFile) : await this.findRollout(metadata));
+    if (isMuse && !file) return museTelemetry(createMuseTimeline());
     if (!file) return { available: false, ...limits, samples: [], compactions: [], reason: `Waiting for ${metadata.provider === "grok-build" ? "Grok Build" : "Codex"} token telemetry.` };
     const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(error => { if (error.code === "ENOENT") return null; throw error; });
     if (!handle) return { available: false, compaction_threshold: null, samples: [], compactions: [] };
@@ -168,7 +172,7 @@ export class TokenTelemetry {
       const stat = await handle.stat();
       if (!stat.isFile() || stat.nlink !== 1) throw new Error("Invalid token telemetry file.");
       if (!cached || cached.inode !== stat.ino || stat.size < cached.offset) {
-        cached = { file, inode: stat.ino, offset: 0, partial: "", decoder: new StringDecoder("utf8"), timeline: isAntigravity ? createAntigravityTimeline() : isMessagesProvider ? createClaudeTimeline() : createTokenTimeline() };
+        cached = { file, inode: stat.ino, offset: 0, partial: "", decoder: new StringDecoder("utf8"), timeline: isMuse ? createMuseTimeline() : isAntigravity ? createAntigravityTimeline() : isMessagesProvider ? createClaudeTimeline() : createTokenTimeline() };
         this.cache.set(runDirectory, cached);
         if (this.cache.size > 12) this.cache.delete(this.cache.keys().next().value);
       }
@@ -182,12 +186,13 @@ export class TokenTelemetry {
         const lines = text.split("\n");
         cached.partial = lines.pop();
         for (const line of lines) {
-          try { (isAntigravity ? consumeAntigravityEvent : isMessagesProvider ? consumeClaudeEvent : consumeTokenEvent)(cached.timeline, JSON.parse(line)); }
+          try { (isMuse ? consumeMuseEvent : isAntigravity ? consumeAntigravityEvent : isMessagesProvider ? consumeClaudeEvent : consumeTokenEvent)(cached.timeline, JSON.parse(line)); }
           catch { /* A damaged or unrecognized event is not token evidence. */ }
         }
       }
     } finally { await handle.close(); }
     const timeline = cached.timeline;
+    if (isMuse) return museTelemetry(timeline);
     if (isAntigravity) return antigravityTelemetry(timeline);
     if (isMessagesProvider) {
       const telemetry = claudeTelemetry(timeline);

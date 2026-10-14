@@ -74,4 +74,81 @@ html.screenshot-mode, .screenshot-mode body { background: #000; }
 .screenshot-mode .comparison-panel { overflow: visible; border: 0; border-radius: 0; background: #000; }
 .screenshot-mode .comparison-map { padding: 0; background: #000; }
 .screenshot-mode .comparison-map canvas { margin: 0 auto; aspect-ratio: auto; outline: none; }
-.screenshot-mode .screenshot-model-name { display: block; margin: 24px 0 0; color: #fff; text-align: center; font-size: clamp(28px, 4vw, 56px); font-weight: 500; line-height: 1.3; }
+.screenshot-mode .screenshot-model-name { display: block; margin: 24px 0 0; color: #fff; text-align: center; font-size: clamp(28px, 4vw, 56px); font-weight: 500; line-height: 1.3; white-space: nowrap; }
+
+.comparison-view-switch { width: fit-content; margin: 0 0 24px; }
+.gem-comparison[hidden] { display: none; }
+.gem-view .compare-toolbar, .gem-view .comparison-grid, .gem-view .comparison-legend,
+.gem-view .comparison-note, .gem-view .compare-details, .gem-view .compare-help:not(.screenshot-help) { display: none; }
+.gem-controls { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+.gem-picker { flex: 1; min-width: 0; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.gem-picker summary { padding: 14px 18px; font-size: 14px; cursor: pointer; }
+.gem-selection-count { margin-left: 10px; color: var(--muted); font-size: 12px; font-weight: 400; }
+.gem-picker-toolbar { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 12px; }
+.gem-picker-toolbar input { flex: 1; min-width: 180px; }
+.gem-picker-toolbar button, .gem-picker-toolbar select { font-size: 12px; min-height: 36px; }
+.gem-run-list { max-height: 330px; overflow: auto; border-block: 1px solid var(--line); }
+.gem-run-option { display: flex; align-items: center; gap: 12px; padding: 12px 18px; cursor: pointer; border-bottom: 1px solid #ffffff06; }
+.gem-run-option:hover, .gem-run-option:has(input:checked) { background: #5ee7ff08; }
+.gem-run-option input { flex: none; width: 17px; height: 17px; accent-color: #5ee7ff; }
+.gem-run-option strong { display: block; color: var(--text); font-size: 13px; font-weight: 550; }
+.gem-run-option small { display: block; color: var(--muted); font-size: 11px; margin-top: 5px; }
+.gem-run-score { margin-left: auto; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.gem-picker-note, .gem-empty-list { padding: 0 18px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.gem-range-control { padding-block: 8px; white-space: nowrap; }
+.gem-axis-controls { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px 16px; }
+.gem-max-control { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.gem-max-moves { width: 108px; min-width: 0; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-variant-numeric: tabular-nums; }
+.gem-max-moves:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.gem-max-moves[aria-invalid="true"] { border-color: var(--red); }
+.gem-max-auto { min-height: 36px; padding-inline: 10px; font-size: 12px; }
+.gem-chart-card { padding: 28px 28px 22px; border: 1px solid #97a5d62b; border-radius: 22px; background: radial-gradient(ellipse at 90% 0%, #5ee7ff09, transparent 50%), #02040c; }
+.gem-chart-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 22px; }
+.gem-chart-heading span { color: #8994b6; font-size: 10px; letter-spacing: .13em; }
+.gem-chart-heading h2 { margin: 9px 0 0; color: #f5f7ff; font-size: clamp(20px, 2.2vw, 29px); font-weight: 550; letter-spacing: -.7px; }
+.gem-chart-heading .gem-chart-count { letter-spacing: 0; font-size: 12px; }
+.gem-plot { position: relative; min-width: 0; }
+.gem-chart { display: block; width: 100%; overflow: visible; outline-offset: 6px; }
+.gem-grid { stroke: #97a5d628; stroke-width: 1; }
+.gem-grid-vertical { stroke-dasharray: 3 6; opacity: .55; }
+.gem-axis { fill: #929cbe; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.gem-axis-label { fill: #d8dcf4; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.gem-comparison-line { fill: none; stroke: var(--series); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.gem-comparison-point { fill: #02040c; stroke: var(--series); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.gem-end-label { fill: var(--series); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 550; dominant-baseline: middle; paint-order: stroke; stroke: #02040c; stroke-width: 5px; stroke-linejoin: round; }
+.gem-end-connector { fill: none; stroke: var(--series); stroke-width: 1; opacity: .65; }
+.gem-end-score-ring { fill: color-mix(in srgb, var(--series) 12%, #02040c); stroke: var(--series); stroke-width: 1.2; }
+.gem-end-score { fill: var(--series); font: 650 11px -apple-system, BlinkMacSystemFont, sans-serif; text-anchor: middle; dominant-baseline: middle; font-variant-numeric: tabular-nums; }
+.gem-crosshair { stroke: #ffffff70; stroke-width: 1; stroke-dasharray: 4 4; }
+.gem-empty { fill: #929cbe; font-size: 14px; }
+.gem-chart-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 20px 28px; margin-top: 20px; padding-top: 24px; border-top: 1px solid #97a5d626; }
+.gem-legend-item { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.gem-swatch { flex: none; width: 22px; height: 3px; margin-top: 7px; border-radius: 4px; background: var(--series); box-shadow: 0 0 8px color-mix(in srgb, var(--series), transparent 70%); }
+.gem-swatch-dashed { background: repeating-linear-gradient(to right, var(--series) 0 6px, transparent 6px 9px); }
+.gem-legend-item strong { display: block; color: #eef2ff; font-size: 13px; font-weight: 550; line-height: 1.4; }
+.gem-legend-item small, .gem-legend-item span { display: block; color: #8994b6; margin-top: 5px; font-size: 10px; line-height: 1.5; }
+.gem-legend-item span { color: #bdc6e0; font-variant-numeric: tabular-nums; }
+.gem-legend-item button { flex: none; margin: -7px -6px 0 auto; min-height: 32px; width: 32px; padding: 0; border: 0; background: transparent; color: #8994b6; font-size: 21px; }
+.gem-chart-note { color: var(--muted); font-size: 11px; line-height: 1.7; text-align: center; margin-top: 16px; }
+.gem-tooltip { position: absolute; top: 25px; z-index: 1; padding: 13px 16px; max-width: calc(100% - 16px); max-height: 300px; overflow: auto; border: 1px solid #97a5d63d; border-radius: 12px; background: #101420f5; color: #eef2ff; font-size: 11px; box-shadow: 0 10px 40px #0008; pointer-events: none; }
+.gem-tooltip[hidden] { display: none; }
+.gem-tooltip > strong { display: block; margin-bottom: 10px; }
+.gem-tooltip span { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+.gem-tooltip i { width: 7px; height: 7px; flex: none; border-radius: 50%; }
+.gem-tooltip b { margin-left: auto; padding-left: 14px; white-space: nowrap; }
+.screenshot-mode.gem-view body { background: #02040c; }
+.screenshot-mode.gem-view .compare-main > .gem-comparison { display: block; }
+.screenshot-mode.gem-view .gem-controls, .screenshot-mode.gem-view .gem-chart-note,
+.screenshot-mode.gem-view .gem-legend-item button, .screenshot-mode.gem-view .gem-tooltip { display: none; }
+.screenshot-mode.gem-view .gem-chart-card { border: 0; border-radius: 0; background: #02040c; padding: 16px 20px; }
+.screenshot-mode.gem-view .gem-legend-item strong { font-size: 15px; }
+.screenshot-mode.gem-view .gem-legend-item small, .screenshot-mode.gem-view .gem-legend-item span { font-size: 11px; }
+@media (max-width: 650px) {
+  .gem-controls { flex-direction: column; gap: 8px; }
+  .gem-picker { width: 100%; }
+  .gem-range-control { align-self: flex-end; }
+  .gem-chart-card, .screenshot-mode.gem-view .gem-chart-card { padding: 20px 10px; }
+  .gem-chart-heading, .gem-chart-legend { margin-inline: 8px; }
+  .gem-run-score { display: none; }
+  .gem-chart-legend { gap: 18px; }
+}

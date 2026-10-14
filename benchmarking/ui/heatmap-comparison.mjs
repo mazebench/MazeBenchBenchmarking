@@ -94,7 +94,7 @@ export function defaultComparison(runs, leftId, rightId, thirdId, count = 2) {
 }
 
 export function displayModelName(model = "") {
-  return model.replace(/-\d{8}$/, "").replace(/^claude-/i, "").replace(/(\d)-(?=\d)/g, "$1.")
+  return model.replace(/^meta-llama\//i, "").replace(/-\d{8}$/, "").replace(/^claude-/i, "").replace(/(\d)-(?=\d)/g, "$1.")
     .split("-").map(word => /^gpt$/i.test(word) ? "GPT" : word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ").replace(/^GPT /, "GPT-");
 }

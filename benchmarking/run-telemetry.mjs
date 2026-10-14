@@ -6,6 +6,8 @@ import { read } from "node:fs";
 import { promisify } from "node:util";
 import { StringDecoder } from "node:string_decoder";
 import { safeOpenFile, safeReadFile } from "./v1/safe-files.mjs";
+import path from "node:path";
+import { findMuseSession, museRunHomes, museDetail, museTimestamp, museRecordId } from "./muse-telemetry.mjs";
 
 const readAsync = promisify(read);
 const activeStatuses = new Set(["running", "continuing"]);
@@ -52,8 +54,31 @@ function toolEnd(timeline, id, at) {
 }
 
 export function consumeThinkingEvent(timeline, event, provider = "codex") {
-  const at = time(event);
+  const at = provider === "muse-code" ? museTimestamp(event) : time(event);
   if (!Number.isFinite(at)) return;
+  if (provider === "muse-code") {
+    const detail = museDetail(event), id = museRecordId(event);
+    timeline.museSeen ||= new Set();
+    if (!id || timeline.museSeen.has(id)) return;
+    const kinds = ["provider_request_options_configured", "model_completed", "model_failure_terminal_intent", "session_end", "side_effect_intent", "completed", "failed"];
+    if (!kinds.includes(detail.kind)) return;
+    timeline.museSeen.add(id);
+    if (detail.kind === "provider_request_options_configured") begin(timeline, at);
+    if (detail.kind === "model_completed") {
+      // Use Muse's per-request clock, excluding tool work and paused time.
+      if (Number.isFinite(detail.duration_ms) && detail.duration_ms >= 0) {
+        timeline.start = at - detail.duration_ms;
+        finish(timeline, at, "response finished");
+      } else finish(timeline, at, "response finished");
+      timeline.open = false;
+    }
+    if (detail.kind === "side_effect_intent" && detail.operation?.startsWith("tool:")) timeline.tools.add(detail.task_id);
+    if (["completed", "failed"].includes(detail.kind)) timeline.tools.delete(detail.task_id);
+    if (["model_failure_terminal_intent", "session_end"].includes(detail.kind)) {
+      interrupt(timeline); timeline.open = false;
+    }
+    return;
+  }
   if (provider === "antigravity") {
     if (event.event === "init") begin(timeline, at);
     const step = event.step_update;
@@ -186,7 +211,7 @@ export function thinkingReport(timeline, { metadata, runnerActive, summary, acti
 }
 
 export class RunTelemetry {
-  constructor() { this.cache = new Map(); this.pending = new Map(); }
+  constructor({ museHomes = museRunHomes() } = {}) { this.cache = new Map(); this.pending = new Map(); this.museHomes = museHomes; }
 
   async consumeFile(directory, file, entry, initial, consume) {
     let fd;
@@ -232,7 +257,8 @@ export class RunTelemetry {
       if (this.cache.size > 12) this.cache.delete(this.cache.keys().next().value);
     }
     const file = metadata.provider === "antigravity" ? "antigravity-events.jsonl" : metadata.provider === "claude-code" ? "claude-events.jsonl" : metadata.provider === "grok-build" ? "grok-events.jsonl" : "agent-events.jsonl";
-    const timeline = await this.consumeFile(directory, file, entry, createThinkingTimeline,
+    const museFile = metadata.provider === "muse-code" ? await findMuseSession(metadata, this.museHomes) : null;
+    const timeline = metadata.provider === "muse-code" && !museFile ? createThinkingTimeline() : await this.consumeFile(museFile ? path.dirname(museFile) : directory, museFile ? path.basename(museFile) : file, entry, createThinkingTimeline,
       (value, event) => consumeThinkingEvent(value, event, metadata.provider));
     const activity = await this.consumeFile(directory, "tool-activity.jsonl", entry, () => [], (value, event) => {
       const at = Date.parse(event.completed_at);
