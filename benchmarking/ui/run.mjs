@@ -1,4 +1,6 @@
 import { heatmapVisits } from "./heatmap.mjs";
+import { modelLabel } from "./model-label.mjs";
+import { gemReplayFrames, gemFrameIndex, loadWorldGemLocations, gemCollectionLocations } from "./gem-navigation.mjs";
 import { runTabVisible } from "./run-tabs.mjs";
 import { benchmarkFetch, visionUrl } from "./benchmark-api.mjs";
 import { rateLimitDetails, formatRateLimit } from "../run-errors.mjs";
@@ -22,6 +24,21 @@ const ids = [
   "interview-status", "interview-send"
 ];
 const elements = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
+const replayModes = document.createElement("div");
+replayModes.className = "replay-modes";
+replayModes.setAttribute("role", "group");
+replayModes.setAttribute("aria-label", "Replay mode");
+replayModes.innerHTML = '<button type="button" data-replay-mode="moves" aria-pressed="true">Moves</button><button type="button" data-replay-mode="gems" aria-pressed="false">◆ Gems</button><span class="replay-mode-note" role="status"></span>';
+elements["frame-scrubber"].closest(".playback-controls").prepend(replayModes);
+const gemMapControls = document.createElement("div");
+gemMapControls.className = "gem-map-controls";
+gemMapControls.innerHTML = '<button type="button" id="heatmap-gems" aria-pressed="false">◇ Show gems</button><div class="gem-map-legend" hidden><span class="gem-collected"></span><span class="gem-remaining"></span><span class="gem-unknown"></span></div><span class="gem-map-note" role="status"></span>';
+elements.heatmap.closest(".canvas-wrap").before(gemMapControls);
+const gemMapButton = gemMapControls.querySelector("button");
+const gemMapNote = gemMapControls.querySelector(".gem-map-note");
+const gemMapLegend = gemMapControls.querySelector(".gem-map-legend");
+let replayMode = "moves", gemFrames = [{ move: 0, gems: 0 }], gemFramesKey = null, gemFramesPending = null;
+let showGemLocations = false, gemLocations = null, gemCollectionKey = null, gemCollectionPending = null, gemMarkers = [];
 const runId = new URLSearchParams(location.search).get("id");
 const compareHeatmap = document.getElementById("compare-heatmap");
 if (compareHeatmap && runId) compareHeatmap.href = `./compare.html?left=${encodeURIComponent(runId)}`;
@@ -82,7 +99,7 @@ function usageTotal(usage) {
 }
 
 function modelMonogram(model) {
-  const meaningful = String(model || "M").split(/[-_.]/).filter(Boolean).filter((part) => !/^(gpt|codex|5|6)$/.test(part));
+  const meaningful = String(model || "M").split(/[-_.\s]/).filter(Boolean).filter((part) => !/^(gpt|codex|5|6)$/.test(part));
   return (meaningful.at(-1)?.[0] || "M").toUpperCase();
 }
 
@@ -151,15 +168,77 @@ function fitBoard() {
 }
 
 function syncTransport() {
-  const maximum = currentRun?.action_count || 0;
+  const gems = replayMode === "gems";
+  const maximum = gems ? gemFrames.length - 1 : currentRun?.action_count || 0;
+  const position = gems ? gemFrameIndex(gemFrames, currentFrame) : currentFrame;
   elements["frame-scrubber"].max = String(maximum);
-  elements["frame-scrubber"].value = String(currentFrame);
-  elements["frame-position"].textContent = `${currentFrame} / ${maximum}`;
-  elements["frame-first"].disabled = currentFrame <= 0;
-  elements["frame-previous"].disabled = currentFrame <= 0;
-  elements["frame-next"].disabled = currentFrame >= maximum;
-  elements["frame-last"].disabled = currentFrame >= maximum;
+  elements["frame-scrubber"].value = String(position);
+  elements["frame-scrubber"].disabled = maximum === 0;
+  elements["frame-scrubber"].setAttribute("aria-label", gems ? "Gem collection" : "Move");
+  elements["frame-scrubber"].closest("label").querySelector("span").textContent = gems ? "Gem" : "Move";
+  elements["frame-scrubber"].setAttribute("aria-valuetext", gems ? `${gemFrames[position].gems} gems collected, move ${currentFrame}` : `Move ${currentFrame} of ${maximum}`);
+  elements["frame-position"].textContent = gems ? `${gemFrames[position].gems} / ${gemFrames.at(-1).gems} gems · move ${formatNumber(currentFrame)}` : `${currentFrame} / ${maximum}`;
+  elements["frame-first"].disabled = position <= 0;
+  elements["frame-previous"].disabled = position <= 0;
+  elements["frame-next"].disabled = position >= maximum;
+  elements["frame-last"].disabled = position >= maximum;
+  elements["frame-play"].disabled = maximum === 0;
+  for (const [id, label] of [["frame-first", "First"], ["frame-previous", "Previous"], ["frame-next", "Next"], ["frame-last", gems ? "Last" : "Latest"]]) {
+    elements[id].setAttribute("aria-label", gems && id === "frame-first" ? "Start of replay" : `${label} ${gems ? "gem collection" : "move"}`);
+  }
+  for (const button of replayModes.querySelectorAll("button")) button.setAttribute("aria-pressed", String(button.dataset.replayMode === replayMode));
 }
+
+async function refreshGemFrames() {
+  const key = `${currentRun.history_epoch}:${currentRun.gems_collected}`;
+  if (gemFramesKey === key) return;
+  if (gemFramesPending) { await gemFramesPending; return refreshGemFrames(); }
+  const note = replayModes.querySelector(".replay-mode-note");
+  note.textContent = "Loading gem collections…";
+  gemFramesPending = (async () => {
+    const value = await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/charts`);
+    if (key !== `${currentRun.history_epoch}:${currentRun.gems_collected}`) return;
+    if (!value.gems?.available) throw new Error("Gem history is unavailable.");
+    gemFrames = gemReplayFrames(value.gems, currentRun.action_count);
+    gemFramesKey = key;
+    note.textContent = replayMode === "gems" ? gemFrames.length > 1 ? "Jump between collection moves" : "No gems collected yet" : "";
+    syncTransport();
+  })();
+  try { await gemFramesPending; }
+  catch (error) { note.textContent = `${error.message} Select Gems to retry.`; throw error; }
+  finally { gemFramesPending = null; }
+  if (replayMode === "gems" && gemFramesKey !== `${currentRun.history_epoch}:${currentRun.gems_collected}`) await refreshGemFrames();
+}
+
+async function refreshGemCollections() {
+  const key = `${currentRun.history_epoch}:${currentRun.gems_collected}:${currentRun.world_revision || 0}`;
+  if (gemCollectionKey === key) return;
+  if (gemCollectionPending) { await gemCollectionPending; return refreshGemCollections(); }
+  gemMapNote.textContent = "Loading gem collections…";
+  gemCollectionPending = (async () => {
+    const run = await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}`);
+    if (run.history_epoch !== currentRun.history_epoch) return;
+    gemMarkers = gemCollectionLocations(gemLocations, run);
+    gemCollectionKey = `${run.history_epoch}:${run.gems_collected}:${run.world_revision || 0}`;
+    for (const [status, symbol, label] of [["collected", "◆", "collected"], ["remaining", "◇", "uncollected"], ["unknown", "?", "uncertain"]]) {
+      const count = gemMarkers.filter(gem => gem.status === status).length;
+      const item = gemMapLegend.querySelector(`.gem-${status}`);
+      item.textContent = `${symbol} ${count} ${label}`;
+      item.hidden = status === "unknown" && count === 0;
+    }
+    gemMapNote.textContent = gemMarkers.some(gem => gem.status === "unknown")
+      ? "Current map · some historical collections cannot be matched exactly"
+      : "Current world map";
+  })();
+  try { await gemCollectionPending; }
+  finally { gemCollectionPending = null; }
+}
+
+function replayPosition() {
+  return replayMode === "gems" ? gemFrameIndex(gemFrames, currentFrame) : currentFrame;
+}
+function replayMaximum() { return replayMode === "gems" ? gemFrames.length - 1 : currentRun?.action_count || 0; }
+function replayMove(position) { return replayMode === "gems" ? gemFrames[Math.max(0, Math.min(gemFrames.length - 1, Number(position)))]?.move ?? 0 : position; }
 
 function stopPlayback() {
   playbackActive = false;
@@ -185,7 +264,7 @@ async function showFrame(index, { keepPlaying = false } = {}) {
   const selected = Math.max(0, Math.min(maximum, Math.round(Number(index) || 0)));
   const request = ++frameRequest;
   currentFrame = selected;
-  followingLatest = selected === maximum;
+  followingLatest = replayMode === "moves" && selected === maximum;
   syncTransport();
 
   if (selected === maximum && currentRun.display) {
@@ -232,12 +311,12 @@ async function startPlayback() {
   elements["frame-play"].classList.add("playing");
   elements["frame-play"].setAttribute("aria-pressed", "true");
   try {
-    const maximum = currentRun.action_count || 0;
-    if (currentFrame >= maximum) await showFrame(0, { keepPlaying: true });
-    while (playbackActive && playbackGeneration === generation && currentFrame < maximum) {
+    const maximum = replayMaximum();
+    if (replayPosition() >= maximum) await showFrame(replayMove(0), { keepPlaying: true });
+    while (playbackActive && playbackGeneration === generation && replayPosition() < maximum) {
       const shouldAdvance = await waitForPlayback(replayDelay(), generation);
       if (!shouldAdvance) return;
-      await showFrame(currentFrame + 1, { keepPlaying: true });
+      await showFrame(replayMove(replayPosition() + 1), { keepPlaying: true });
     }
     if (playbackGeneration === generation) stopPlayback();
   } catch (error) {
@@ -279,7 +358,8 @@ function drawHeatmap(positions, toolsEnabled, currentPosition) {
   const valid = (positions || []).filter((position) => position && Number.isFinite(position.worldX) && Number.isFinite(position.worldY));
   const total = valid.reduce((sum, point) => sum + (point.count || 1), 0);
   elements["heatmap-count"].textContent = `${formatNumber(total)} visit${total === 1 ? "" : "s"}`;
-  if (!valid.length) return;
+  const gems = showGemLocations ? gemMarkers : [];
+  if (!valid.length && !gems.length) return;
 
   const counts = new Map();
   for (const position of valid) {
@@ -290,8 +370,8 @@ function drawHeatmap(positions, toolsEnabled, currentPosition) {
     const [x, y] = key.split(",").map(Number);
     return { x, y, count };
   });
-  const xValues = points.map((point) => point.x);
-  const yValues = points.map((point) => point.y);
+  const xValues = [...points.map((point) => point.x), ...gems.map(gem => gem.worldX)];
+  const yValues = [...points.map((point) => point.y), ...gems.map(gem => gem.worldY)];
   const minX = Math.min(...xValues);
   const maxX = Math.max(...xValues);
   const minY = Math.min(...yValues);
@@ -333,7 +413,24 @@ function drawHeatmap(positions, toolsEnabled, currentPosition) {
       tileSize
     );
   }
+  // Diamond markers stay legible even when a world tile is smaller than a pixel.
+  for (const gem of gems) {
+    const x = offsetX + (gem.worldX - minX + 0.5) * cell;
+    const y = offsetY + (gem.worldY - minY + 0.5) * cell;
+    const radius = Math.max(gem.status === "collected" ? 4 : 3, Math.min(6, cell * .45));
+    context.beginPath();
+    context.moveTo(x, y - radius); context.lineTo(x + radius, y);
+    context.lineTo(x, y + radius); context.lineTo(x - radius, y); context.closePath();
+    context.fillStyle = gem.status === "collected" ? "#72f1a5" : "#071c25"; context.fill();
+    context.strokeStyle = gem.status === "collected" ? "#071c25" : gem.status === "unknown" ? "#ffc76d" : "#86efff";
+    context.lineWidth = 1.5; context.stroke();
+    if (gem.status === "unknown") {
+      context.fillStyle = "#ffc76d"; context.font = "bold 8px sans-serif";
+      context.textAlign = "center"; context.textBaseline = "middle"; context.fillText("?", x, y);
+    }
+  }
   const current = currentPosition || valid.at(-1);
+  if (!current) return;
   context.strokeStyle = toolsEnabled ? "#ffbd5b" : "#6cd7ff";
   context.lineWidth = 2;
   const markerSize = Math.max(4, tileSize);
@@ -472,7 +569,7 @@ function interviewMessage(message) {
   const meta = document.createElement("div");
   const author = document.createElement("strong");
   const time = document.createElement("time");
-  author.textContent = message.role === "assistant" ? currentRun?.model || "Model" : "You";
+  author.textContent = message.role === "assistant" ? modelLabel(currentRun?.model) || "Model" : "You";
   time.textContent = message.at
     ? new Date(message.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : "";
@@ -641,14 +738,17 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
     frameRequest += 1;
     frameCache.clear();
     followingLatest = true;
+    replayMode = "moves"; gemFrames = [{ move: 0, gems: 0 }]; gemFramesKey = null;
+    replayModes.querySelector(".replay-mode-note").textContent = "";
+    gemCollectionKey = null; gemMarkers = []; gemMapLegend.hidden = true;
     analysisData = null; analysisKey = null;
   }
   document.body.classList.toggle("tools-on", Boolean(run.tools_enabled));
   document.body.classList.toggle("ice-world", numberedWorld(run));
-  document.title = `${run.model} · MazeBench record`;
-  elements["model-monogram"].textContent = modelMonogram(run.model);
+  document.title = `${modelLabel(run.model)} · MazeBench record`;
+  elements["model-monogram"].textContent = modelMonogram(modelLabel(run.model));
   elements["run-kicker"].textContent = `${worldName(run)} · ${providerName(run.provider)}${run.observation_mode === "vision" ? " · Vision" : ""} · ${run.provider === "prime-agent" ? "Native Python" : `Python ${run.tools_enabled ? "on" : "off"}`}`;
-  elements["run-title"].textContent = run.model;
+  elements["run-title"].textContent = modelLabel(run.model);
   elements["run-subtitle"].textContent = `${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"}` : ""} · ${run.service_tier === "fast" ? "Fast" : "Standard"} · ${compactDate(run.created_at)}`;
   elements["run-id"].textContent = run.id;
   const rateLimit = run.status === "failed" ? run.rate_limit || rateLimitDetails(run.error) : null;
@@ -696,6 +796,8 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
     elements["frame-source"].textContent = run.observation_mode === "vision" ? "Live 3D agent observation" : "Latest observation";
   }
   syncTransport();
+  replayModes.hidden = numberedWorld(run);
+  gemMapControls.hidden = numberedWorld(run);
   elements.heatmap.setAttribute("aria-label", run.world === "slotski" ? "Top-left positions of selected blocks after actions" : "Heatmap of positions visited");
   if (runTabVisible("overview")) drawProgress(run);
   renderPair(run, allRuns);
@@ -707,6 +809,10 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
 
 function renderAnalysis() {
   if (!analysisData || !currentRun || !runTabVisible("analysis")) return;
+  gemMapLegend.hidden = !showGemLocations || !gemCollectionKey;
+  elements.heatmap.setAttribute("aria-label", showGemLocations
+    ? `Heatmap of positions visited. ${[...gemMapLegend.children].filter(item => !item.hidden).map(item => item.textContent).join(", ")}. Filled green diamonds are collected; outlined cyan diamonds are uncollected.`
+    : currentRun.world === "slotski" ? "Top-left positions of selected blocks after actions" : "Heatmap of positions visited");
   const heatmap = analysisData.heatmap || heatmapVisits(analysisData);
   elements["heatmap-count"].title = `Includes slide and punch paths for ${heatmap.trackedActions} moves. Older moves retain their recorded endpoints.`;
   drawHeatmap(heatmap.points || heatmap.positions, currentRun.tools_enabled, heatmap.current);
@@ -716,8 +822,13 @@ function renderAnalysis() {
 
 async function refreshSection() {
   if (!currentRun || document.hidden) return;
-  if (runTabVisible("overview")) { fitBoard(); drawProgress(currentRun); return; }
+  if (runTabVisible("overview")) {
+    fitBoard(); drawProgress(currentRun);
+    if (replayMode === "gems") await refreshGemFrames().catch(() => {});
+    return;
+  }
   if (runTabVisible("analysis")) {
+    if (showGemLocations && gemLocations) await refreshGemCollections().catch(error => { gemMapNote.textContent = `Gem collections couldn't update: ${error.message}`; });
     const key = `${currentRun.history_epoch}:${currentRun.action_count}:${currentRun.status}`;
     if (analysisKey === key) { renderAnalysis(); return; }
     if (analysisBusy) return;
@@ -852,7 +963,7 @@ elements["resume-run"].addEventListener("click", async () => {
 elements["delete-run"].addEventListener("click", async () => {
   if (!currentRun || currentRun.runner_active) return;
   const confirmed = window.confirm(
-    `Permanently delete ${currentRun.model} run ${currentRun.id}?\n\nThis removes its record, workspace, replay, and interview chats. This cannot be undone.`
+    `Permanently delete ${modelLabel(currentRun.model)} run ${currentRun.id}?\n\nThis removes its record, workspace, replay, and interview chats. This cannot be undone.`
   );
   if (!confirmed) return;
   elements["delete-run"].disabled = true;
@@ -873,13 +984,56 @@ function seekFrame(index) {
   });
 }
 
-elements["frame-first"].addEventListener("click", () => seekFrame(0));
-elements["frame-previous"].addEventListener("click", () => seekFrame(currentFrame - 1));
+elements["frame-first"].addEventListener("click", () => seekFrame(replayMove(0)));
+elements["frame-previous"].addEventListener("click", () => seekFrame(replayMove(replayPosition() - 1)));
 elements["frame-play"].addEventListener("click", startPlayback);
-elements["frame-next"].addEventListener("click", () => seekFrame(currentFrame + 1));
-elements["frame-last"].addEventListener("click", () => seekFrame(currentRun?.action_count || 0));
-elements["frame-scrubber"].addEventListener("input", (event) => seekFrame(event.currentTarget.value));
+elements["frame-next"].addEventListener("click", () => seekFrame(replayMove(replayPosition() + 1)));
+elements["frame-last"].addEventListener("click", () => seekFrame(replayMove(replayMaximum())));
+elements["frame-scrubber"].addEventListener("input", (event) => seekFrame(replayMove(event.currentTarget.value)));
 elements["replay-speed"].addEventListener("change", replayDelay);
+
+replayModes.addEventListener("click", async event => {
+  const mode = event.target.closest("[data-replay-mode]")?.dataset.replayMode;
+  if (!mode || !currentRun) return;
+  stopPlayback();
+  replayMode = mode;
+  if (mode === "gems") {
+    followingLatest = false;
+    try {
+      await refreshGemFrames();
+      if (replayMode === "gems") seekFrame(replayMove(replayPosition()));
+    } catch { if (replayMode === "gems") replayMode = "moves"; }
+  } else {
+    replayModes.querySelector(".replay-mode-note").textContent = "";
+    followingLatest = currentFrame === currentRun.action_count;
+  }
+  syncTransport();
+});
+
+gemMapButton.addEventListener("click", async () => {
+  if (gemMapButton.disabled) return;
+  showGemLocations = !showGemLocations;
+  if (showGemLocations && !gemLocations) {
+    gemMapButton.disabled = true; gemMapNote.textContent = "Loading gem locations…";
+    try {
+      gemLocations = await loadWorldGemLocations(async url => {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Map unavailable (${response.status}).`);
+        return response.json();
+      });
+      await refreshGemCollections();
+    } catch (error) {
+      showGemLocations = false; gemMapNote.textContent = `${error.message} Click Show gems to retry.`;
+    } finally { gemMapButton.disabled = false; }
+  } else if (showGemLocations) {
+    try { await refreshGemCollections(); }
+    catch (error) { gemMapNote.textContent = error.message; }
+  } else gemMapNote.textContent = "";
+  gemMapButton.setAttribute("aria-pressed", String(showGemLocations));
+  gemMapButton.textContent = showGemLocations ? "◆ Hide gems" : "◇ Show gems";
+  if (showGemLocations && !gemMapNote.textContent) gemMapNote.textContent = "Current world map";
+  renderAnalysis();
+});
 
 elements["interview-list"].addEventListener("click", async (event) => {
   const row = event.target.closest("[data-chat-id]");

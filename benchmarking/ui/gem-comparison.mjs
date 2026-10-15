@@ -2,6 +2,8 @@ import { benchmarkFetch } from "./benchmark-api.mjs";
 import { runCompany, selectRuns } from "./run-library.mjs";
 import { displayModelName } from "./heatmap-comparison.mjs";
 import { gemSeries, gemsAt, gemLinePath, axisExtent, layoutEndLabels, limitGemSeries } from "./gem-comparison-data.mjs";
+import { comparisonGemCount, correctedGemSeries, editedGemSeries, moveGemPoint } from "./gem-comparison-edits.mjs";
+import { gemMarker } from "./gem-comparison-markers.mjs";
 
 const escape = value => String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const number = value => value.toLocaleString();
@@ -26,12 +28,14 @@ export function createGemComparison({ onChange }) {
         <label class="scale-control gem-range-control">Gem axis <select class="gem-range"><option value="auto">Auto</option><option value="100">0–100 gems</option></select></label>
       </div>
     </div>
+    <div class="gem-edit-controls"><button type="button" class="gem-edit-toggle" aria-pressed="false">Edit curve</button><button type="button" class="gem-edit-reset" disabled>Reset curve edits</button><span class="gem-edit-help">Drag points to reshape a curve. Edits are saved in this browser.</span><span class="gem-edit-status" role="status"></span></div>
     <article class="gem-chart-card">
       <header class="gem-chart-heading"><div><span>MAZEBENCH · MAIN WORLD</span><h2>Gems collected by move</h2></div><span class="gem-chart-count"></span></header>
       <div class="gem-plot"><svg class="gem-chart" role="img" tabindex="0" aria-label="Gems collected by move"></svg><output class="gem-tooltip" hidden></output></div>
       <div class="gem-chart-legend"></div>
+      <p class="gem-adjustment-note" hidden></p>
     </article>
-    <p class="gem-chart-note">Lines connect recorded collection milestones. Max moves limits the chart and scores to that move. Moves include all recorded actions, including undo, reset and camera actions. Refresh to update.</p>`;
+    <p class="gem-chart-note">Lines connect collection milestones. Curve edits affect this comparison only. Max moves limits the chart and scores to that move. Moves include all recorded actions, including undo, reset and camera actions. Refresh to update.</p>`;
   document.getElementById("comparison-panels").before(root);
   const $ = selector => root.querySelector(selector);
   let runs = [], active = false, generation = 0, plot = null, loading = false, initialized = false;
@@ -40,6 +44,19 @@ export function createGemComparison({ onChange }) {
   let maxMoves = Number.isSafeInteger(savedMax) && savedMax > 0 ? savedMax : null;
   $(".gem-max-moves").value = maxMoves ?? "";
   const data = new Map(), requests = new Map(), errors = new Map();
+  const storageKey = "mazebench-gem-curve-edits-v1";
+  let edits = {}, editing = false, drag = null, selectedPoint = null;
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey));
+    if (saved?.version === 1 && saved.runs && typeof saved.runs === "object" && !Array.isArray(saved.runs)) edits = saved.runs;
+  } catch { /* A missing or unavailable local store starts with recorded curves. */ }
+  const fullSeries = run => editedGemSeries(data.get(run.id), edits[run.id]);
+  function saveEdits() {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({ version: 1, runs: edits }));
+      $(".gem-edit-status").textContent = "Saved in this browser.";
+    } catch { $(".gem-edit-status").textContent = "Browser storage unavailable; edits last until reload."; }
+  }
   const filtered = () => runs.filter(run => {
     const query = $('input[type="search"]').value.toLowerCase();
     const tools = $('select[aria-label="Filter runs by Python"]').value;
@@ -62,7 +79,7 @@ export function createGemComparison({ onChange }) {
     $(".gem-run-list").innerHTML = visible.length ? visible.map(run => `
       <label class="gem-run-option"><input type="checkbox" value="${escape(run.id)}" ${selected.has(run.id) ? "checked" : ""}>
         <span><strong>${escape(displayModelName(run.model))}</strong><small>${escape(detail(run))} · ${run.created_at ? escape(dates.format(new Date(run.created_at))) : "Undated"} · ${escape(run.id.slice(-6))}</small></span>
-        <span class="gem-run-score">${number(run.gems_collected || 0)} gems</span></label>`).join("") : '<p class="gem-empty-list">No matching runs.</p>';
+        <span class="gem-run-score">${number(fullSeries(run)?.collected ?? comparisonGemCount(run))} gems</span></label>`).join("") : '<p class="gem-empty-list">No matching runs.</p>';
   }
   function changed() {
     syncURL(); renderPicker(); load();
@@ -95,6 +112,14 @@ export function createGemComparison({ onChange }) {
     const button = event.target.closest("button[data-remove]");
     if (button) { selected.delete(button.dataset.remove); changed(); }
   });
+  $(".gem-edit-toggle").addEventListener("click", () => {
+    editing = !editing; selectedPoint = null;
+    $(".gem-edit-status").textContent = ""; draw();
+  });
+  $(".gem-edit-reset").addEventListener("click", () => {
+    for (const id of selected) delete edits[id];
+    selectedPoint = null; saveEdits(); renderPicker(); draw();
+  });
 
   async function report(run) {
     if (data.has(run.id)) return data.get(run.id);
@@ -102,7 +127,7 @@ export function createGemComparison({ onChange }) {
     const request = (async () => {
       const response = await benchmarkFetch(`/api/benchmark/v1/runs/${encodeURIComponent(run.id)}/charts`, { signal: AbortSignal.timeout(60000) });
       if (!response.ok) throw new Error(`Couldn’t load history (${response.status})`);
-      const result = gemSeries((await response.json()).gems);
+      const result = correctedGemSeries(gemSeries((await response.json()).gems), run.id);
       if (!result) throw new Error("Gem history unavailable");
       data.set(run.id, result); errors.delete(run.id);
       return result;
@@ -124,13 +149,22 @@ export function createGemComparison({ onChange }) {
       }
     }));
     if (token !== generation) return;
-    loading = false; draw();
+    loading = false; renderPicker(); draw();
   }
   function draw() {
     if (!active) return;
     const chosen = selectedRuns();
-    const series = chosen.map((run, i) => ({ run, data: limitGemSeries(data.get(run.id), maxMoves), color: color(i) })).filter(item => item.data);
+    const series = chosen.map((run, i) => ({ run, data: limitGemSeries(fullSeries(run), maxMoves), color: color(i), marker: i })).filter(item => item.data);
+    const screenshot = document.documentElement.classList.contains("screenshot-mode");
+    const handles = editing && !screenshot;
     const svg = $(".gem-chart"), width = Math.max(360, svg.clientWidth || 1000);
+    svg.classList.toggle("editing", handles); svg.classList.toggle("dragging", Boolean(drag));
+    svg.setAttribute("role", handles ? "group" : "img");
+    svg.setAttribute("aria-label", handles ? "Edit gem curves. Focus a point and use arrow keys; Shift moves faster." : "Gems collected by move");
+    $(".gem-edit-toggle").setAttribute("aria-pressed", String(editing));
+    $(".gem-edit-toggle").textContent = editing ? "Done editing" : "Edit curve";
+    $(".gem-edit-reset").disabled = !chosen.some(run => fullSeries(run)?.edited);
+    $(".gem-edit-help").textContent = editing ? "Drag a point, or focus it and use arrow keys (Shift for larger steps). Recorded runs stay unchanged." : "Drag points to reshape a curve. Edits are saved in this browser.";
     const labelFont = width < 550 ? 11 : 13;
     const measure = document.createElement("canvas").getContext("2d");
     measure.font = `550 ${labelFont}px -apple-system, BlinkMacSystemFont, sans-serif`;
@@ -141,10 +175,10 @@ export function createGemComparison({ onChange }) {
     const labelSpace = Math.min(width * .45, Math.max(0, ...labels.map(label => label.measuredWidth))) + 24;
     const height = Math.max(Math.min(620, Math.max(330, width * .43)), labels.length * 40 + 110);
     const left = width < 550 ? 48 : 66, right = width - labelSpace - 12, top = 30, bottom = height - 58;
-    const xAxis = axisExtent(Math.max(1, ...series.map(item => item.data.moves)), width < 550 ? 3 : 6);
-    if (maxMoves !== null) Object.assign(xAxis, { max: maxMoves, step: axisExtent(maxMoves, width < 550 ? 3 : 6).step });
+    const xAxis = drag?.xAxis || axisExtent(Math.max(1, ...series.map(item => item.data.moves)), width < 550 ? 3 : 6);
+    if (!drag && maxMoves !== null) Object.assign(xAxis, { max: maxMoves, step: axisExtent(maxMoves, width < 550 ? 3 : 6).step });
     const peak = Math.max(1, ...series.flatMap(item => item.data.points.map(point => point.gems)));
-    const yAxis = $(".gem-range").value === "100" ? { max: Math.max(100, peak), step: 20 } : axisExtent(peak);
+    const yAxis = drag?.yAxis || ($(".gem-range").value === "100" ? { max: Math.max(100, peak), step: 20 } : axisExtent(peak));
     const x = move => left + move / xAxis.max * (right - left), y = gems => bottom - gems / yAxis.max * (bottom - top);
     let markup = `<title>Gems collected by move</title><desc>${escape(series.map(item => `${displayModelName(item.run.model)}: ${item.data.collected} gems at ${item.data.moves} moves`).join(". "))}</desc>`;
     for (let value = 0; value <= yAxis.max; value += yAxis.step) markup += `<line class="gem-grid" x1="${left}" x2="${right}" y1="${y(value)}" y2="${y(value)}"/><text class="gem-axis" x="${left - 12}" y="${y(value) + 4}" text-anchor="end">${number(value)}</text>`;
@@ -156,8 +190,12 @@ export function createGemComparison({ onChange }) {
     for (const item of series) {
       const points = item.data.points;
       markup += `<g style="--series:${item.color}"><path class="gem-comparison-line" ${item.run.tools_enabled ? 'stroke-dasharray="8 5"' : ""} d="${gemLinePath(points, x, y)}"/>`;
-      for (let i = 0; i < points.length; i++) if (i === points.length - 1 || (i > 0 && points[i].gems !== points[i - 1].gems)) {
-        markup += `<circle class="gem-comparison-point" cx="${x(points[i].move)}" cy="${y(points[i].gems)}" r="3.5"/>`;
+      for (let i = 0; i < points.length; i++) if (i === points.length - 1 || (i > 0 && (handles || points[i].gems !== points[i - 1].gems))) {
+        const point = points[i], editable = handles && i > 0 && point.key;
+        const focused = selectedPoint?.runId === item.run.id && selectedPoint?.key === point.key;
+        const label = `${displayModelName(item.run.model)} · move ${number(point.move)} · ${number(point.gems)} gems`;
+        const marker = gemMarker(item.marker, editable ? 7 : 4.5);
+        markup += `<g class="gem-comparison-point${editable ? " gem-edit-point" : ""}${focused ? " selected" : ""}" transform="translate(${x(point.move)},${y(point.gems)})"${editable ? ` data-run="${escape(item.run.id)}" data-point="${escape(point.key)}" tabindex="0" role="button" aria-label="${escape(label)}. ${marker.name} marker. Drag or use arrow keys to edit."` : ""}><title>${escape(label)} · ${marker.name}</title>${editable ? '<circle class="gem-point-hit" r="10"/>' : ""}${marker.body}</g>`;
       }
       markup += "</g>";
     }
@@ -178,10 +216,15 @@ export function createGemComparison({ onChange }) {
     $(".gem-tooltip").hidden = true;
     $(".gem-chart-count").textContent = `${series.length} ${series.length === 1 ? "run" : "runs"}${maxMoves === null ? "" : ` · through move ${number(maxMoves)}`}`;
     $(".gem-chart-legend").innerHTML = chosen.map((run, i) => {
-      const full = data.get(run.id), value = limitGemSeries(full, maxMoves), duplicate = chosen.filter(item => item.model === run.model).length > 1;
-      return `<div class="gem-legend-item" style="--series:${color(i)}"><i class="gem-swatch ${run.tools_enabled ? "gem-swatch-dashed" : ""}"></i><div><strong>${escape(displayModelName(run.model))}</strong><small>${escape(detail(run))}${duplicate ? ` · ${escape(run.id.slice(-6))}` : ""}</small><span>${value ? `${score(value)} · ${number(value.moves)}${value.moves < full.moves ? ` / ${number(full.moves)}` : ""} moves` : escape(errors.get(run.id) || (full ? "No history in this range" : "Loading…"))}</span></div><button type="button" data-remove="${escape(run.id)}" aria-label="Remove ${escape(displayModelName(run.model))} ${escape(run.id.slice(-6))}">×</button></div>`;
+      const full = fullSeries(run), value = limitGemSeries(full, maxMoves), duplicate = chosen.filter(item => item.model === run.model).length > 1;
+      const marker = gemMarker(i, 5);
+      return `<div class="gem-legend-item" style="--series:${color(i)}"><svg class="gem-legend-marker" viewBox="0 0 28 20" role="img" aria-label="${marker.name} markers"><path class="gem-marker-line" d="M0,10H28"${run.tools_enabled ? ' stroke-dasharray="4 3"' : ""}/><g class="gem-comparison-point" transform="translate(14,10)">${marker.body}</g></svg><div><strong>${escape(displayModelName(run.model))}</strong><small>${escape(detail(run))}${duplicate ? ` · ${escape(run.id.slice(-6))}` : ""}${full?.edited ? " · Edited curve" : ""}</small><span>${value ? `${score(value)} · ${number(value.moves)}${value.moves < full.moves ? ` / ${number(full.moves)}` : ""} moves` : escape(errors.get(run.id) || (full ? "No history in this range" : "Loading…"))}</span></div><button type="button" data-remove="${escape(run.id)}" aria-label="Remove ${escape(displayModelName(run.model))} ${escape(run.id.slice(-6))}">×</button></div>`;
     }).join("");
-    plot = { x, y, xAxis, left, right, width, series, move: 0 };
+    const notes = series.filter(item => item.data.exclusion).map(item => `${displayModelName(item.run.model)}: ${item.data.exclusion.room} gem excluded.`);
+    if (series.some(item => item.data.edited)) notes.push("Edited curves shown.");
+    $(".gem-adjustment-note").textContent = notes.join(" ");
+    $(".gem-adjustment-note").hidden = !notes.length;
+    plot = { x, y, xAxis, yAxis, left, right, top, bottom, width, height, series, move: 0 };
     const status = document.getElementById("comparison-status");
     const failed = chosen.some(run => errors.has(run.id));
     status.classList.toggle("error", failed);
@@ -201,13 +244,67 @@ export function createGemComparison({ onChange }) {
     const crosshair = $(".gem-crosshair");
     crosshair.setAttribute("x1", plot.x(plot.move)); crosshair.setAttribute("x2", plot.x(plot.move)); crosshair.setAttribute("visibility", "visible");
   }
+  function updatePoint(runId, key, position) {
+    const run = runs.find(run => run.id === runId), full = run && fullSeries(run);
+    const value = moveGemPoint(full, key, position);
+    if (!value) return;
+    if (!edits[runId] || typeof edits[runId] !== "object" || Array.isArray(edits[runId])) edits[runId] = {};
+    edits[runId][key] = value;
+    selectedPoint = { runId, key };
+    draw();
+    $(".gem-edit-status").textContent = `${displayModelName(run.model)} · move ${number(value.move)} · ${number(value.gems)} gems`;
+  }
+  function finishDrag(cancel = false) {
+    if (!drag) return;
+    const previous = drag; drag = null;
+    const svg = $(".gem-chart");
+    if (svg.hasPointerCapture(previous.pointerId)) svg.releasePointerCapture(previous.pointerId);
+    if (cancel) { edits[previous.runId] = previous.before; $(".gem-edit-status").textContent = "Drag cancelled."; }
+    else saveEdits();
+    renderPicker(); draw();
+    [...svg.querySelectorAll(".gem-edit-point")].find(point => point.dataset.run === previous.runId && point.dataset.point === previous.key)?.focus({ preventScroll: true });
+  }
+  $(".gem-chart").addEventListener("pointerdown", event => {
+    if (!editing || drag || !plot || event.button !== 0 || document.documentElement.classList.contains("screenshot-mode")) return;
+    const point = event.target.closest(".gem-edit-point");
+    if (!point) return;
+    event.preventDefault();
+    const runId = point.dataset.run, key = point.dataset.point;
+    drag = { runId, key, pointerId: event.pointerId, before: structuredClone(edits[runId] || {}), xAxis: { ...plot.xAxis }, yAxis: { ...plot.yAxis } };
+    selectedPoint = { runId, key };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    point.focus();
+  });
   $(".gem-chart").addEventListener("pointermove", event => {
     if (!plot) return;
     const rect = event.currentTarget.getBoundingClientRect();
+    if (drag && drag.pointerId === event.pointerId) {
+      const move = Math.max(0, Math.min(plot.xAxis.max, ((event.clientX - rect.left) * plot.width / rect.width - plot.left) / (plot.right - plot.left) * plot.xAxis.max));
+      const gems = (plot.bottom - (event.clientY - rect.top) * plot.height / rect.height) / (plot.bottom - plot.top) * plot.yAxis.max;
+      updatePoint(drag.runId, drag.key, { move, gems: Math.max(0, Math.min(plot.yAxis.max, gems)) });
+      return;
+    }
+    if (editing) return;
     inspect(((event.clientX - rect.left) * plot.width / rect.width - plot.left) / (plot.right - plot.left) * plot.xAxis.max);
   });
+  $(".gem-chart").addEventListener("pointerup", event => { if (event.pointerId === drag?.pointerId) finishDrag(); });
+  $(".gem-chart").addEventListener("pointercancel", event => { if (event.pointerId === drag?.pointerId) finishDrag(true); });
+  $(".gem-chart").addEventListener("lostpointercapture", event => { if (event.pointerId === drag?.pointerId) finishDrag(true); });
   $(".gem-chart").addEventListener("pointerleave", () => { $(".gem-tooltip").hidden = true; $(".gem-crosshair")?.setAttribute("visibility", "hidden"); });
   $(".gem-chart").addEventListener("keydown", event => {
+    if (drag && event.key === "Escape") { event.preventDefault(); finishDrag(true); return; }
+    const point = event.target.closest(".gem-edit-point");
+    if (editing && point && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+      event.preventDefault();
+      const runId = point.dataset.run, key = point.dataset.point, run = runs.find(run => run.id === runId);
+      const current = fullSeries(run).points.find(point => point.key === key);
+      const moveStep = event.shiftKey ? Math.max(10, Math.round(plot.xAxis.max / 100)) : 1;
+      updatePoint(runId, key, { move: current.move + (event.key === "ArrowRight" ? moveStep : event.key === "ArrowLeft" ? -moveStep : 0),
+        gems: current.gems + (event.key === "ArrowUp" ? 1 : event.key === "ArrowDown" ? -1 : 0) * (event.shiftKey ? 5 : 1) });
+      saveEdits(); renderPicker();
+      [...$(".gem-chart").querySelectorAll(".gem-edit-point")].find(point => point.dataset.run === runId && point.dataset.point === key)?.focus();
+      return;
+    }
     if (!plot || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
     inspect(event.key === "Home" ? 0 : event.key === "End" ? plot.xAxis.max : plot.move + (event.key === "ArrowRight" ? 1 : -1) * Math.max(1, Math.round(plot.xAxis.max / 100)));
@@ -216,8 +313,9 @@ export function createGemComparison({ onChange }) {
   return {
     draw, load,
     canScreenshot: () => !loading && selectedRuns().some(run => data.has(run.id)),
-    setActive(value) { active = value; root.hidden = !value; if (!value) { generation++; loading = false; } },
+    setActive(value) { if (!value) finishDrag(true); active = value; root.hidden = !value; if (!value) { generation++; loading = false; } },
     setRuns(value, defaults) {
+      finishDrag(true);
       runs = selectRuns(value.filter(run => !run.source), { sort: "company" });
       if (!initialized) {
         initialized = true;

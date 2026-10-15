@@ -1,4 +1,5 @@
 import { formatRateLimit } from "../run-errors.mjs";
+import { modelLabel } from "./model-label.mjs";
 const dates = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
 const count = value => (value || 0).toLocaleString();
@@ -81,7 +82,7 @@ function updateCard(card, run, values) {
   const rateLimit = card.querySelector(".record-rate-limit");
   rateLimit.hidden = !values.rateLimit;
   text(rateLimit, values.rateLimit || "");
-  text(card.querySelector(".record-model"), run.model);
+  text(card.querySelector(".record-model"), modelLabel(run.model));
   text(card.querySelector(".record-meta"), values.context);
   card.querySelector(".record-context").title = values.meta;
   text(card.querySelector(".record-date"), values.timestamp);
@@ -94,7 +95,7 @@ function updateCard(card, run, values) {
   });
   const remove = card.querySelector(".record-delete");
   remove.dataset.deleteRun = run.id;
-  remove.setAttribute("aria-label", `Delete ${run.model} run`);
+  remove.setAttribute("aria-label", `Delete ${modelLabel(run.model)} run`);
   remove.disabled = Boolean(run.runner_active);
   remove.title = run.runner_active ? "Stop or pause this run before deleting it." : "Permanently delete this run.";
 }

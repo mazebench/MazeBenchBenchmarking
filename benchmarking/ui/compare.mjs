@@ -2,7 +2,9 @@ import { benchmarkFetch } from "./benchmark-api.mjs";
 import { runCompany, selectRuns } from "./run-library.mjs";
 import { comparisonCondition } from "./heatmap-import.mjs";
 import { prepareHeatmap, comparisonBounds, croppedBounds, comparisonScale, defaultComparison, drawComparisonMap, displayModelName, tileAt, roomAt } from "./heatmap-comparison.mjs";
+import { modelLabel } from "./model-label.mjs";
 import { createGemComparison } from "./gem-comparison.mjs";
+import { createHeatmapGifExport } from "./heatmap-gif-export.mjs";
 
 const $ = id => document.getElementById(id);
 const number = value => (value || 0).toLocaleString();
@@ -86,6 +88,12 @@ const panels = ["left", "right", "third"].map((side, index) => {
 });
 
 const activePanels = () => panels.slice(0, panelCount);
+const gifExport = createHeatmapGifExport({
+  selection: () => ({ scale: $("color-scale").value, panels: activePanels().map(panel => ({
+    run: runs.find(run => run.id === panel.run.value), map: panel.data?.map, actions: panel.data?.actions,
+  })) }),
+  onExit: () => setScreenshotMode(false), onResize: drawMaps,
+});
 function updatePanelCount() {
   panels[2].element.hidden = panelCount === 2;
   $("model-count").value = String(panelCount);
@@ -134,7 +142,7 @@ function populateModels(panel, id) {
   }
   for (const [company, models] of companies) {
     const group = document.createElement("optgroup"); group.label = company;
-    for (const model of models) group.append(new Option(model, model));
+    for (const model of models) group.append(new Option(modelLabel(model), model));
     panel.model.append(group);
   }
   panel.model.disabled = !runs.length;
@@ -177,7 +185,7 @@ function renderPanel(panel) {
   for (const [key, value] of Object.entries(stats)) panel.element.querySelector(`[data-stat="${key}"]`).textContent = value == null ? "—" : number(value);
   panel.element.querySelector(".map-coverage").textContent = data
     ? `${number(data.map.total)} visits · ${run.source ? "action endpoints · imported snapshot" : `paths tracked for ${number(data.map.trackedActions)} of ${number(data.actions)} actions`}` : "Recorded visits";
-  panel.canvas.setAttribute("aria-label", data ? `${run.model}: ${number(data.map.points.length)} tiles visited, ${number(data.map.total)} visits. Use arrow keys to inspect tiles.` : "Heatmap unavailable");
+  panel.canvas.setAttribute("aria-label", data ? `${modelLabel(run.model)}: ${number(data.map.points.length)} tiles visited, ${number(data.map.total)} visits. Use arrow keys to inspect tiles.` : "Heatmap unavailable");
 }
 
 function fitScreenshotLabels(visible) {
@@ -207,7 +215,7 @@ function drawMaps() {
   // Crop each run independently but keep the same tile size across maps.
   const screenshotCell = screenshotMode ? Math.max(1, Math.min(
     (grid.clientWidth - parseFloat(getComputedStyle(grid).columnGap) * (panelCount - 1)) / panelCount / Math.max(...crops.map(crop => crop.columns)),
-    (window.innerHeight - 72 - labelHeight) / Math.max(...crops.map(crop => crop.rows))
+    (window.innerHeight - 72 - labelHeight - gifExport.height()) / Math.max(...crops.map(crop => crop.rows))
   )) : 1;
   $("explored-area").setAttribute("aria-pressed", String(!fullWorld));
   $("full-world").setAttribute("aria-pressed", String(fullWorld));
@@ -231,6 +239,7 @@ function setScreenshotMode(active) {
   screenshotMode = active;
   selectedTile = null;
   document.documentElement.classList.toggle("screenshot-mode", active);
+  gifExport.setVisible(active && !gemMode);
   for (const panel of panels) panel.canvas.tabIndex = active ? -1 : 0;
   document.querySelector(".gem-chart").tabIndex = active ? -1 : 0;
   if (active) {

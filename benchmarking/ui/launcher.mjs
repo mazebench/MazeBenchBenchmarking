@@ -1,5 +1,6 @@
 import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs";
 import { RunListView, providerName, runCompany, selectRuns } from "./run-library.mjs";
+import { modelLabel } from "./model-label.mjs";
 const elements = Object.fromEntries([
   "world", "world-description", "world-objective", "connection-status", "launch-form", "provider", "model", "effort", "action-limit", "run-options-summary",
   "tools-enabled", "tools-label", "launch-note", "sequence-option", "sequence-enabled", "observation-option", "observation-mode", "vision-preview", "vision-preview-image", "vision-preview-status", "vision-room", "vision-left", "vision-right", "vision-tilt", "launch-single", "launch-pair",
@@ -58,12 +59,12 @@ const runList = new RunListView(elements["run-list"]);
 let latestRuns = [];
 let pollTimer;
 
-function filterOptions(select, values, placeholder) {
+function filterOptions(select, values, placeholder, label = value => value) {
   const options = [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   const signature = JSON.stringify(options);
   if (select.dataset.options === signature) return;
   const selected = select.value;
-  select.replaceChildren(new Option(placeholder, ""), ...options.map(value => new Option(value, value)));
+  select.replaceChildren(new Option(placeholder, ""), ...options.map(value => new Option(label(value), value)));
   select.value = options.includes(selected) ? selected : "";
   select.dataset.options = signature;
 }
@@ -72,7 +73,7 @@ function renderRuns(runs, page) {
   latestRuns = runs;
   filterOptions(elements["run-company"], runs.map(runCompany), "All companies");
   const company = elements["run-company"].value;
-  filterOptions(elements["run-model"], runs.filter(run => !company || runCompany(run) === company).map(run => run.model), "All models");
+  filterOptions(elements["run-model"], runs.filter(run => !company || runCompany(run) === company).map(run => run.model), "All models", modelLabel);
   const visible = selectRuns(runs, { company, model: elements["run-model"].value, sort: elements["run-sort"].value });
   const result = runList.update(visible, page);
   elements["record-count"].textContent = visible.length === runs.length
@@ -113,7 +114,7 @@ function updateModels() {
   for (const model of providerModels) {
     const option = document.createElement("option");
     option.value = model.id;
-    option.textContent = model.name;
+    option.textContent = modelLabel(model.id, model.name);
     const preferred = ({ codex: "gpt-5.6-terra", "claude-code": "claude-sonnet-5-5", "grok-build": "grok-4.7", antigravity: "gemini-3.8-flash-medium", "muse-code": "muse-wonder-1.0", "prime-agent": "openai/gpt-4.1-mini" })[elements.provider.value];
     option.selected = model.id === preferred;
     elements.model.append(option);
@@ -159,7 +160,7 @@ async function launchSingle(event) {
       body: JSON.stringify(launchPayload())
     });
     await refreshRuns();
-    setLaunching(false, `Launched ${run.model}. Its live record is ready below.`);
+    setLaunching(false, `Launched ${modelLabel(run.model)}. Its live record is ready below.`);
   } catch (error) {
     setLaunching(false, error.message);
   }
@@ -241,7 +242,7 @@ elements["run-list"].addEventListener("click", async (event) => {
   const run = (await api("/api/benchmark/v1/runs?view=library")).runs.find((entry) => entry.id === id);
   if (!run) return poll();
   const confirmed = window.confirm(
-    `Permanently delete ${run.model} run ${run.id}?\n\nThis removes its record, workspace, replay, and interview chats. This cannot be undone.`
+    `Permanently delete ${modelLabel(run.model)} run ${run.id}?\n\nThis removes its record, workspace, replay, and interview chats. This cannot be undone.`
   );
   if (!confirmed) return;
   button.disabled = true;

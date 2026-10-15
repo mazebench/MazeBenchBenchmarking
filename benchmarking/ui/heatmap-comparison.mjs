@@ -1,3 +1,5 @@
+import { modelLabel } from "./model-label.mjs";
+
 // All maps use this one coordinate system and one logarithmic color scale.
 const WORLD_SIZE = 256, ROOM_SIZE = 16;
 export const HEAT_COLORS = [[255, 213, 87], [255, 126, 58], [222, 55, 92], [148, 72, 214]];
@@ -94,9 +96,9 @@ export function defaultComparison(runs, leftId, rightId, thirdId, count = 2) {
 }
 
 export function displayModelName(model = "") {
-  return model.replace(/^meta-llama\//i, "").replace(/-\d{8}$/, "").replace(/^claude-/i, "").replace(/(\d)-(?=\d)/g, "$1.")
+  return modelLabel(model, model.replace(/^meta-llama\//i, "").replace(/-\d{8}$/, "").replace(/^claude-/i, "").replace(/(\d)-(?=\d)/g, "$1.")
     .split("-").map(word => /^gpt$/i.test(word) ? "GPT" : word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ").replace(/^GPT /, "GPT-");
+    .join(" ").replace(/^GPT /, "GPT-"));
 }
 
 export function drawComparisonMap(canvas, map, bounds, scale, colors, selected, { screenshotMode = false, screenshotCell = 1 } = {}) {
