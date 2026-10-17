@@ -19,6 +19,13 @@ body.is-controller-active { grid-template-rows: minmax(0, 1fr); overflow: hidden
   grid-template-rows: minmax(0, 1fr);
   min-height: 0;
 }
+/* The toolbar is hidden, so the board gets the entire viewport row. */
+.is-controller-active .ascii-view { grid-template-rows: minmax(0, 1fr); }
+.is-controller-active .ascii-scroll {
+  min-width: 0;
+  min-height: 0;
+  place-items: safe center;
+}
 @media (max-width: 850px) {
   .controller-panel { grid-column: 1 / -1; grid-row: 5; padding: 0 12px; }
 }
