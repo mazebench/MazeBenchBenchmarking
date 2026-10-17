@@ -61,20 +61,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   padding: 0 14px;
 }
 .author-nav { align-items: center; display: flex; gap: 6px; justify-self: start; }
-.brand-link {
-  align-items: center;
-  color: var(--ink);
-  display: inline-flex;
-  font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 700;
-  gap: 9px;
-  letter-spacing: .13em;
-  margin-right: 8px;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-.brand-link img { height: 27px; width: 27px; }
 .nav-link {
   background: transparent;
   border: 0;
@@ -87,6 +73,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .author-nav button.nav-link { cursor: pointer; }
 .author-nav button.nav-link:hover { color: var(--ink); }
+.home-back-link { align-items: center; display: inline-flex; gap: 5px; margin-right: 8px; color: #64b5ff; cursor: pointer; text-decoration: none; white-space: nowrap; }
+.home-back-link svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.home-back-link:hover { background: #0a84ff1a; }
 .nav-link.is-active { background: rgba(var(--cyan-rgb), .1); color: var(--cyan); }
 .author-title { justify-self: center; max-width: min(44vw, 520px); text-align: center; }
 .author-title > span { color: var(--muted); display: block; font: 700 8px var(--font-mono); letter-spacing: .2em; margin-bottom: 3px; }
@@ -922,7 +911,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* Quiet system controls; the authored voxel palette and its icons stay intact. */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .author-header { background: #1c1c1ef2; backdrop-filter: blur(20px); }
-.brand-link { font-size: 14px; font-weight: 650; letter-spacing: -.02em; text-transform: none; }
 .author-title > span { font: 500 10px var(--font-sans); letter-spacing: .02em; }
 .author-title h1 { font-size: 14px; font-weight: 600; letter-spacing: 0; text-transform: none; text-shadow: none; }
 .nav-link { border-radius: 9px; font-size: 13px; min-height: 36px; }
@@ -1043,7 +1031,7 @@ summary::-webkit-details-marker { display: none; }
   .author-header { height: auto; min-height: 108px; position: sticky; top: 0; }
   .author-topbar { gap: 8px; padding: 10px 12px; }
   .author-nav { grid-column: 1 / -1; justify-content: center; }
-  .brand-link { margin-right: auto; }
+  .home-back-link { margin-right: auto; }
   .author-actions { grid-column: 1 / -1; width: 100%; justify-content: flex-end; }
   .nav-link { padding-inline: 8px; }
   .author-topbar { grid-template-columns: 1fr auto; }

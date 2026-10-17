@@ -51,7 +51,7 @@ function buildContent(renderer, objects, rooms = []) {
 
 function initialObject(track, phase = track.initialPhase) {
   const [x, y, z] = track.positions[0];
-  return { ...track.object, x, y, z, stateId: phase };
+  return { ...track.object, engineHidden: false, x, y, z, stateId: phase };
 }
 
 function mechanismMorph(renderer, track) {

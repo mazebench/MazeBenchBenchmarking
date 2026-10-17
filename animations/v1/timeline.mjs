@@ -1,7 +1,9 @@
+import { objectIdentity, presentationIdentities } from "../../play/current/presentation-identity.mjs";
 // Human presentation only. Never write interpolated values into engine states.
 export const DEFAULT_STEP_MS = 100;
 export const SLIDE_TILE_MS = 40;
 export const ROOM_TRANSITION_MS = 250;
+export const RESET_TRANSITION_MS = 250;
 export const easeInOut = t => t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
 const clamp = t => Math.max(0, Math.min(1, t));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -48,7 +50,7 @@ export function sampleSegments(segments, initial, time, { alwaysEase = false } =
   if (!segment) return initial;
   if (time >= segment.end) return segment.to;
   const progress = clamp((time - segment.start) / (segment.end - segment.start));
-  const t = alwaysEase || (!segment.linear && segment.distance < 2) ? easeInOut(progress) : progress;
+  const t = alwaysEase || segment.ease || (!segment.linear && segment.distance < 2) ? easeInOut(progress) : progress;
   return segment.from.map((v, i) => lerp(v, segment.to[i], t));
 }
 
@@ -74,6 +76,7 @@ export function createCommandTimeline({ state, room, simulation, definitions, st
   const frameRooms = [room, ...(simulation.animationFrames || frames.map(() => ({ room })))
     .slice(0, frames.length).map(frame => frame.room)];
   const tracks = [];
+  const identities = trace.identities || presentationIdentities(state, room);
   const direction = { up: [0, -1, 0], right: [1, 0, 0], down: [0, 1, 0], left: [-1, 0, 0] }[simulation.direction];
   for (let index = 0; index < trace.initial.objects.length; index++) {
     const object = trace.initial.objects[index];
@@ -99,7 +102,7 @@ export function createCommandTimeline({ state, room, simulation, definitions, st
       phases.push([["gate", "lift", "puncher"].includes(blocks.get(object.blockId).visual?.kind) && current?.stateId === 1 ? 1 : 0]);
       opacities.push([active ? 1 : 0]);
     }
-    tracks.push({ index, object, block: blocks.get(object.blockId), positions, phaseValues: phases, opacityValues: opacities });
+    tracks.push({ index, key: identities[index], object, block: blocks.get(object.blockId), positions, phaseValues: phases, opacityValues: opacities });
   }
 
   // Drop empty physics ticks, but preserve every changed position/mechanism.
@@ -156,11 +159,31 @@ export function createCommandTimeline({ state, room, simulation, definitions, st
     });
     currentRoom = nextRoom;
   }
-  return {
+  const timeline = {
     tracks, times, ticks, frames: states, frameRooms, rooms: trace.rooms,
     originX: trace.originX, originY: trace.originY,
     camera, lighting, initialLight, duration: Math.max(times.at(-1), camera.at(-1)?.end || 0)
   };
+  if (simulation.presentation && !simulation.cycle) {
+    const finalRoom = simulation.room || room;
+    for (const departed of trace.rooms) {
+      if (departed.fileName === finalRoom.fileName) continue;
+      // Reset after this room's last physical change, overlapping the camera
+      // transition and any remaining travel through subsequent rooms.
+      const targets = roomTargets(departed, departed, blocks, false);
+      const keys = new Set(targets.map(target => target.key));
+      let start = 0;
+      for (let i = 1; i < ticks.length; i++) {
+        if (frameRooms[ticks[i - 1]]?.fileName === departed.fileName) start = times[i];
+      }
+      for (const track of tracks) if (keys.has(track.key)) {
+        start = Math.max(start, track.motion.at(-1)?.end || 0,
+          track.phases.at(-1)?.end || 0, track.fades.at(-1)?.end || 0);
+      }
+      appendReset(timeline, targets, start);
+    }
+  }
+  return timeline;
 }
 
 // Rigid bodies with the same complete motion share joined cube/slope geometry.
@@ -170,11 +193,85 @@ export function groupMovingTracks(tracks) {
     const mechanism = ["gate", "lift", "puncher"].includes(track.block.visual?.kind);
     const first = track.positions[0];
     const key = mechanism ? `mechanism:${track.index}` : JSON.stringify([
-      track.positions.map(position => delta(first, position)), track.fades,
-      track.initialOpacity
+      track.motion.map(segment => ({ ...segment,
+        from: delta(first, segment.from), to: delta(first, segment.to) })),
+      track.fades, track.initialOpacity
     ]);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(track);
   }
   return [...groups.values()];
+}
+
+
+function roomTargets(state, room, blocks, includePlayer = true) {
+  const keys = state === room ? state.objects.map((_, index) => objectIdentity(room, index))
+    : presentationIdentities(state, room);
+  return state.objects.flatMap((object, index) => {
+    const block = blocks.get(object.blockId);
+    if (!block || (!includePlayer && block.roleId === "player")) return [];
+    return [{ key: keys[index], object, block,
+      position: [object.x + (room.columnIndex || 0) * state.width,
+        object.y + (room.rowIndex || 0) * state.height, object.z],
+      phase: ["gate", "lift", "puncher"].includes(block.visual?.kind) && object.stateId === 1 ? 1 : 0,
+      opacity: visible(object, state) ? 1 : 0 }];
+  });
+}
+
+function appendReset(timeline, targets, start) {
+  const byKey = new Map(timeline.tracks.map(track => [track.key, track]));
+  const end = start + RESET_TRANSITION_MS;
+  for (const target of targets) {
+    let track = byKey.get(target.key);
+    if (!track) {
+      track = { index: timeline.tracks.length, key: target.key, object: target.object, block: target.block,
+        positions: [target.position], motion: [], phases: [], fades: [],
+        initialOpacity: 0, initialPhase: target.phase, changed: false };
+      timeline.tracks.push(track);
+    }
+    const from = sampleTrack(track, start);
+    // An absent object reappears at its restored location, never at the engine's
+    // off-board sentinel. Existing objects return from their displayed pose.
+    if (!from.opacity && !track.motion.length) {
+      track.positions[0] = target.position;
+      from.x = target.position[0]; from.y = target.position[1]; from.z = target.position[2];
+      track.object = target.object;
+    }
+    for (const [segments, a, b] of [
+      [track.motion, [from.x, from.y, from.z], target.opacity ? target.position : [from.x, from.y, from.z]],
+      [track.phases, [from.phase], [target.phase]], [track.fades, [from.opacity], [target.opacity]]
+    ]) {
+      if (same(a, b)) continue;
+      segments.push({ from: a, to: b, start, end, distance: length(delta(a, b)), ease: true });
+      track.changed = true;
+      timeline.duration = Math.max(timeline.duration, end);
+    }
+  }
+}
+
+// Capture interpolated poses before aborting an in-flight command/reset. This
+// snapshot stays entirely in presentation space, including fractional phases.
+export function captureTimeline(timeline, time) {
+  return { rooms: timeline.rooms, tracks: timeline.tracks.map(track => {
+    const value = sampleTrack(track, time);
+    return { ...track, positions: [[value.x, value.y, value.z]],
+      motion: [], phases: [], fades: [], initialPhase: value.phase,
+      initialOpacity: value.opacity, changed: false };
+  }) };
+}
+
+export function createResetTimeline({ state, resetState, room, definitions, snapshot }) {
+  const blocks = definitions instanceof Map ? definitions : new Map(definitions.map(block => [block.id, block]));
+  const base = createCommandTimeline({ state, room, definitions: blocks,
+    simulation: { frames: [], final: state } });
+  const timeline = snapshot ? { ...base, ...captureTimeline(snapshot, 0) } : base;
+  const targets = timeline.rooms.flatMap(candidate => candidate.fileName === room.fileName
+    ? roomTargets(resetState, room, blocks)
+    : roomTargets(candidate, candidate, blocks, false));
+  const keys = new Set(targets.map(target => target.key));
+  for (const track of timeline.tracks) if (!keys.has(track.key)) {
+    targets.push({ ...track, position: track.positions[0], phase: track.initialPhase, opacity: 0 });
+  }
+  appendReset(timeline, targets, 0);
+  return timeline;
 }

@@ -1,3 +1,4 @@
+import { clonePlayState as cloneState, presentationIdentities, rememberPresentationIdentities } from "./presentation-identity.mjs";
 import { engineGenericIdForObject, engineRoleIdForObject } from "../../engine/current/adapter.mjs";
 
 const DIRECTIONS = Object.freeze({
@@ -24,14 +25,6 @@ function cellKey(columnIndex, rowIndex) {
 
 function roomKey(room) {
   return cellKey(room.columnIndex, room.rowIndex);
-}
-
-function cloneState(state) {
-  return {
-    width: state.width,
-    height: state.height,
-    objects: state.objects.map((object) => ({ ...object }))
-  };
 }
 
 function isInside(state, object) {
@@ -87,10 +80,10 @@ export class ConnectedWorldSessionV1 {
 
   freshRoomState(room) {
     const state = this.engine.createState(room);
-    return {
-      ...state,
-      objects: state.objects.filter((object) => !this.isPlayer(object))
-    };
+    const fresh = { ...state, objects: state.objects.filter(object => !this.isPlayer(object)) };
+    if (this.presentation) rememberPresentationIdentities(fresh,
+      presentationIdentities(state, room).filter((_, index) => !this.isPlayer(state.objects[index])));
+    return fresh;
   }
 
   buildLayout(visited, commandRoom) {
@@ -108,6 +101,8 @@ export class ConnectedWorldSessionV1 {
     const width = (maxColumn - minColumn + 1) * this.roomWidth;
     const height = (maxRow - minRow + 1) * this.roomHeight;
     const bodyGroups = new Map();
+    const identities = this.presentation ? placements.flatMap(({ state, room }) =>
+      presentationIdentities(state, room).filter((_, index) => isInside(state, state.objects[index]))) : undefined;
     const objects = placements.flatMap(({ room, state, offsetX, offsetY }, roomIndex) =>
       state.objects
         .filter((object) => isInside(state, object))
@@ -183,6 +178,7 @@ export class ConnectedWorldSessionV1 {
     return {
       state: { width, height, objects: [...objects, ...boundaryObjects] },
       placements,
+      identities,
       minColumn,
       minRow
     };
@@ -202,21 +198,23 @@ export class ConnectedWorldSessionV1 {
     return placement ? { player, placement } : null;
   }
 
-  projectState(state, placement) {
+  projectState(state, placement, identities) {
     const { offsetX, offsetY } = placement;
-    return {
+    const included = object => !object.connectedWorldBoundary &&
+      object.x >= offsetX && object.y >= offsetY &&
+      object.x < offsetX + this.roomWidth && object.y < offsetY + this.roomHeight;
+    const projected = {
       width: this.roomWidth,
       height: this.roomHeight,
       objects: state.objects
-        .filter((object) => !object.connectedWorldBoundary &&
-          object.x >= offsetX && object.y >= offsetY &&
-          object.x < offsetX + this.roomWidth &&
-          object.y < offsetY + this.roomHeight)
+        .filter(included)
         .map(({ connectedWorldOrangeScope, connectedWorldBodyGroup,
           connectedWorldCloneCommandDisabled, connectedWorldRoomWidth,
           connectedWorldRoomHeight, ...object }) =>
           ({ ...object, x: object.x - offsetX, y: object.y - offsetY }))
     };
+    return rememberPresentationIdentities(projected,
+      identities?.filter((_, index) => included(state.objects[index])));
   }
 
   playerIsOnIce(state, player) {
@@ -285,7 +283,7 @@ export class ConnectedWorldSessionV1 {
       activePlacement = this.playerPlacement(state, layout)?.placement || activePlacement;
       return {
         room: activePlacement.room,
-        state: this.projectState(state, activePlacement)
+        state: this.projectState(state, activePlacement, layout.identities)
       };
     });
     activePlacement = this.playerPlacement(simulation.final, layout)?.placement || activePlacement;
@@ -297,13 +295,14 @@ export class ConnectedWorldSessionV1 {
       // when an actor disappears or the player crosses a room boundary.
       ...(this.presentation ? { presentation: {
         initial: layout.state,
+        identities: layout.identities,
         frames: simulation.frames,
         rooms: layout.placements.map(({ room }) => room),
         originX: layout.minColumn * this.roomWidth,
         originY: layout.minRow * this.roomHeight
       } } : {}),
       room: activePlacement.room,
-      final: this.projectState(simulation.final, activePlacement),
+      final: this.projectState(simulation.final, activePlacement, layout.identities),
       frames: animationFrames.map(({ state }) => state),
       animationFrames,
       connectedRooms: [...connectedRooms]

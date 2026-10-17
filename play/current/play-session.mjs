@@ -1,16 +1,9 @@
+import { clonePlayState as cloneState } from "./presentation-identity.mjs";
 import { countActiveRoleV1, engineStatesEqualV1 } from "../../engine/current/adapter.mjs";
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 export const DEFAULT_PLAY_FRAME_DELAY_MS = 20;
-
-function cloneState(state) {
-  return {
-    width: state.width,
-    height: state.height,
-    objects: state.objects.map((object) => ({ ...object }))
-  };
-}
 
 export class PlaySessionV1 {
   constructor(engine, definitions, callbacks = {}) {
@@ -20,6 +13,8 @@ export class PlaySessionV1 {
     this.onChange = callbacks.onChange || (() => {});
     this.onRoomChange = callbacks.onRoomChange || (() => {});
     this.animateCommand = callbacks.animateCommand;
+    this.animateReset = callbacks.animateReset;
+    this.capturePresentation = callbacks.capturePresentation;
     this.resolveCommand = callbacks.resolveCommand || ((state, room, direction) =>
       this.engine.simulateCommand(state, direction, this.definitions));
     this.setFrameDelay(callbacks.frameDelay ?? DEFAULT_PLAY_FRAME_DELAY_MS);
@@ -48,18 +43,36 @@ export class PlaySessionV1 {
     this.onFrame(this.state, this.room);
   }
 
-  reset() {
+  async reset() {
     if (!this.initialState) return;
+    const state = this.state;
+    const snapshot = this.capturePresentation?.();
     this.animationController?.abort();
     this.pendingMove = null;
-    this.generation += 1;
+    const generation = ++this.generation;
     this.state = cloneState(this.initialState);
     this.moves = 0;
     this.history.length = 0;
     this.queue.length = 0;
-    this.running = false;
+    this.running = Boolean(this.animateReset && this.frameDelay > 0);
     this.publish({ reset: true });
-    this.onFrame(this.state, this.room);
+    try {
+      if (this.running) {
+        this.animationController = new AbortController();
+        await this.animateReset({ state, resetState: this.state, room: this.room,
+          snapshot, signal: this.animationController.signal });
+      }
+    } catch (error) {
+      if (generation === this.generation) this.publish({ error: error.message });
+    } finally {
+      if (generation === this.generation) {
+        this.animationController = null;
+        this.running = false;
+        this.onFrame(this.state, this.room);
+        this.publish();
+        if (this.queue.length) void this.drain();
+      }
+    }
   }
 
   undo() {

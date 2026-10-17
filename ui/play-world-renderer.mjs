@@ -1,5 +1,5 @@
 import { WorldContextRenderer } from "./world-context-renderer.mjs";
-import { createCommandTimeline, ROOM_TRANSITION_MS, sampleSegments } from "../animations/v1/timeline.mjs";
+import { createCommandTimeline, createResetTimeline, captureTimeline, ROOM_TRANSITION_MS, sampleSegments } from "../animations/v1/timeline.mjs";
 import { playTimeline } from "../animations/v1/player.mjs";
 import { CAMERA_CENTER_DURATION_MS } from "../render/v1/camera-transitions.mjs";
 import { CommandAnimationScene } from "../animations/v1/scene.mjs";
@@ -93,10 +93,19 @@ export class PlayWorldRenderer extends WorldContextRenderer {
     this.render();
   }
 
-  async animateCommand(command, { finish = () => false } = {}) {
+  capturePresentation() {
+    const scene = this.commandAnimation;
+    return scene ? captureTimeline(scene.timeline, scene.time) : undefined;
+  }
+
+  animateReset(reset, options) {
+    return this.animateCommand(reset, { ...options, reset: true });
+  }
+
+  async animateCommand(command, { finish = () => false, reset = false } = {}) {
     if (command.signal?.aborted) return false;
     if (globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return {};
-    const timeline = createCommandTimeline({ ...command, definitions: this.world.blockDefinitions });
+    const timeline = (reset ? createResetTimeline : createCommandTimeline)({ ...command, definitions: this.world.blockDefinitions });
     if (!timeline.duration) return {};
     if (timeline.camera.length) {
       const pending = this.cameraMotion.centerAnimation;
@@ -126,10 +135,10 @@ export class PlayWorldRenderer extends WorldContextRenderer {
         scene.update(time);
         this.render();
       }, { signal: command.signal, finish });
-      return complete ? { preserveCameraPosition: !command.simulation.cycle } : false;
+      return complete ? { preserveCameraPosition: !command.simulation?.cycle } : false;
     } finally {
       command.signal?.removeEventListener("abort", abort);
-      cleanup(!complete || Boolean(command.simulation.cycle));
+      cleanup(!complete || Boolean(command.simulation?.cycle));
     }
   }
 

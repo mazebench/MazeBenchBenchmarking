@@ -87,6 +87,12 @@ Human Play gems gently bob and rotate continuously on the same display clock,
 including cached rooms and command scenes. Update only gem transforms, keep their
 phase across rebuilds, and honor the Tweens/reduced-motion settings. Do not run
 the idle 3D animation loop while viewing ASCII or a hidden tab.
+Room resets ease objects and mechanisms back over 250 ms. On leaving a room,
+restore its authored non-player objects before revealing the cached background;
+Reset restores the current visit's entry state, including collected objects.
+Interrupting motion with Reset starts at the displayed pose. Presentation identity
+is a WeakMap sidecar in play/current/presentation-identity.mjs, propagated through
+projection and history; never add animation IDs to engine objects or room saves.
 Undo/reset/room selection must cancel presentation immediately, including undo
 of the first in-flight move, without allowing stale completions to overwrite the
 replacement state. AI vision observations and all signed benchmark renderers
@@ -99,8 +105,9 @@ must not create an undo snapshot or increment the move counter.
 Play controller input lives in ui/play-gamepad.mjs and uses the browser's standard
 gamepad mapping. Left stick/D-pad moves are camera-relative and repeat only when
 the current command finishes; never queue held input behind animations or a move
-sequence. Stick holds repeat every 130 ms from the first move; D-pad holds pause
-260 ms after the first move, then repeat every 130 ms. Left-stick diagonals choose
+sequence. Stick holds wait 195 ms before the second move; D-pad holds wait
+260 ms. Both then repeat every 130 ms, so the stick gets half the D-pad's extra
+first-hold pause. Left-stick diagonals choose
 one cardinal direction, retaining it until the other axis is clearly stronger;
 never alternate commands between axes. Right stick turns use the same cardinal camera as keyboard controls;
 tilt and ZL/ZR zoom share smooth camera motion without taking ownership of keyboard
@@ -350,6 +357,10 @@ yaw must not change the cardinal camera used for camera-relative Play moves.
 Flyover uses a thin one-pixel outline at the reference room-view distance;
 Play and the editor use three pixels there. All outlines scale inversely with
 each endpoint's view depth, with subpixel coverage to avoid distant flicker.
+Close-up thickness is capped at twice the reference width (six pixels in Play/
+Edit, two in Flyover). Wide outlines use antialiased round caps and depth clearance matched to their
+world-space radius so close-up faces cannot slice gaps into the strokes. Keep
+near-plane trimming valid and retain a single draw per outline mesh.
 
 Browser Play and the editor render all 256 rooms, with the active room at full
 brightness and the rest dimmed. `ui/world-context-renderer.mjs` caches full

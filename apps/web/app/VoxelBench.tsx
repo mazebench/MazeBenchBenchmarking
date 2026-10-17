@@ -3779,11 +3779,10 @@ export default function VoxelBench() {
       </header> : <header className="author-header">
         <div className="author-topbar">
           <nav className="author-nav" aria-label="Maze Bench navigation">
-            <span className="brand-link">
-              {/* Existing MazeBench brand asset; a plain image preserves its authored SVG sizing. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/favicon.svg" alt="" />Maze Bench
-            </span>
+            <a className="nav-link home-back-link" href="http://localhost:8080/" aria-label="Back to home" title="Back to home">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg>
+              <span>Back</span>
+            </a>
             <button className="nav-link" aria-pressed={false} onClick={() => setActiveWorkspace("tests")}>Editor</button>
             <button className={`nav-link ${activeWorkspace === "suite" ? "is-active" : ""}`} aria-pressed={activeWorkspace === "suite"} onClick={() => setActiveWorkspace("suite")}>Test Suite</button>
             <button className={`nav-link ${activeWorkspace === "search" ? "is-active" : ""}`} aria-pressed={activeWorkspace === "search"} onClick={() => setActiveWorkspace("search")}>Search</button>

@@ -2,6 +2,8 @@
 const DEAD_ZONE = 0.28;
 const MOVE_THRESHOLD = 0.5;
 const RELEASE_THRESHOLD = 0.35;
+const MOVE_REPEAT_MS = 130;
+const FIRST_REPEAT_PAUSE_MS = 130;
 
 function axis(pad, index) {
   const value = pad.axes?.[index];
@@ -88,8 +90,10 @@ export class PlayGamepadInput {
     }
     if (this.move && now >= this.nextMove && this.callbacks.canMove()) {
       this.callbacks.onMove(this.move);
-      // Stick holds repeat evenly; only the D-pad pauses after its first step.
-      this.nextMove = now + (input.moveSource === "dpad" && !this.moved ? 260 : 130);
+      // The stick gets half the D-pad's extra pause before the second step.
+      const firstPause = this.moved ? 0
+        : FIRST_REPEAT_PAUSE_MS * (input.moveSource === "dpad" ? 1 : 0.5);
+      this.nextMove = now + MOVE_REPEAT_MS + firstPause;
       this.moved = true;
     }
     if (input.turn !== this.turn) { this.turn = input.turn; this.nextTurn = now; }

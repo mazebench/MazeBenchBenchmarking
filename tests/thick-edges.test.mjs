@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "../render/vendor/three.module.min.js";
 import { edgeMaterial } from "../render/v1/polycube-mesh.mjs";
-import { ThickEdges, OUTLINE_WIDTH_PX, OUTLINE_REFERENCE_DEPTH } from "../ui/thick-edges.mjs";
+import { ThickEdges, OUTLINE_WIDTH_PX, OUTLINE_REFERENCE_DEPTH, OUTLINE_MAX_SCALE } from "../ui/thick-edges.mjs";
 
 test("active and dimmed outlines share depth-scaled black strokes in a single pass", () => {
   const root = new THREE.Group();
@@ -18,13 +18,16 @@ test("active and dimmed outlines share depth-scaled black strokes in a single pa
     assert.equal(mesh.layers.mask, 1);
     assert.equal(mesh.geometry.attributes.position.count, 6);
     assert.equal(mesh.geometry.attributes.lineOther.count, 6);
+    assert.deepEqual([...mesh.geometry.attributes.lineEnd.array], [0, 1, 0, 0, 1, 1]);
     assert.equal(mesh.material.forceSinglePass, true);
     const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.basic.vertexShader, fragmentShader: THREE.ShaderLib.basic.fragmentShader };
     mesh.material.onBeforeCompile(shader);
     assert.equal(shader.uniforms.mazeLineWidth.value, 3);
+    assert.equal(shader.uniforms.mazeLineMaxScale.value * OUTLINE_WIDTH_PX, 6);
+    assert.equal(OUTLINE_MAX_SCALE, 2);
     assert.equal(shader.uniforms.mazeLineReferenceDepth.value, OUTLINE_REFERENCE_DEPTH);
     assert(shader.vertexShader.includes("mazeLineReferenceDepth / depth"));
-    assert(shader.fragmentShader.includes("diffuseColor.a *= mazeLineCoverage"));
+    assert(shader.fragmentShader.includes("diffuseColor.a *= min(width, 1.0) * coverage"));
   }
   const before = [...root.children]; edges.apply(root);
   assert.deepEqual(root.children, before);

@@ -74,8 +74,8 @@ test("a D-pad tap moves once; held input repeats without queuing behind animatio
   assert.equal(f.moves.length, 4);
 });
 
-test("stick holds repeat evenly from the first move; D-pad holds retain the initial pause", () => {
-  for (const [held, times] of [[pad([1, 0]), [0, 130, 260, 390]], [pad([], [15]), [0, 260, 390, 520]]]) {
+test("stick holds get half the D-pad initial pause, then both repeat at the normal pace", () => {
+  for (const [held, times] of [[pad([1, 0]), [0, 195, 325, 455]], [pad([], [15]), [0, 260, 390, 520]]]) {
     const f = fixture(), input = new PlayGamepadInput(f.callbacks), actual = [];
     for (let now = 0; now <= 520; now++) {
       const before = f.moves.length;
@@ -96,10 +96,10 @@ test("switching between stick and D-pad in the same direction uses the new contr
   input.update(dpad, 270);
   assert.equal(f.moves.length, 3);
   input.update(stick, 280);
-  input.update(stick, 409);
+  input.update(stick, 474);
   assert.equal(f.moves.length, 4);
-  input.update(stick, 410);
-  assert.equal(f.moves.length, 5, "returning to the stick has no extra first-repeat delay");
+  input.update(stick, 475);
+  assert.equal(f.moves.length, 5, "returning to the stick starts its shorter initial pause");
 });
 
 test("right stick turns and tilts, with bounded repeats and discrete ASCII pitch", () => {
@@ -247,9 +247,9 @@ test("45-degree holds keep one direction in every quadrant, at the existing repe
     const held = pad([x * .8, y * .8]);
     const vertical = y < 0 ? "up" : "down";
     input.update(held, 0);
-    for (let now = 1; now < 130; now++) input.update(held, now);
+    for (let now = 1; now < 195; now++) input.update(held, now);
     assert.deepEqual(f.moves, [vertical], "polling cannot bypass the repeat delay");
-    for (let now = 130; now <= 650; now += 130) input.update(held, now);
+    for (let now = 195; now <= 715; now += 130) input.update(held, now);
     assert.deepEqual(f.moves, Array(6).fill(vertical));
     assert.equal(f.feedback.at(-1).move, vertical);
   }
@@ -270,11 +270,11 @@ test("off-centre joystick holds choose the stronger axis at every angle", () => 
 test("joystick direction remains stable near diagonals and switches when the other axis is clearly stronger", () => {
   const f = fixture(), input = new PlayGamepadInput(f.callbacks);
   input.update(pad([1, -.8]), 0);
-  input.update(pad([.8, -.85]), 130);
-  input.update(pad([.8, -.8]), 260);
+  input.update(pad([.8, -.85]), 195);
+  input.update(pad([.8, -.8]), 325);
   assert.deepEqual(f.moves, ["right", "right", "right"]);
-  input.update(pad([.8, -1]), 390);
-  input.update(pad([.85, -.8]), 520);
+  input.update(pad([.8, -1]), 455);
+  input.update(pad([.85, -.8]), 650);
   assert.deepEqual(f.moves, ["right", "right", "right", "up", "up"]);
 });
 

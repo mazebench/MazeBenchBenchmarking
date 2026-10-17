@@ -382,6 +382,10 @@ try {
     onFrame: showFrame,
     onChange: updateSession,
     onRoomChange: activateRoom,
+    capturePresentation: () => renderer.capturePresentation(),
+    animateReset: reset => viewMode === "3d"
+      ? renderer.animateReset(reset, { finish: () => viewMode !== "3d" || session.frameDelay === 0 || document.hidden })
+      : false,
     animateCommand: command => viewMode === "3d"
       ? renderer.animateCommand(command, { finish: () => viewMode !== "3d" || session.frameDelay === 0 || document.hidden })
       : false,
