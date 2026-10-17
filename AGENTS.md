@@ -62,17 +62,31 @@ These extra cells must never enter room saves, rendered objects, or gem IDs.
 The browser Play entry point is `ui/play-main.mjs`. Make browser-only Play UI
 changes there. `play/v1/main.mjs` is retained unchanged because its bytes are
 included in historical benchmark runtime manifests; it is no longer loaded by
-the Play page. Shared session and physics behavior remains under `play/v1/`.
+the Play page. Live session and connected-room behavior lives in `play/current/`.
 Browser ASCII projection lives under `render-ascii/v2/`; its room bounds include
 empty tiles at every pitch. Keep `render-ascii/v1/` JavaScript unchanged for
 signed benchmark observations.
 
-Play Mode presents each C++ engine tick as one animation frame. Its default
-delay is 20 ms per engine frame (50 FPS). The Play sidebar can set the
-frame delay directly in milliseconds. A delay of 0 ms is Instant mode: it skips
-intermediate tick frames and renders only the command's final engine state.
-Camera motion is independent and continues to use `requestAnimationFrame` at
-the browser's display cadence.
+Human 3D Play opts into `animations/v1/`: the connected adapter supplies a
+read-only, unprojected trace with stable object indices, and the presentation
+layer compiles independent motion and mechanism tracks. Single-cell movements
+ease in/out; uninterrupted collinear multi-cell motion is linear. Disappearing
+moving actors continue one cell along their last motion and fade. Mechanism
+geometry interpolates between the canonical closed/open shapes; room changes
+tween the camera. Build geometry once per command, then update transforms and
+small mechanism buffers at display cadence. Never rebuild the world per tween
+frame, mutate physics snapshots, or send fractional coordinates to the engine.
+
+Play's default-on Tweens toggle lives under Playback settings and persists on
+this device. Single steps take 100 ms, slides take 40 ms per tile, and room camera
+and brightness transitions take 250 ms. Consecutive room transitions retarget
+from the displayed state without stopping the actor at each seam. Turning tweens
+off renders only the final state. Reduced-motion preferences also bypass 3D
+tweens. ASCII retains discrete engine-tick frames.
+Undo/reset/room selection must cancel presentation immediately, including undo
+of the first in-flight move, without allowing stale completions to overwrite the
+replacement state. AI vision observations and all signed benchmark renderers
+must never import or enable the human animation layer.
 
 Play history records only commands that change the canonical engine state or
 move the player to another room. A blocked or otherwise ineffective command
@@ -81,7 +95,12 @@ must not create an undo snapshot or increment the move counter.
 Play controller input lives in ui/play-gamepad.mjs and uses the browser's standard
 gamepad mapping. Left stick/D-pad moves are camera-relative and repeat only when
 the current command finishes; never queue held input behind animations or a move
-sequence. Right stick turns use the same cardinal camera as keyboard controls;
+sequence. Stick holds repeat every 130 ms from the first move; D-pad holds pause
+260 ms after the first move, then repeat every 130 ms. Left-stick angles within
+15 degrees of a cardinal direction snap to it.
+Other angles distribute commands between the two axes; 45-degree holds alternate
+one for one. Advance the alternation only when issuing a move, never per poll or
+while playback is busy. Right stick turns use the same cardinal camera as keyboard controls;
 tilt and ZL/ZR zoom share smooth camera motion without taking ownership of keyboard
 or pointer holds. ZL zooms in, ZR zooms out; each press of any of the four right-side
 face buttons undoes once in Play. Flyover shares controller polling and mapping,
@@ -94,7 +113,7 @@ input on disconnect. Preserve signed play/v1 JavaScript.
 ## Connected-world Play transitions
 
 World topology and reset-on-leave policy belong to Play Mode, not the vendored
-C++ source. `play/v1/connected-world-session.mjs` begins every command with only
+C++ source. `play/current/connected-world-session.mjs` begins every command with only
 the current room. An outward command from an edge, or an intermediate engine
 frame reaching an edge with Ice or punch momentum, adds only that neighboring
 room and reruns the same command from its original state. Inspect contacts in
@@ -319,7 +338,8 @@ update distant depth precision after camera positioning, including cached scenes
 
 Browser 3D views share `ui/joined-maze-renderer.mjs`: matching cube/slope
 families form connected surfaces with internal faces and coplanar seams removed.
-Keep material, dimmed-context, and numbered-body boundaries separate. The world
+Keep material and numbered-body boundaries separate. Human full-world brightness
+is sampled in world space, independently of edge materials and geometry. The world
 map's browser entry point is `ui/world-main.mjs`; historical `render/v1/` modules
 remain unchanged for signed benchmark observations.
 Flyover uses ui/flyover-renderer.mjs for continuous drag and A/D rotation, with
@@ -329,11 +349,16 @@ yaw must not change the cardinal camera used for camera-relative Play moves.
 Browser Play and the editor render all 256 rooms, with the active room at full
 brightness and the rest dimmed. `ui/world-context-renderer.mjs` caches full
 background meshes and rebuilds only the active room during engine frames or
-edits. Truncate updates shared GPU clipping planes and cached cut surfaces;
+edits. Room brightness uses a shared small GPU texture; transitions must not
+rebuild meshes. Active and background outlines use the same opaque black,
+three-pixel screen-space outline style, drawn in one pass so the full world
+does not need five outline passes. Matching cube/slope borders use the same
+shared surface kernel in cached rooms and temporary tween scenes; never reveal
+a room perimeter just because a command is animating. Truncate updates shared GPU clipping planes and cached cut surfaces;
 height and opacity changes must not rebuild the world. Initial background rooms
 load in short batches ordered by distance from the active room; preserve live
-picking, transforms, and Truncate settings between batches. Invalidate only changed
-authored room snapshots, or replace the cache when new models finish loading. Keep
+picking, transforms, and Truncate settings between batches. Invalidate changed authored room snapshots and their immediate shared-border
+neighbors, or replace the cache when new models finish loading. Keep
 precise cut geometry, picking, numbered labels, and shadows in the active room.
 Play suppresses background players so only the live player appears. Background
 rooms never participate in physics; connected-room loading remains lazy. Keep

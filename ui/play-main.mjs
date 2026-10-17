@@ -8,10 +8,8 @@ import { loadBrowserWorld, updateLoadProgress, paintLoadProgress } from "./brows
 import { bindCameraHold } from "../render/v1/camera-controls.mjs";
 import { cameraRelativeMoveDirection } from "../play/v1/camera-relative-input.mjs";
 import { ConnectedWorldSessionV1 } from "../play/current/connected-world-session.mjs";
-import {
-  DEFAULT_PLAY_FRAME_DELAY_MS,
-  PlaySessionV1
-} from "../play/current/play-session.mjs";
+import { PlaySessionV1 } from "../play/current/play-session.mjs";
+import { DEFAULT_STEP_MS } from "../animations/v1/timeline.mjs";
 import { installRoomControlsV1 } from "../play/v1/room-controls.mjs";
 import { MoveSequencePlayer, parseMoveSequence } from "./move-sequence.mjs";
 import { installPlayGamepadControls } from "./play-gamepad.mjs";
@@ -32,7 +30,7 @@ const elements = {
   roomGrid: document.getElementById("room-grid"),
   gemCount: document.getElementById("gem-count"),
   state: document.getElementById("play-state"),
-  animationDelay: document.getElementById("animation-delay"),
+  motionTweens: document.getElementById("motion-tweens"),
   animationRate: document.getElementById("animation-rate"),
   sequenceInput: document.getElementById("move-sequence"),
   sequenceRun: document.getElementById("run-sequence"),
@@ -75,18 +73,12 @@ function updateSequenceControls() {
 function resetPlay() { sequencePlayer.stop("Stopped: room reset"); session?.reset(); }
 function undoPlay() { sequencePlayer.stop("Stopped: move undone"); session?.undo(); }
 
-const MIN_ANIMATION_DELAY_MS = 0;
-const MAX_ANIMATION_DELAY_MS = 10_000;
 const initialParams = new URL(location.href).searchParams;
-const requestedAnimationDelay = initialParams.has("animationMs")
-  ? Number(initialParams.get("animationMs"))
-  : Number.NaN;
-let animationDelayMs = initialParams.get("instantAnimations") === "1"
-  ? 0
-  : Number.isFinite(requestedAnimationDelay) &&
-    requestedAnimationDelay >= MIN_ANIMATION_DELAY_MS && requestedAnimationDelay <= MAX_ANIMATION_DELAY_MS
-    ? requestedAnimationDelay
-    : DEFAULT_PLAY_FRAME_DELAY_MS;
+let savedTweens = true;
+try { savedTweens = localStorage.getItem("mazebench.motionTweens") !== "off"; } catch { /* Storage may be unavailable. */ }
+let tweensEnabled = initialParams.has("tweens") ? initialParams.get("tweens") !== "off"
+  : initialParams.get("instantAnimations") === "1" || initialParams.get("animationMs") === "0" ? false : savedTweens;
+let animationDelayMs = tweensEnabled ? DEFAULT_STEP_MS : 0;
 
 const ASCII_VIEW_NAMES = Object.freeze([
   "top",
@@ -103,9 +95,12 @@ function isEditableTarget(target) {
   return !["button", "checkbox", "radio", "range"].includes(target.type);
 }
 
-function showFrame(state, room) {
+function showFrame(state, room, { preserveCameraPosition = false } = {}) {
   const renderedRoom = engine.roomFromState(state, room);
-  renderer.setWorld(roomWorld(room, renderedRoom), { preserveCamera: true });
+  renderer.setWorld(roomWorld(room, renderedRoom), {
+    preserveCamera: true, preserveCameraPosition,
+    animateCamera: viewMode === "3d" && animationDelayMs > 0
+  });
   asciiRenderer.setRoom(renderedRoom);
 }
 
@@ -181,29 +176,19 @@ function updateSession(summary) {
   updateSequenceControls();
 }
 
-function formatAnimationDelay(value) {
-  return String(Number(value.toFixed(2)));
-}
-
 function updateAnimationSettings({ persist = true } = {}) {
-  const requestedDelay = Number(elements.animationDelay.value);
-  if (Number.isFinite(requestedDelay) &&
-      requestedDelay >= MIN_ANIMATION_DELAY_MS && requestedDelay <= MAX_ANIMATION_DELAY_MS) {
-    animationDelayMs = requestedDelay;
-  } else {
-    elements.animationDelay.value = formatAnimationDelay(animationDelayMs);
-  }
-  elements.animationRate.textContent = animationDelayMs === 0
-    ? "Instant moves"
-    : `${Number((1000 / animationDelayMs).toFixed(2))} frames per second`;
+  tweensEnabled = elements.motionTweens.checked;
+  animationDelayMs = tweensEnabled ? DEFAULT_STEP_MS : 0;
+  elements.animationRate.textContent = tweensEnabled
+    ? "Steps 100 ms · Slides 40 ms/tile · Rooms 250 ms" : "Instant moves";
   session?.setFrameDelay(animationDelayMs);
+  if (!tweensEnabled) renderer?.finishRoomTransition();
   if (!persist) return;
+  try { localStorage.setItem("mazebench.motionTweens", tweensEnabled ? "on" : "off"); } catch { /* Keep the in-memory preference. */ }
   const url = new URL(location.href);
-  if (Math.abs(animationDelayMs - DEFAULT_PLAY_FRAME_DELAY_MS) < 0.001) {
-    url.searchParams.delete("animationMs");
-  } else {
-    url.searchParams.set("animationMs", formatAnimationDelay(animationDelayMs));
-  }
+  if (tweensEnabled) url.searchParams.delete("tweens");
+  else url.searchParams.set("tweens", "off");
+  url.searchParams.delete("animationMs");
   url.searchParams.delete("instantAnimations");
   history.replaceState(null, "", url);
 }
@@ -308,8 +293,8 @@ elements.sequenceRun.addEventListener("click", async () => {
 elements.sequenceStop.addEventListener("click", () => sequencePlayer.stop());
 elements.seededGlyphs.addEventListener("change", updateSeedOptions);
 elements.asciiSeed.addEventListener("change", updateSeedOptions);
-elements.animationDelay.value = formatAnimationDelay(animationDelayMs);
-elements.animationDelay.addEventListener("change", updateAnimationSettings);
+elements.motionTweens.checked = tweensEnabled;
+elements.motionTweens.addEventListener("change", updateAnimationSettings);
 updateAnimationSettings({ persist: false });
 elements.directionButtons.forEach((button) => {
   button.addEventListener("click", () => moveFromCamera(button.dataset.direction));
@@ -390,11 +375,14 @@ try {
     }
   );
   updateSeedOptions({ persist: false });
-  connectedWorld = new ConnectedWorldSessionV1(engine, world.blocks, world.rooms);
+  connectedWorld = new ConnectedWorldSessionV1(engine, world.blocks, world.rooms, { presentation: true });
   session = new PlaySessionV1(engine, world.blocks, {
     onFrame: showFrame,
     onChange: updateSession,
     onRoomChange: activateRoom,
+    animateCommand: command => viewMode === "3d"
+      ? renderer.animateCommand(command, { finish: () => viewMode !== "3d" || session.frameDelay === 0 || document.hidden })
+      : false,
     resolveCommand: (state, room, direction) =>
       connectedWorld.simulateCommand(state, room, direction),
     frameDelay: animationDelayMs

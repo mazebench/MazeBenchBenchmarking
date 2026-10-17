@@ -52,13 +52,14 @@ function directionFromDelta(dx, dy) {
 }
 
 export class ConnectedWorldSessionV1 {
-  constructor(engine, definitions, rooms) {
+  constructor(engine, definitions, rooms, { presentation = false } = {}) {
     this.engine = engine;
     this.definitions = definitions;
     this.definitionMap = definitions instanceof Map
       ? definitions
       : new Map((definitions || []).map((definition) => [definition.id, definition]));
     this.rooms = rooms || [];
+    this.presentation = presentation;
     this.roomsByCell = new Map(this.rooms.map((room) => [roomKey(room), room]));
     this.roomWidth = this.rooms[0]?.width || 0;
     this.roomHeight = this.rooms[0]?.height || 0;
@@ -292,6 +293,15 @@ export class ConnectedWorldSessionV1 {
     connectedRooms.add(activePlacement.room.fileName);
     return {
       ...simulation,
+      // Opt-in, read-only visual trace. Unprojected indices remain stable even
+      // when an actor disappears or the player crosses a room boundary.
+      ...(this.presentation ? { presentation: {
+        initial: layout.state,
+        frames: simulation.frames,
+        rooms: layout.placements.map(({ room }) => room),
+        originX: layout.minColumn * this.roomWidth,
+        originY: layout.minRow * this.roomHeight
+      } } : {}),
       room: activePlacement.room,
       final: this.projectState(simulation.final, activePlacement),
       frames: animationFrames.map(({ state }) => state),

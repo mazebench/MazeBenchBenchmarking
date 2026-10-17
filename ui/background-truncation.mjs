@@ -1,5 +1,6 @@
 // Static context geometry is built once. Moving Truncate only changes clip
 // planes, visibility and cached cross sections; active-room picking stays CPU-cut.
+import { isEdge } from "./thick-edges.mjs";
 import * as THREE from "../render/vendor/three.module.min.js";
 import { collectVoxelSceneV2 } from "../render/v1/voxel-scene-v2.mjs";
 import { edgeGeometryFromFaces, edgeMaterial, geometryFromFaces, renderMaterial, disposeGeneratedChildren } from "../render/v1/polycube-mesh.mjs";
@@ -49,7 +50,7 @@ export class BackgroundTruncation {
       const bounds = object.geometry.boundingBox.clone().applyMatrix4(object.matrixWorld);
       const original = object.material;
       entry.clipObjects.push({ object, original, min: bounds.min.y, max: bounds.max.y, visible: object.visible, ownsMaterial: object.userData.transientMaterial === true });
-      const convert = material => this.material(material, false, object.isLineSegments);
+      const convert = material => this.material(material, false, isEdge(object));
       object.material = Array.isArray(original) ? original.map(convert) : convert(original);
       // Cloned materials are owned by this controller, not by individual meshes.
       delete object.userData.transientMaterial;
@@ -101,7 +102,7 @@ export class BackgroundTruncation {
     entry.clipObjects.forEach((record, index) => {
       record.object.visible = record.visible && (height === null || record.min < height - CUT_EPSILON);
       const ghost = entry.ghostObjects?.[index];
-      if (ghost) ghost.visible = record.visible && !ghost.isLineSegments && this.opacity > 0 && record.max > height + 0.002;
+      if (ghost) ghost.visible = record.visible && !isEdge(ghost) && this.opacity > 0 && record.max > height + 0.002;
     });
     entry.cutawayContent.visible = this.opacity > 0;
     if (entry.activeCaps) entry.activeCaps.visible = false;
@@ -111,8 +112,8 @@ export class BackgroundTruncation {
     if (!caps) {
       caps = new THREE.Group();
       for (const { color, faces } of entry.capFaces.get(height).values()) {
-        const mesh = new THREE.Mesh(geometryFromFaces(faces), renderMaterial(color, true));
-        const edges = new THREE.LineSegments(edgeGeometryFromFaces(faces), edgeMaterial(0x111820, 0.58));
+        const mesh = new THREE.Mesh(geometryFromFaces(faces), renderMaterial(color, false));
+        const edges = new THREE.LineSegments(edgeGeometryFromFaces(faces), edgeMaterial());
         caps.add(mesh, edges);
       }
       entry.caps.set(height, caps);

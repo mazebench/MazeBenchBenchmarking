@@ -93,6 +93,24 @@ test("engine frames and room changes reuse all 256 background meshes", async () 
   assert.deepEqual(renderer.zoomLimits(), [7, 1000]);
 });
 
+test("human room selection tweens from the displayed camera and retargets an unfinished switch", async () => {
+  const { world, context } = fixture();
+  const renderer = rendererFixture(context(world.rooms[135]));
+  await renderer.backgroundReady;
+  let scheduled = 0;
+  renderer.scheduleCameraFrame = () => scheduled++;
+  renderer.target.set(-8, 1.2, 8);
+  renderer.setWorld(context(world.rooms[255]), { preserveCamera: true, animateCamera: true });
+  assert.deepEqual(renderer.target.toArray(), [-8, 1.2, 8]);
+  assert.equal(renderer.cameraMotion.centerAnimation.targetX, 120);
+  assert.equal(renderer.cameraMotion.centerAnimation.targetZ, 120);
+  renderer.setWorld(context(world.rooms[0]), { preserveCamera: true, animateCamera: true });
+  assert.deepEqual(renderer.target.toArray(), [-8, 1.2, 8]);
+  assert.equal(renderer.cameraMotion.centerAnimation.targetX, -120);
+  assert.equal(renderer.cameraMotion.centerAnimation.targetZ, -120);
+  assert.equal(scheduled, 2);
+});
+
 test("Truncate and follow-player reuse all background geometry and only update clipping", async () => {
   const { world, context } = fixture();
   const renderer = rendererFixture(context(world.rooms[135]));
@@ -143,7 +161,11 @@ test("editor world changes invalidate only the edited background, without wideni
   assert.equal(renderer.cutawayMaxHeight, 9);
   renderer.setWorld(context(world.rooms[255]), { preserveCamera: true });
   assert.notEqual(renderer.roomBackgrounds.get("135.json"), original.get("135.json"));
-  for (const [id, entry] of original) if (id !== "135.json") assert.equal(renderer.roomBackgrounds.get(id), entry);
+  for (const [id, entry] of original) {
+    const nearEdit = Math.abs(entry.room.columnIndex - 7) + Math.abs(entry.room.rowIndex - 8) <= 1;
+    if (!nearEdit) assert.equal(renderer.roomBackgrounds.get(id), entry);
+    else assert.notEqual(renderer.roomBackgrounds.get(id), entry, "only the edited room and its shared borders refresh");
+  }
   assert.equal(renderer.world.rooms.length, 256);
   assert.equal(renderer.world.rooms[135].objects.length, 4);
 });
@@ -186,4 +208,26 @@ test("replacing the world cancels unfinished background work", async () => {
   assert.equal(await cancelled, false);
   assert.equal(await renderer.backgroundReady, true);
   assert.deepEqual([...renderer.roomBackgrounds.keys()], ["new-0.json", "new-1.json"]);
+});
+
+test("foreground, background and Truncate caps share opaque black outlines in the world pass", async () => {
+  const { world, context } = fixture();
+  const renderer = rendererFixture(context(world.rooms[135]));
+  await renderer.backgroundReady;
+  renderer.setCutaway({ height: 4 });
+  let count = 0;
+  const check = root => root.traverse(object => {
+    if (!object.visible || !object.userData.mazeWideOutline || !object.material.userData.mazeOutline) return;
+    count++;
+    assert.equal(object.material.color.getHex(), 0);
+    assert.equal(object.material.opacity, 1);
+    assert.equal(object.layers.mask, 1);
+  });
+  check(renderer.content);
+  check(renderer.backgroundRoot);
+  assert(count > 256);
+  renderer.roomLighting.select(world.rooms[255], 250, 0);
+  renderer.roomLighting.update(125);
+  check(renderer.content);
+  check(renderer.backgroundRoot);
 });

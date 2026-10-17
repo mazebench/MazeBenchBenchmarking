@@ -6,6 +6,8 @@ import { BackgroundTruncation } from "./background-truncation.mjs";
 import { prepareBrowserModels } from "./browser-world.mjs";
 import { cutawayMaxHeight } from "../render/v1/cutaway.mjs";
 import { clearPlacementPreview } from "../render/v1/placement-preview-v2.mjs";
+import { roomBorderEdges, joinRoomBorderEdges } from "./room-border-edges.mjs";
+import { RoomLighting } from "./room-lighting.mjs";
 import { playRoomCenter } from "./play-world-context.mjs";
 
 export class WorldContextRenderer extends NumberedMazeRenderer {
@@ -15,7 +17,7 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
     try {
       const previousCenter = this.world && playRoomCenter(this.world);
       const center = playRoomCenter(world);
-      if (previousCenter && options.preserveCamera) {
+      if (previousCenter && options.preserveCamera && !options.preserveCameraPosition) {
         const dx = center.x - previousCenter.x;
         const dz = center.z - previousCenter.z;
         this.target.x += dx;
@@ -31,6 +33,14 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
       clearPlacementPreview(this.placementPreview);
       this.canvas.dataset.placementPreview = "";
       this.world = world;
+      if (this.roomLighting && (this.roomLighting.columns !== world.columns.length || this.roomLighting.rows !== world.rows.length ||
+          this.roomLighting.uniforms.mazeWorldSize.value.x !== world.columns.length * world.roomWidth ||
+          this.roomLighting.uniforms.mazeWorldSize.value.y !== world.rows.length * world.roomHeight)) {
+        this.roomLighting.dispose();
+        this.roomLighting = null;
+      }
+      this.roomLighting ||= new RoomLighting(world);
+      if (!options.preserveRoomLighting) this.roomLighting.select(world.contextActiveRoom);
       this.roomHeights ||= new WeakMap();
       this.backgroundMaxHeight = 1;
       for (const room of world.contextRooms) {
@@ -107,14 +117,17 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
         let prepared = false;
         // Edited active rooms rebuild their small foreground immediately. Their
         // hidden background snapshot only needs refreshing when we leave.
-        if (entry && entry.room !== room && !active) {
+        if (entry && !active && (entry.room !== room || this.seamSources(room).some((objects, index) => objects !== entry.seamSources[index]))) {
           entry = this.buildBackground(room);
           prepared = true;
           backgroundChanged = true;
         }
         if (!entry) continue; // Initial background construction is spread across frames.
         entry.root.visible = !active;
-        if (prepared || cutChanged) this.backgroundTruncation.update(entry);
+        if (prepared || cutChanged) {
+          this.backgroundTruncation.update(entry);
+          this.prepareBackgroundCaps(entry);
+        }
         entry.modelUrls.forEach(url => urls.add(url));
       }
       if (backgroundChanged) {
@@ -143,6 +156,32 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
     return urls;
   }
 
+  seamSources(room) {
+    return this.world.contextRooms.filter(candidate =>
+      Math.abs(candidate.columnIndex - room.columnIndex) + Math.abs(candidate.rowIndex - room.rowIndex) === 1
+    ).map(candidate => candidate.objects);
+  }
+
+  prepareBackgroundCaps(entry) {
+    const caps = entry.activeCaps, height = this.backgroundTruncation.height;
+    if (caps && !caps.userData.joinedRoomBorders) {
+      const borders = roomBorderEdges(this.world, entry.room, { maxHeight: height }).map(border => {
+        const positions = [];
+        for (let i = 0; i < border.positions.length; i += 6) {
+          const points = border.positions.slice(i, i + 6);
+          if (Math.abs(points[1] - height) < 1e-5 && Math.abs(points[4] - height) < 1e-5) {
+            points[1] = points[4] = height - .001;
+            positions.push(...points);
+          }
+        }
+        return { ...border, positions };
+      });
+      joinRoomBorderEdges([...caps.children], borders, caps);
+      caps.userData.joinedRoomBorders = true;
+    }
+    this.assignRenderLayers(entry.capRoot);
+  }
+
   buildBackground(room) {
     const previous = {
       world: this.world, content: this.content, cutawayContent: this.cutawayContent,
@@ -153,11 +192,12 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
     const shadowUpdate = this.renderer.shadowMap.needsUpdate;
     const old = this.roomBackgrounds.get(room.fileName);
     if (old) this.backgroundTruncation.disposeEntry(old);
-    const entry = { room, root: new THREE.Group(), content: new THREE.Group(), cutawayContent: new THREE.Group() };
+    const entry = { room, seamSources: this.seamSources(room), root: new THREE.Group(), content: new THREE.Group(), cutawayContent: new THREE.Group() };
     entry.root.add(entry.content, entry.cutawayContent);
     this.renderSuspended = (this.renderSuspended || 0) + 1;
     try {
-      this.world = { ...previous.world, rooms: [room] };
+      this.world = { ...previous.world, rooms: [{ ...room, renderDimmed: false }] };
+      this.buildingBackground = true;
       this.content = entry.content;
       this.cutawayContent = entry.cutawayContent;
       this.sceneCutawayHeight = null;
@@ -170,12 +210,14 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
       });
       this.backgroundTruncation.prepare(entry, this.world, { totalWidth: this.totalWidth, totalHeight: this.totalHeight });
       this.backgroundTruncation.update(entry);
+      this.prepareBackgroundCaps(entry);
       entry.root.updateMatrixWorld(true);
       entry.root.traverse(object => { object.matrixAutoUpdate = Boolean(object.userData.liftMarker); });
       entry.root.visible = room.fileName !== previous.world.contextActiveRoom.fileName;
       this.roomBackgrounds.set(room.fileName, entry);
       this.backgroundRoot.add(entry.root);
     } finally {
+      this.buildingBackground = false;
       Object.assign(this, previous);
       Object.assign(this.canvas.dataset, dataset);
       this.renderer.shadowMap.needsUpdate = shadowUpdate;
@@ -247,15 +289,28 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
   }
 
   updateCamera() {
+    this.roomLighting?.update();
     super.updateCamera();
     for (const marker of this.backgroundMarkers || []) marker.rotation.y = this.yaw;
   }
 
-  renderThickOutlines() {
-    if (!this.backgroundRoot) return super.renderThickOutlines();
-    this.backgroundRoot.visible = false;
-    try { super.renderThickOutlines(); }
-    finally { this.backgroundRoot.visible = true; }
+  addJoinedCubes(data, content, minHeight = -Infinity) {
+    const first = content.children.length;
+    super.addJoinedCubes(data, content, minHeight);
+    const room = this.world.rooms.length === 1 && this.world.rooms[0];
+    // A command's temporary scene already joins every participating room.
+    if (!room || this.buildingAnimation) return;
+    const maxHeight = Number.isFinite(minHeight) ? undefined : this.cutawayHeight ?? undefined;
+    joinRoomBorderEdges(content.children.slice(first), roomBorderEdges(this.world, room, { maxHeight, minHeight }), content);
+  }
+
+  addEditorGrid(cells) {
+    if (!this.buildingBackground) super.addEditorGrid(cells);
+  }
+
+  assignRenderLayers(root) {
+    super.assignRenderLayers(root);
+    this.roomLighting?.apply(root);
   }
 
   render() {

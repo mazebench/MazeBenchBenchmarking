@@ -19,6 +19,7 @@ export class PlaySessionV1 {
     this.onFrame = callbacks.onFrame || (() => {});
     this.onChange = callbacks.onChange || (() => {});
     this.onRoomChange = callbacks.onRoomChange || (() => {});
+    this.animateCommand = callbacks.animateCommand;
     this.resolveCommand = callbacks.resolveCommand || ((state, room, direction) =>
       this.engine.simulateCommand(state, direction, this.definitions));
     this.setFrameDelay(callbacks.frameDelay ?? DEFAULT_PLAY_FRAME_DELAY_MS);
@@ -33,6 +34,8 @@ export class PlaySessionV1 {
   }
 
   open(room) {
+    this.animationController?.abort();
+    this.pendingMove = null;
     this.generation += 1;
     this.room = room;
     this.initialState = this.engine.createState(room);
@@ -47,6 +50,8 @@ export class PlaySessionV1 {
 
   reset() {
     if (!this.initialState) return;
+    this.animationController?.abort();
+    this.pendingMove = null;
     this.generation += 1;
     this.state = cloneState(this.initialState);
     this.moves = 0;
@@ -58,9 +63,15 @@ export class PlaySessionV1 {
   }
 
   undo() {
-    if (!this.state || !this.history.length) return false;
+    if (!this.state) return false;
+    // A command being presented has not entered history yet. Undo cancels it
+    // and restores the exact pre-command snapshot, including on the first move.
+    const pending = this.pendingMove;
+    if (!pending && !this.history.length) return false;
+    this.animationController?.abort();
     this.generation += 1;
-    const previous = this.history.pop();
+    const previous = pending || this.history.pop();
+    this.pendingMove = null;
     this.state = cloneState(previous.state);
     this.initialState = cloneState(previous.initialState);
     this.moves = previous.moves;
@@ -105,7 +116,7 @@ export class PlaySessionV1 {
       moves: this.moves,
       playerActive: this.playerCount > 0,
       queued: this.queue.length,
-      canUndo: this.history.length > 0,
+      canUndo: Boolean(this.pendingMove) || this.history.length > 0,
       ...extra
     });
   }
@@ -132,15 +143,30 @@ export class PlaySessionV1 {
           direction,
           this.definitions
         );
+        if (runGeneration !== this.generation) return;
         const instant = this.frameDelay === 0;
         const finalRoom = simulation.room || commandRoom;
+        if (!instant) {
+          this.pendingMove = previous;
+          this.publish();
+        }
+        let animated = false;
+        if (!instant && this.animateCommand) {
+          this.animationController = new AbortController();
+          animated = await this.animateCommand({
+            state: previous.state, room: commandRoom, simulation,
+            stepMs: this.frameDelay, signal: this.animationController.signal
+          });
+          if (runGeneration !== this.generation) return;
+          this.animationController = null;
+        }
         const frames = instant
           ? [{ state: simulation.final, room: finalRoom }]
           : simulation.animationFrames?.length
             ? simulation.animationFrames
             : (simulation.frames.length ? simulation.frames : [simulation.final])
               .map((state) => ({ state, room: commandRoom }));
-        for (const frame of frames) {
+        for (const frame of animated ? [] : frames) {
           if (runGeneration !== this.generation) return;
           if (frame.room !== this.room) {
             this.room = frame.room;
@@ -150,6 +176,8 @@ export class PlaySessionV1 {
           this.onFrame(this.state, this.room);
           if (!instant) await wait(this.frameDelay);
         }
+        if (runGeneration !== this.generation) return;
+        this.pendingMove = null;
         this.state = simulation.final;
         if (finalRoom !== this.room) {
           this.room = finalRoom;
@@ -158,6 +186,9 @@ export class PlaySessionV1 {
         if (finalRoom !== commandRoom) {
           this.initialState = cloneState(simulation.final);
         }
+        if (animated) this.onFrame(this.state, this.room, {
+          animated: true, preserveCameraPosition: Boolean(animated.preserveCameraPosition)
+        });
         if (finalRoom !== commandRoom ||
             !engineStatesEqualV1(previous.state, simulation.final, this.definitions)) {
           this.history.push(previous);
@@ -168,10 +199,13 @@ export class PlaySessionV1 {
         if (this.playerCount < 1) this.queue.length = 0;
       }
     } catch (error) {
+      if (runGeneration !== this.generation) return;
       this.queue.length = 0;
       this.publish({ error: error?.message || "engine/v1 command failed." });
     } finally {
       if (runGeneration === this.generation) {
+        this.pendingMove = null;
+        this.animationController = null;
         this.running = false;
         this.publish();
       }

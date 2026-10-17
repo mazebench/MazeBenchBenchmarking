@@ -17,7 +17,7 @@ export function joinedEdges(faces, halfWidth = 0, halfHeight = 0) {
   return geometry;
 }
 
-export function joinedSceneGroups(data) {
+export function joinedSceneGroups(data, { all = false } = {}) {
   const groups = new Map(), occupants = [];
   const get = (key, settings) => {
     if (!groups.has(key)) groups.set(key, { ...settings, shapes: [], cubeKeys: [] });
@@ -43,7 +43,7 @@ export function joinedSceneGroups(data) {
     const shape = { position: [record.x, record.definition.bottom, record.z], direction: source.direction || "right" };
     joined.shapes.push(shape); occupants.push(shape);
   }
-  const joined = [...slopeContactGroups([...groups.values()])];
+  const joined = all ? [...groups.values()] : [...slopeContactGroups([...groups.values()])];
   const cubeGroups = new Map(data.cubeGroups);
   for (const group of joined) for (const key of group.cubeKeys) cubeGroups.delete(key);
   return { groups: joined, occupants, cubeGroups };

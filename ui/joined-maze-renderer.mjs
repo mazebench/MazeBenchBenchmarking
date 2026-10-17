@@ -13,9 +13,18 @@ import { joinedSceneGroups, joinedSurfaceFaces, joinedGeometry, joinedEdges } fr
 
 import { perspectiveNearForDistance } from "./joined-voxel-surface.mjs";
 import { prepareBrowserModels } from "./browser-world.mjs";
+import { ThickEdges } from "./thick-edges.mjs";
 import { preparedWorldSurfaces } from "./prepared-world-surfaces.mjs";
 
 export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
+  constructor(canvas, world, options) {
+    super(canvas, world, options);
+    const scanlines = document.createElement("div");
+    scanlines.className = "maze-crt-overlay";
+    scanlines.setAttribute("aria-hidden", "true");
+    canvas.insertAdjacentElement("afterend", scanlines);
+  }
+
   setWorld(world, options) {
     this.renderSuspended = (this.renderSuspended || 0) + 1;
     try { super.setWorld(world, options); }
@@ -27,14 +36,12 @@ export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
     if (!this.renderSuspended) super.render();
   }
 
-  renderThickOutlines() {
-    // The main pass has already updated object transforms. Camera-only outline
-    // stamps must not update the entire world's matrices another five times.
-    const previous = this.scene.matrixWorldAutoUpdate;
-    this.scene.matrixWorldAutoUpdate = false;
-    try { super.renderThickOutlines(); }
-    finally { this.scene.matrixWorldAutoUpdate = previous; }
+  assignRenderLayers(root) {
+    this.thickEdges ||= new ThickEdges();
+    this.thickEdges.apply(root);
   }
+
+  renderThickOutlines() {} // Thick outlines are screen-space meshes in the main pass.
 
   requestModels(urls) {
     const generation = ++this.modelLoadGeneration;
@@ -49,6 +56,10 @@ export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
     if (this.camera.near !== near) {
       this.camera.near = near;
       this.camera.updateProjectionMatrix();
+    }
+    if (this.thickEdges) {
+      this.thickEdges.uniforms.mazeLineViewport.value.set(Math.max(1, this.canvas.width), Math.max(1, this.canvas.height));
+      this.thickEdges.uniforms.mazeLineNear.value = this.camera.near;
     }
   }
 

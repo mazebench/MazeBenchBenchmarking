@@ -47,8 +47,8 @@ test("standard controller mapping handles sticks, all D-pad buttons, triggers, d
   assert.equal(readPlayGamepad({ ...pad(), connected: false }), null);
 });
 
-test("a tap moves once; held input repeats without queuing behind animation or sequence playback", () => {
-  const f = fixture(), input = new PlayGamepadInput(f.callbacks), held = pad([1, 0]);
+test("a D-pad tap moves once; held input repeats without queuing behind animation or sequence playback", () => {
+  const f = fixture(), input = new PlayGamepadInput(f.callbacks), held = pad([], [15]);
   input.update(held, 0);
   input.update(held, 259);
   assert.deepEqual(f.moves, ["right"]);
@@ -72,6 +72,34 @@ test("a tap moves once; held input repeats without queuing behind animation or s
   f.setBusy(false);
   input.update(pad(), 6000);
   assert.equal(f.moves.length, 4);
+});
+
+test("stick holds repeat evenly from the first move; D-pad holds retain the initial pause", () => {
+  for (const [held, times] of [[pad([1, 0]), [0, 130, 260, 390]], [pad([], [15]), [0, 260, 390, 520]]]) {
+    const f = fixture(), input = new PlayGamepadInput(f.callbacks), actual = [];
+    for (let now = 0; now <= 520; now++) {
+      const before = f.moves.length;
+      input.update(held, now);
+      if (f.moves.length > before) actual.push(now);
+      if (actual.length === times.length) break;
+    }
+    assert.deepEqual(actual, times);
+  }
+});
+
+test("switching between stick and D-pad in the same direction uses the new control's repeat delay", () => {
+  const f = fixture(), input = new PlayGamepadInput(f.callbacks), stick = pad([1, 0]), dpad = pad([1, 0], [15]);
+  input.update(stick, 0);
+  input.update(dpad, 10);
+  input.update(dpad, 269);
+  assert.equal(f.moves.length, 2, "D-pad takes priority and starts its initial pause");
+  input.update(dpad, 270);
+  assert.equal(f.moves.length, 3);
+  input.update(stick, 280);
+  input.update(stick, 409);
+  assert.equal(f.moves.length, 4);
+  input.update(stick, 410);
+  assert.equal(f.moves.length, 5, "returning to the stick has no extra first-repeat delay");
 });
 
 test("right stick turns and tilts, with bounded repeats and discrete ASCII pitch", () => {
@@ -211,4 +239,66 @@ test("browser polling handles late connection, text focus, blur, disconnect, and
   advance(4000);
   assert.equal(frames.size, 0);
   assert.equal(f.moves.length, movesBeforeEditing + 1);
+});
+
+test("45-degree holds alternate both directions in every quadrant, at the existing repeat cadence", () => {
+  for (const x of [-1, 1]) for (const y of [-1, 1]) {
+    const f = fixture(), input = new PlayGamepadInput(f.callbacks);
+    const held = pad([x * .8, y * .8]);
+    const vertical = y < 0 ? "up" : "down", horizontal = x < 0 ? "left" : "right";
+    input.update(held, 0);
+    for (let now = 1; now < 130; now++) input.update(held, now);
+    assert.deepEqual(f.moves, [vertical], "polling cannot advance the diagonal or bypass the repeat delay");
+    for (let now = 130; now <= 650; now += 130) input.update(held, now);
+    assert.deepEqual(f.moves, [vertical, horizontal, vertical, horizontal, vertical, horizontal]);
+    assert.equal(f.feedback.at(-1).move, horizontal);
+  }
+});
+
+const anglePad = degrees => pad([Math.cos(degrees * Math.PI / 180), Math.sin(degrees * Math.PI / 180)]);
+
+test("the 15-degree snap cones include both boundaries of all four cardinal directions", () => {
+  for (const [angle, direction] of [[0, "right"], [90, "down"], [180, "left"], [270, "up"]]) {
+    for (const offset of [-15, -14.9, 0, 14.9, 15]) {
+      const f = fixture(), input = new PlayGamepadInput(f.callbacks), held = anglePad(angle + offset);
+      for (let now = 0; now < 2000; now += 300) input.update(held, now);
+      assert(f.moves.every(move => move === direction), `${angle + offset} degrees snaps to ${direction}`);
+    }
+    for (const offset of [-15.01, 15.01]) {
+      const { moveVector } = readPlayGamepad(anglePad(angle + offset));
+      assert(moveVector.x && moveVector.y, `${angle + offset} degrees allows diagonal movement`);
+    }
+  }
+});
+
+test("off-centre diagonals proportion steps to the stick angle without resetting on each poll", () => {
+  const f = fixture(), input = new PlayGamepadInput(f.callbacks), held = anglePad(-30);
+  for (let i = 0; i < 100; i++) input.update(held, i * 300);
+  const horizontal = f.moves.filter(move => move === "right").length;
+  const expected = 100 * Math.abs(held.axes[0]) / (Math.abs(held.axes[0]) + Math.abs(held.axes[1]));
+  assert(Math.abs(horizontal - expected) <= .5);
+  assert(f.moves.every(move => move === "right" || move === "up"));
+});
+
+test("diagonal alternation waits for playback, works in ASCII, and resets on release or disconnect", () => {
+  const f = fixture(), input = new PlayGamepadInput(f.callbacks), held = pad([.8, -.8]);
+  f.setAscii(true);
+  input.update(held, 0);
+  f.setBusy(true);
+  for (let now = 260; now < 2000; now += 16) input.update(held, now);
+  assert.deepEqual(f.moves, ["up"]);
+  f.setBusy(false);
+  input.update(held, 2000);
+  input.update(held, 2130);
+  assert.deepEqual(f.moves, ["up", "right", "up"]);
+  input.update(pad(), 2200);
+  input.update(held, 2201);
+  assert.equal(f.moves.at(-1), "up");
+  input.update(null, 2300);
+  input.update(held, 2400);
+  assert.equal(f.moves.at(-1), "up");
+  input.update(pad([.8, -.8], [0]), 2700);
+  const count = f.moves.length;
+  input.update(pad([.8, -.8], [0]), 3000);
+  assert.equal(f.moves.length, count, "Undo suppresses both directions of a diagonal");
 });
