@@ -2,7 +2,7 @@ import { loadMainWorldV2 } from '../../render/v1/voxel-world-v2.mjs';
 import { NumberedMazeRenderer } from '../../ui/numbered-maze-renderer.mjs';
 import { installTruncateControls } from '../../ui/truncate-controls.mjs';
 import { roomContextWorld } from '../../render/v1/room-context.mjs';
-import { roomFromEngineStateV1 } from '../../engine/v1/adapter.mjs';
+import { roomFromEngineStateV1 } from '../../engine/current/adapter.mjs';
 import { bindCameraHold } from '../../render/v1/camera-controls.mjs';
 import { cameraRelativeMoveDirection } from '../../play/v1/camera-relative-input.mjs';
 import { readProject, readProjectKeys, saveProject, deleteProject } from './storage.mjs';

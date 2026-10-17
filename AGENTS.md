@@ -1,95 +1,52 @@
-# MazeBenchBenchmarking Agent Instructions
+# MazeBench monorepo agent instructions
 
-## Repository roles
+## Canonical source and layout
 
-- This repository is the active MazeBenchBenchmarking implementation.
-- The sibling `../MazeBenchEngineUnitTest` repository is the single source of
-  truth for the C++ engine and its compiled WebAssembly binary.
-- Do not hand-edit files under `engine/v1/core/` or
-  `engine/v1/voxel_physics.wasm`. Update them through the sync command.
-- World Solver acceleration is project-owned code under
-  `world-solver/v1/native/`. Never add its exports to UnitTesting or to the
-  synced `engine/v1` snapshot. `scripts/build-random-agent-v1.sh` and
-  `scripts/build-editor-solver-v1.sh` compile its wrappers against the currently
-  synced engine source.
-- `engine/v1/adapter.mjs`, the public engine wrapper, Play Mode, input handling,
-  and renderers belong to this repository and are not copied from UnitTesting.
+- MazeBenchBenchmarking is the single development repository. The former
+  MazeBenchEngineUnitTest app, C++ source, native/WASM tests, benchmarks, and
+  authored project data now live here at their original relative paths.
+- Edit engine/include and engine/src for physics/search. Build with
+  npm run build:physics. The test lab and browser engine/current load the same
+  apps/web/public/physics/voxel_physics.wasm file; engine/current's WASM path is
+  an in-repository symbolic link, never another release copy.
+- apps/web is the test lab (port 3001); project-data contains all authored
+  test fixtures. The main site remains node server.mjs (port 8080).
+- engine/current contains the live storage-v2 adapter and browser engine API.
+  play/current contains the live command playback and connected-room adapter.
+  The lab retains its format adapter in apps/web/app/physicsEngine.ts. Test
+  adapter parity with npm run test:parity.
+- World Solver/editor/Solutions accelerators build from this same engine/src
+  using root node_modules. Their extra search exports remain project-owned
+  under world-solver/v1/native and must not enter the canonical physics ABI.
+- No build or test may require a sibling checkout. Do not restore external
+  sync defaults or create a second editable copy of the rendering kernel.
 
-## When the user says the UnitTesting engine was updated
+## Build and verification
 
-1. Confirm `../MazeBenchEngineUnitTest` is committed and clean. Record its HEAD.
-2. From this repository, run:
+Run npm ci once. npm run dev:lab serves the test lab on port 3001; npm start
+serves the main site on port 8080. npm run build builds the lab, canonical
+engine, and browser solver accelerators. npm test runs native engine tests,
+builds the lab and accelerators, and runs all lab, engine/WASM, and site tests.
+Also use npm run lint, npm run typecheck, and npm run test:parity for changes
+to the combined applications. Rebuild accelerators with npm run build:solvers
+following any C++ change. Do not hand-edit engine/current/build-info files;
+the physics build records source-file hashes and the actual WASM SHA-256.
 
-   ```sh
-   node scripts/sync-engine-v1.mjs
-   ```
+## Historical benchmark snapshots
 
-3. Review the resulting diff, especially when the upstream public headers,
-   `wasm_api.cpp`, role encoding, command state, or tick behavior changed.
-4. Run the independent drift check and the complete target suite:
+engine/v1, play/v1, render/v1, render-ascii/v1, and benchmarking/v1 are signed
+historical runtime assets. Preserve their JavaScript, WASM, and provenance
+bytes. engine/v1/core is a frozen release snapshot, not editable source.
+Existing benchmark runs continue to use their pinned engine; they are not
+silently upgraded or resealed by a repository consolidation. A new signed
+benchmark runtime/version is a separate explicit release operation.
 
-   ```sh
-   node scripts/sync-engine-v1.mjs --check
-   node --test tests/*.test.mjs
-   ```
-
-5. Report the full upstream commit, WASM SHA-256, source/native test result,
-   source JS/WASM test result, and target test result.
-
-The default source is the sibling checkout. If it moves, pass
-`--source /absolute/path/to/MazeBenchEngineUnitTest` or set
-`MAZEBENCH_UNIT_TEST_REPO`.
-
-The source must be committed and clean. Do not bypass that safeguard by copying
-files manually. If rebuilding the WASM makes UnitTesting dirty, stop and ask for
-the rebuilt artifact to be committed there. If the ABI version, voxel stride,
-or required exports change, do not force the update into engine v1; stop and
-plan a new versioned adapter with the user.
-
-## What the sync owns
-
-`scripts/sync-engine-v1.mjs` performs the complete transport:
-
-- rebuilds UnitTesting's WASM;
-- runs UnitTesting's native C++ and JS/WASM engine suites;
-- copies every Git-tracked file under UnitTesting's `engine/` byte-for-byte into
-  `engine/v1/core/`, including additions and removals;
-- copies the built `apps/web/public/physics/voxel_physics.wasm`;
-- checks ABI v4, voxel stride 5, and the exports required by the target adapter;
-- writes `engine/v1/upstream.json` and `engine/v1/upstream.mjs` with exact
-  repository, commit, tree, file, and WASM provenance;
-- rebuilds `world-solver/v1/random-agent.wasm` and
-  `world-solver/v1/editor-solver.wasm` from their project-owned wrappers after
-  the byte-identical engine copy is complete;
-- refuses to overwrite a locally modified vendored snapshot; and
-- runs the target engine integration tests.
-
-`engine/v1/upstream.json` is the authority for the currently imported snapshot.
-Do not preserve commit IDs or hashes in prose as a second source of truth.
-
-The copied tests under `engine/v1/core/tests/` retain paths from UnitTesting and
-are not the place to execute the upstream JS/WASM suite. The sync command runs
-that suite in its original repository, where its application/WASM paths exist.
-
-## Engine parity is not Play Mode parity
-
-A successful hash check proves that the vendored C++ source and WASM are exact.
-It does not prove that the two applications feel or behave identically. When a
-subtle Play Mode difference is reported, audit these separately:
-
-- UnitTesting adapter: `../MazeBenchEngineUnitTest/apps/web/app/physicsEngine.ts`
-- Benchmarking adapter: `engine/v1/adapter.mjs`
-- Benchmarking tick playback: `play/v1/play-session.mjs`
-- camera-relative versus world-relative input mapping
-- per-tick animation timing versus applying only a final engine state
-- renderer scene reconstruction/interpolation
-- role and mechanism-bit encoding, particularly hidden orange buttons/walls
-- legacy or custom roles that the C++ engine does not implement; unknown roles
-  may be represented as static blockers rather than their visual mechanic
-
-Do not describe the whole applications as one-to-one merely because the engine
-hashes match. State precisely whether parity refers to C++ source, WASM, adapter
-serialization, command/tick playback, input, or rendering.
+scripts/sync-engine-v1.mjs --check verifies that frozen snapshot locally.
+The old cross-repository import command is retired. Live browser work belongs
+in ui, engine/current, play/current, apps/web, and the project-owned solver
+modules. When changing an adapter, check coordinate conventions, role/shape
+encoding, mechanism state, command/tick playback, and camera-relative input;
+a shared binary alone does not establish adapter or lighting parity.
 
 ## Model collision volume
 
@@ -322,14 +279,12 @@ at the user's request; do not extend this contract to punchers until requested.
 
 ## 3D room context
 
-The shared cube/slope geometry, mounted-number visibility, and camera-depth kernel is canonical
-in UnitTesting at `apps/web/public/mazebench-runtime/joined-voxel-surface.mjs`.
-Both applications use that kernel, with their own scene adapters and cameras.
-After kernel changes, run `node scripts/sync-rendering.mjs`, then
-`node scripts/sync-rendering.mjs --check` and the rendering tests in both repos.
-This browser-only sync is independent of the engine sync and must never modify
-historical benchmark runtime modules. Do not claim full application or lighting
-parity from a kernel check alone.
+The canonical cube/slope geometry, mounted-number visibility, and camera-depth
+kernel is apps/web/public/mazebench-runtime/joined-voxel-surface.mjs in this
+repository. ui/joined-voxel-surface.mjs re-exports those very same functions.
+Both browser renderers use this implementation, with format-specific scene
+adapters and camera controls. npm run test:parity checks module identity and
+live engine adapter equivalence. No renderer file copying is necessary.
 
 Keep the shared distance-aware perspective near plane in both browser renderers.
 A fixed tiny near plane makes lowered gates/lifts fight their supporting surface
@@ -342,25 +297,34 @@ Keep material, dimmed-context, and numbered-body boundaries separate. The world
 map's browser entry point is `ui/world-main.mjs`; historical `render/v1/` modules
 remain unchanged for signed benchmark observations.
 
-Browser Play renders all 256 rooms, with the active room at full brightness and
-the rest dimmed. `ui/play-world-renderer.mjs` caches immutable background room
-geometry and rebuilds only the active room during engine frames. Rebuild the
-background cache only when its authored source, loaded models, or cutaway changes.
-Suppress background players so only the live player appears. Background rooms
-never participate in physics; connected-room loading remains lazy. Keep the
-camera centered on the active room across transitions, with enough zoom range
-to view the entire world. Preserve historical `render/v1/` JavaScript.
-The editor and Solutions keep their 3x3 context; dimmed rooms are not paintable
-or selectable. ASCII Mode remains room-local.
+Browser Play and the editor render all 256 rooms, with the active room at full
+brightness and the rest dimmed. `ui/world-context-renderer.mjs` caches full
+background meshes and rebuilds only the active room during engine frames or
+edits. Truncate updates shared GPU clipping planes and cached cut surfaces;
+height and opacity changes must not rebuild the world. Initial background rooms
+load in short batches ordered by distance from the active room; preserve live
+picking, transforms, and Truncate settings between batches. Invalidate only changed
+authored room snapshots, or replace the cache when new models finish loading. Keep
+precise cut geometry, picking, numbered labels, and shadows in the active room.
+Play suppresses background players so only the live player appears. Background
+rooms never participate in physics; connected-room loading remains lazy. Keep
+the camera centered on the active room across transitions, with enough zoom
+range to view the entire world. Preserve historical `render/v1/` JavaScript.
+Solutions keeps its 3x3 context. Dimmed rooms are not paintable or selectable;
+ASCII Mode remains room-local.
+Browser startup uses `ui/browser-world.mjs` to preload models before mesh
+construction, avoiding a second full rebuild. The map prepares its connected
+surfaces in `ui/world-surface-worker.mjs` using the shared geometry kernel and
+assembles assets in short batches. Its loading bar accounts for room data,
+models, geometry, and the first draw; never complete it after downloads alone.
 Mouse-wheel and trackpad scrolling must not zoom any 3D view; zoom remains
 available through Q/E and the explicit map zoom buttons.
 
 ## Scope and Git safety
 
-When asked to "sync the engine," the expected scope is the local rebuild,
-verification, vendored update, provenance update, and tests described above.
-Do not commit, push, or modify UnitTesting application/UI files unless the user
-explicitly requests those actions.
+When asked to update the engine, build and verify the canonical engine here
+and rebuild its project-owned accelerators. Do not commit, push, migrate signed
+runs, or edit the retired sibling checkout unless the user requests it.
 
 ## Benchmark checkpoint storage
 

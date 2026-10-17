@@ -5,10 +5,10 @@ import {createHash} from 'node:crypto';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {decodeVoxelRoom} from '../render/v1/voxel-world-v2.mjs';
-import {instantiateMazeBenchEngineV1} from '../engine/v1/engine.mjs';
-import {ConnectedWorldSessionV1} from '../play/v1/connected-world-session.mjs';
-import {encodeCompactTest,decodeCompactTest} from '../../MazeBenchEngineUnitTest/apps/web/app/projectFormat.mjs';
-import {simulateFrames,voxelRole,voxelMechanismId} from '../../MazeBenchEngineUnitTest/engine/tests/helpers/project-engine.mjs';
+import {instantiateMazeBenchEngineV1} from '../engine/current/engine.mjs';
+import {ConnectedWorldSessionV1} from '../play/current/connected-world-session.mjs';
+import {encodeCompactTest,decodeCompactTest} from '../apps/web/app/projectFormat.mjs';
+import {simulateFrames,voxelRole,voxelMechanismId} from '../engine/tests/helpers/project-engine.mjs';
 
 const input='U Rx3 D Rx9 Ux4 R U Lx7 D L U Rx4 Dx4 L Ux3 R U Lx4 D Lx2 Ux2 Rx5';
 const names={U:'up',R:'right',D:'down',L:'left'};
@@ -23,8 +23,8 @@ const rooms=await Promise.all(Object.entries(manifest.rooms).map(async([fileName
 })));
 const room=rooms.find(r=>r.position.join('x')==='OxO');
 const definitions=new Map(manifest.blocks.map(b=>[b.id,b]));
-const localBytes=await readFile(new URL('../engine/v1/voxel_physics.wasm',import.meta.url));
-const upstreamBytes=await readFile(new URL('../../MazeBenchEngineUnitTest/apps/web/public/physics/voxel_physics.wasm',import.meta.url));
+const localBytes=await readFile(new URL('../engine/current/voxel_physics.wasm',import.meta.url));
+const upstreamBytes=await readFile(new URL('../apps/web/public/physics/voxel_physics.wasm',import.meta.url));
 const engine=await instantiateMazeBenchEngineV1(localBytes),upstream=await instantiateMazeBenchEngineV1(upstreamBytes);
 const connected=new ConnectedWorldSessionV1(engine,definitions,rooms);
 let state=engine.createState(room),other=upstream.createState(room),last;

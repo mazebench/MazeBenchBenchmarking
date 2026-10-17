@@ -1,9 +1,9 @@
-import { loadMazeBenchEngineV1 } from '../../engine/v1/engine.mjs';
+import { loadMazeBenchEngineV1 } from '../../engine/current/engine.mjs';
 import { SolutionsModel, worldFingerprint } from './model.mjs';
 import { searchRoute } from './search.mjs';
 import { planRoute } from './route-search.mjs';
 import { compileFullSolution, setupCommands } from './full-solution.mjs';
-import { instantiateMazeBenchEngineV1 } from '../../engine/v1/engine.mjs';
+import { instantiateMazeBenchEngineV1 } from '../../engine/current/engine.mjs';
 let model, fingerprint, sourceWorld, engine, cancelled=false, queue=Promise.resolve();
 let nativePromise;
 function nativeEngine(){return nativePromise??=fetch(new URL('./solutions-solver.wasm',import.meta.url)).then(r=>{if(!r.ok)throw new Error('Room solver unavailable.');return instantiateMazeBenchEngineV1(r);});}

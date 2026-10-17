@@ -1,7 +1,7 @@
 // Benchmark-owned extension. The canonical engine stays byte-for-byte synced;
 // this translation unit wraps it and adds World BFS plus random-agent APIs.
-#include "../../../engine/v1/core/src/search.cpp"
-#include "../../../engine/v1/core/src/wasm_api.cpp"
+#include "../../../engine/src/search.cpp"
+#include "../../../engine/src/wasm_api.cpp"
 
 namespace {
 

@@ -103,7 +103,7 @@ test('Solutions requires confirmation to restart at 140 / 244 during verificatio
   const context={console,URL,Worker,MoveSequencePlayer,parseMoveSequence,SolutionRestartController,
     document:{getElementById:$,querySelectorAll:()=>[],createElement:element,createTextNode:text=>text},window:{addEventListener(){}},
     location:{reload:()=>{reloads++;}},ResizeObserver:class{observe(){}},
-    loadMainWorldV2:async()=>world,ThreeMazeRendererV1:Renderer,installCutawayControls(){},bindCameraHold(){},roomContextWorld:w=>w,roomFromEngineStateV1:(state,room)=>room,
+    loadMainWorldV2:async()=>world,NumberedMazeRenderer:Renderer,installTruncateControls(){},bindCameraHold(){},roomContextWorld:w=>w,roomFromEngineStateV1:(state,room)=>room,
     readProject:async key=>projects.get(key),saveProject:async(key,value)=>projects.set(key,value),deleteProject:async key=>projects.delete(key)
   };
   // Run the page's actual initialization and handlers with its browser services stubbed.

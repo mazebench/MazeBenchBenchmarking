@@ -1,5 +1,5 @@
 import { DIRECTIONS } from './model.mjs';
-import { engineVoxelCountV1 } from '../../engine/v1/adapter.mjs';
+import { engineVoxelCountV1 } from '../../engine/current/adapter.mjs';
 
 // Upload a room once. Expansion, hashing, passive movement and A* stay native.
 export function createNativeRoomSearch(model, native, node, goal, {boundaryMask=0, heuristicWeight=3, excludedGems=new Set()}={}) {

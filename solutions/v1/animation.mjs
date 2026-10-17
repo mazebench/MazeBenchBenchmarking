@@ -1,4 +1,4 @@
-import { DEFAULT_PLAY_FRAME_DELAY_MS } from '../../play/v1/play-session.mjs';
+import { DEFAULT_PLAY_FRAME_DELAY_MS } from '../../play/current/play-session.mjs';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 

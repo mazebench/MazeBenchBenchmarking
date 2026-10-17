@@ -2,7 +2,8 @@
 import { bindCameraHold } from "../render/v1/camera-controls.mjs";
 import { RENDERER_VERSION } from "../render/v1/world-renderer.mjs";
 import { JoinedMazeRenderer } from "./joined-maze-renderer.mjs";
-import { loadMainWorldV2 } from "../render/v1/voxel-world-v2.mjs";
+import { loadBrowserWorld, updateLoadProgress, paintLoadProgress } from "./browser-world.mjs";
+import { prepareWorldSurfaces } from "./prepared-world-surfaces.mjs";
 
 const elements = {
   canvas: document.getElementById("world"),
@@ -99,10 +100,11 @@ window.addEventListener("keydown", (event) => {
 });
 
 try {
-  const world = await loadMainWorldV2((complete, total) => {
-    elements.loadProgress.max = total;
-    elements.loadProgress.value = complete;
-  });
+  const progress = (complete, total, phase) => updateLoadProgress(elements.loadProgress, complete, total, phase);
+  const world = await loadBrowserWorld(progress);
+  await prepareWorldSurfaces(world, (complete, total) => progress(65 + 30 * complete / total, 100, "Building world"));
+  progress(95, 100, "Drawing world");
+  await paintLoadProgress();
   renderer = new JoinedMazeRenderer(elements.canvas, world, {
     mode: "world",
     onSelect: select,
@@ -110,6 +112,8 @@ try {
     onViewChange: updateHighlights
   });
   new ResizeObserver(() => renderer.resize()).observe(elements.viewport);
+  await paintLoadProgress();
+  progress(100, 100, "World ready");
   elements.viewport.classList.remove("is-loading");
   const objectCount = world.rooms.reduce((total, room) => total + room.objects.length, 0);
   elements.status.textContent = `${world.rooms.length} rooms · ${objectCount.toLocaleString()} 3D objects`;

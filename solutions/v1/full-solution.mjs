@@ -1,4 +1,4 @@
-import { engineGenericIdForObject } from '../../engine/v1/adapter.mjs';
+import { engineGenericIdForObject } from '../../engine/current/adapter.mjs';
 
 export function roomCommand(model,id) {return `room ${model.rooms.get(id).position.join('x')}`;}
 export function setupCommands(model,recipe) {

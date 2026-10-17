@@ -3,7 +3,7 @@ import {
   countActiveRoleV1,
   createEngineStateV1,
   engineVoxelCountV1
-} from "../../engine/v1/adapter.mjs";
+} from "../../engine/current/adapter.mjs";
 
 const STATUS_LABELS = Object.freeze({
   [-1]: "invalid",

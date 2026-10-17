@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "../render/vendor/three.module.min.js";
 import { V2_WORLD_FORMAT } from "../render/v1/voxel-world-v2.mjs";
-import { createPlayWorldContext, playRoomCenter } from "../ui/play-world-context.mjs";
+import { createPlayWorldContext, createWorldContext, playRoomCenter } from "../ui/play-world-context.mjs";
 import { PlayWorldRenderer } from "../ui/play-world-renderer.mjs";
 
 function fixture() {
@@ -63,9 +63,10 @@ test("Play includes every room and only the live player, without mutating author
   assert.deepEqual(playRoomCenter(context(world.rooms[255])), { x: 120, z: 120 });
 });
 
-test("engine frames and room changes reuse all 256 background meshes", () => {
+test("engine frames and room changes reuse all 256 background meshes", async () => {
   const { world, context } = fixture();
   const renderer = rendererFixture(context(world.rooms[135]));
+  await renderer.backgroundReady;
   const original = [...renderer.roomBackgrounds.values()].map(entry => entry.content.children[0]);
   const oldActive = renderer.content.children[0].geometry;
   let disposed = false;
@@ -92,23 +93,97 @@ test("engine frames and room changes reuse all 256 background meshes", () => {
   assert.deepEqual(renderer.zoomLimits(), [7, 1000]);
 });
 
-test("cutaway invalidates cached geometry and follow-player uses the live height in every room", () => {
+test("Truncate and follow-player reuse all background geometry and only update clipping", async () => {
   const { world, context } = fixture();
   const renderer = rendererFixture(context(world.rooms[135]));
-  const before = renderer.roomBackgrounds.get("0.json").content.children[0];
+  await renderer.backgroundReady;
+  const before = renderer.roomBackgrounds.get("0.json");
+  const geometries = before.content.children.map(child => child.geometry);
   let disposed = false;
-  before.geometry.addEventListener("dispose", () => { disposed = true; });
+  geometries.forEach(geometry => geometry.addEventListener("dispose", () => { disposed = true; }));
   renderer.setCutaway({ followPlayer: true });
-  assert.equal(disposed, true);
+  assert.equal(disposed, false);
   assert.equal(renderer.cutawayHeight, 1);
-  const cutaway = renderer.roomBackgrounds.get("0.json");
-  assert.notEqual(cutaway.content.children[0], before);
-  assert.ok(new THREE.Box3().setFromObject(cutaway.content).max.y <= 1);
-  assert.ok(cutaway.cutawayContent.children.length > 0);
+  assert.equal(renderer.roomBackgrounds.get("0.json"), before);
+  assert.deepEqual(before.content.children.map(child => child.geometry), geometries);
+  assert.equal(renderer.backgroundTruncation.lowerPlane.constant, 0.9995);
+  assert(before.ghostObjects.some(object => object.visible));
+  renderer.setCutaway({ opacity: 0.5 });
+  assert.equal(renderer.roomBackgrounds.get("0.json"), before);
+  assert.equal(disposed, false);
   renderer.setWorld(context(world.rooms[135], {
     ...world.rooms[135], objects: [{ blockId: "player", x: 0, y: 0, z: 3 }]
   }), { preserveCamera: true });
   assert.equal(renderer.cutawayHeight, 4);
-  assert.notEqual(renderer.roomBackgrounds.get("0.json"), cutaway);
-  assert.equal(renderer.roomBackgrounds.get("0.json").cutawayContent.children.length, 0);
+  assert.equal(renderer.roomBackgrounds.get("0.json"), before);
+  assert(!before.ghostObjects.some(object => object.visible));
+  assert(before.activeCaps.children.length > 0);
+  const cap = before.activeCaps;
+  renderer.setCutaway({ height: null, followPlayer: false, opacity: 0 });
+  assert.equal(before.activeCaps, null);
+  assert.equal(before.cutawayContent.visible, false);
+  renderer.setCutaway({ height: 4 });
+  assert.equal(before.activeCaps, cap, "revisiting a height reuses its cap geometry");
+});
+
+test("editor world changes invalidate only the edited background, without widening picking", async () => {
+  const { world } = fixture();
+  const context = createWorldContext(world);
+  const renderer = rendererFixture(context(world.rooms[135]));
+  await renderer.backgroundReady;
+  renderer.mode = "editor";
+  renderer.pickVoxels = true;
+  const original = new Map(renderer.roomBackgrounds);
+  world.rooms[135].objects = [...world.rooms[135].objects, { blockId: "wall", x: 3, y: 3, z: 8 }];
+  renderer.setWorld(context(world.rooms[135]), { preserveCamera: true });
+  assert.equal(renderer.roomBackgrounds.get("135.json"), original.get("135.json"), "hidden background refresh is deferred");
+  const records = renderer.pickMeshes.flatMap(mesh => mesh.userData.voxelInstances || []);
+  assert(records.length > 0);
+  assert(records.every(record => record.room.fileName === "135.json"));
+  assert.equal(renderer.cutawayMaxHeight, 9);
+  renderer.setWorld(context(world.rooms[255]), { preserveCamera: true });
+  assert.notEqual(renderer.roomBackgrounds.get("135.json"), original.get("135.json"));
+  for (const [id, entry] of original) if (id !== "135.json") assert.equal(renderer.roomBackgrounds.get(id), entry);
+  assert.equal(renderer.world.rooms.length, 256);
+  assert.equal(renderer.world.rooms[135].objects.length, 4);
+});
+
+test("startup presents the active room before backgrounds and preserves live state while they load", async () => {
+  const { world } = fixture();
+  const context = createWorldContext(world);
+  const renderer = rendererFixture(context(world.rooms[135]));
+  assert.equal(renderer.roomBackgrounds.size, 0);
+  assert(renderer.content.children.length > 0);
+  assert.equal(renderer.backgroundJob.rooms[0].fileName, "135.json");
+  assert(renderer.backgroundJob.rooms.slice(0, 9).every(room =>
+    Math.abs(room.columnIndex - 7) <= 1 && Math.abs(room.rowIndex - 8) <= 1));
+
+  renderer.mode = "editor";
+  renderer.pickVoxels = true;
+  world.rooms[255].objects = [...world.rooms[255].objects, { blockId: "wall", x: 2, y: 2, z: 5 }];
+  renderer.setWorld(context(world.rooms[255]), { preserveCamera: true });
+  assert.equal(renderer.backgroundJob.rooms[0].fileName, "255.json");
+  renderer.setCutaway({ height: 2, opacity: 0 });
+  const foreground = renderer.content.children[0], picks = renderer.pickMeshes, tops = renderer.cellTops;
+  await renderer.backgroundReady;
+  assert.equal(renderer.roomBackgrounds.size, 256);
+  assert.equal(renderer.content.children[0], foreground);
+  assert.equal(renderer.pickMeshes, picks);
+  assert.equal(renderer.cellTops, tops);
+  assert.equal(renderer.canvas.dataset.cutawayHeight, "2");
+  assert.equal(renderer.roomBackgrounds.get("255.json").root.visible, false);
+  assert.equal(renderer.roomBackgrounds.get("255.json").room.objects.length, 4);
+  assert([...renderer.roomBackgrounds.values()].every(entry => entry.cutawayContent.visible === false));
+  assert(renderer.pickMeshes.flatMap(mesh => mesh.userData.voxelInstances || []).every(record => record.room.fileName === "255.json"));
+});
+
+test("replacing the world cancels unfinished background work", async () => {
+  const first = fixture(), second = fixture();
+  second.world.rooms = second.world.rooms.slice(0, 2).map(room => ({ ...room, fileName: `new-${room.fileName}` }));
+  const renderer = rendererFixture(first.context(first.world.rooms[135]));
+  const cancelled = renderer.backgroundReady;
+  renderer.setWorld(createWorldContext(second.world)(second.world.rooms[0]), { preserveCamera: true });
+  assert.equal(await cancelled, false);
+  assert.equal(await renderer.backgroundReady, true);
+  assert.deepEqual([...renderer.roomBackgrounds.keys()], ["new-0.json", "new-1.json"]);
 });

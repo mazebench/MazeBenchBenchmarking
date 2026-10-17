@@ -1,6 +1,6 @@
-import { ConnectedWorldSessionV1 } from '../../play/v1/connected-world-session.mjs';
-import { engineRoleIdForObject, engineGenericIdForObject } from '../../engine/v1/adapter.mjs';
-import { ENGINE_WASM_SHA256 } from '../../engine/v1/upstream.mjs';
+import { ConnectedWorldSessionV1 } from '../../play/current/connected-world-session.mjs';
+import { engineRoleIdForObject, engineGenericIdForObject } from '../../engine/current/adapter.mjs';
+import { ENGINE_WASM_SHA256 } from '../../engine/current/build-info.mjs';
 import { replaySolutionImport } from './import-replay.mjs';
 
 export const DIRECTIONS = ['up', 'right', 'down', 'left'];

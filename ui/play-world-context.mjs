@@ -1,32 +1,31 @@
-// Stable authored room references let the browser cache background geometry.
-// Only the active room receives live engine state; physics remains room-local.
-export function createPlayWorldContext(world) {
-  const contextRooms = world.rooms.map(room => ({
-    ...room,
-    renderDimmed: true,
-    objects: room.objects.filter(object =>
-      world.blockDefinitions.get(object.blockId)?.roleId !== "player")
-  }));
-
-  return (room, renderedRoom = room) => ({
-    ...world,
-    contextRooms,
-    rooms: contextRooms.map(background => background.fileName === room.fileName
-      ? {
-          ...room,
-          ...renderedRoom,
-          columnIndex: room.columnIndex,
-          rowIndex: room.rowIndex,
-          renderDimmed: false
-        }
-      : background),
-    contextActiveRoom: {
-      fileName: room.fileName,
-      columnIndex: room.columnIndex,
-      rowIndex: room.rowIndex
-    }
-  });
+// Stable room snapshots let Play and the editor share cached background meshes.
+// A new objects array invalidates only that room's authored snapshot.
+export function createWorldContext(world, { hideBackgroundPlayers = false } = {}) {
+  const contextRooms = [];
+  const sources = [];
+  return (room, renderedRoom = room) => {
+    world.rooms.forEach((source, index) => {
+      if (sources[index] === source.objects) return;
+      sources[index] = source.objects;
+      contextRooms[index] = {
+        ...source,
+        renderDimmed: true,
+        objects: hideBackgroundPlayers ? source.objects.filter(object =>
+          world.blockDefinitions.get(object.blockId)?.roleId !== "player") : source.objects
+      };
+    });
+    return {
+      ...world,
+      contextRooms,
+      rooms: contextRooms.map(background => background.fileName === room.fileName
+        ? { ...room, ...renderedRoom, columnIndex: room.columnIndex, rowIndex: room.rowIndex, renderDimmed: false }
+        : background),
+      contextActiveRoom: { fileName: room.fileName, columnIndex: room.columnIndex, rowIndex: room.rowIndex }
+    };
+  };
 }
+
+export const createPlayWorldContext = world => createWorldContext(world, { hideBackgroundPlayers: true });
 
 export function playRoomCenter(world) {
   const room = world.contextActiveRoom;

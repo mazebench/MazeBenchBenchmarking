@@ -12,8 +12,37 @@ import { disposeGeneratedChildren, edgeMaterial, renderMaterial } from "../rende
 import { joinedSceneGroups, joinedSurfaceFaces, joinedGeometry, joinedEdges } from "./joined-voxel-mesh.mjs";
 
 import { perspectiveNearForDistance } from "./joined-voxel-surface.mjs";
+import { prepareBrowserModels } from "./browser-world.mjs";
+import { preparedWorldSurfaces } from "./prepared-world-surfaces.mjs";
 
 export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
+  setWorld(world, options) {
+    this.renderSuspended = (this.renderSuspended || 0) + 1;
+    try { super.setWorld(world, options); }
+    finally { this.renderSuspended--; }
+    this.render();
+  }
+
+  render() {
+    if (!this.renderSuspended) super.render();
+  }
+
+  renderThickOutlines() {
+    // The main pass has already updated object transforms. Camera-only outline
+    // stamps must not update the entire world's matrices another five times.
+    const previous = this.scene.matrixWorldAutoUpdate;
+    this.scene.matrixWorldAutoUpdate = false;
+    try { super.renderThickOutlines(); }
+    finally { this.scene.matrixWorldAutoUpdate = previous; }
+  }
+
+  requestModels(urls) {
+    const generation = ++this.modelLoadGeneration;
+    prepareBrowserModels(urls).then(changed => {
+      if (changed && generation === this.modelLoadGeneration) this.rebuild();
+    });
+  }
+
   updateCamera() {
     super.updateCamera();
     const near = perspectiveNearForDistance(this.distance);
@@ -58,7 +87,9 @@ export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
     this.pickMeshes = [];
     const height = this.cutawayHeight;
     const isCutaway = this.world.storageFormat === V2_WORLD_FORMAT && height !== null;
-    const data = isCutaway ? collectVoxelSceneV2(this, { maxHeight: height }) : this.collectScene();
+    const prepared = this.mode === "world" && !isCutaway && preparedWorldSurfaces(this.world);
+    const data = prepared?.data || (isCutaway ? collectVoxelSceneV2(this, { maxHeight: height }) : this.collectScene());
+    if (prepared) this.cellTops = prepared.cellTops;
     const dimensions = { totalWidth: this.totalWidth, totalHeight: this.totalHeight };
     const addPiece = (content, record, add) => {
       const first = content.children.length;
@@ -69,11 +100,14 @@ export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
         }));
       }
     };
-    this.addFloorGroups(data.floorGroups);
-    this.addJoinedCubes(data, this.content);
-    data.terrainAssets.forEach((record) => addPiece(this.content, record, addTerrainAsset));
-    data.gems.forEach((record) => addPiece(this.content, record, addGemAsset));
-    data.specialPieces.filter(record => record.definition.kind !== "slope").forEach((record) => addPiece(this.content, record, addSpecialPiece));
+    if (prepared) this.content.add(...prepared.objects);
+    else {
+      this.addFloorGroups(data.floorGroups);
+      this.addJoinedCubes(data, this.content);
+      data.terrainAssets.forEach((record) => addPiece(this.content, record, addTerrainAsset));
+      data.gems.forEach((record) => addPiece(this.content, record, addGemAsset));
+      data.specialPieces.filter(record => record.definition.kind !== "slope").forEach((record) => addPiece(this.content, record, addSpecialPiece));
+    }
     if (this.pickVoxels) {
       this.addNumberLabels(data.genericLabels, dimensions);
     }

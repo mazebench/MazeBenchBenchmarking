@@ -2,13 +2,12 @@
 set -eu
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-engine_tools=${MAZEBENCH_UNIT_TEST_REPO:-"$project_root/../MazeBenchEngineUnitTest"}
-zig="$engine_tools/node_modules/.bin/zig"
+zig="$project_root/node_modules/.bin/zig"
 output="$project_root/world-solver/v1/random-agent.wasm"
 
 if [ ! -x "$zig" ]; then
   echo "Missing Zig compiler at $zig" >&2
-  echo "Install MazeBenchEngineUnitTest dependencies or set MAZEBENCH_UNIT_TEST_REPO." >&2
+  echo "Run npm ci in this repository to install the build tools." >&2
   exit 1
 fi
 
@@ -130,8 +129,8 @@ ZIG_GLOBAL_CACHE_DIR="$project_root/.zig-global-cache" \
   -Wl,--initial-memory=100663296 \
   -Wl,--max-memory=536870912 \
   -o "$output" \
-  -I"$project_root/engine/v1/core/include" \
-  "$project_root/engine/v1/core/src/physics.cpp" \
+  -I"$project_root/engine/include" \
+  "$project_root/engine/src/physics.cpp" \
   "$project_root/world-solver/v1/native/random-agent-wasm.cpp"
 
 echo "Built $output"

@@ -1,4 +1,4 @@
-import { engineRoleIdForObject } from '../../engine/v1/adapter.mjs';
+import { engineRoleIdForObject } from '../../engine/current/adapter.mjs';
 
 const normalize=value=>String(value).toUpperCase().replace(/ROOM/g,'').replace(/[\s×X,·/-]/g,'');
 export const matchesRoom=(room,query)=>normalize(room.position.join('')).startsWith(normalize(query));

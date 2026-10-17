@@ -1,9 +1,10 @@
-import { NumberedMazeRenderer } from "../../ui/numbered-maze-renderer.mjs";
+import { WorldContextRenderer } from "../../ui/world-context-renderer.mjs";
 import { bindCameraHold } from "../../render/v1/camera-controls.mjs";
 import { installTruncateControls } from "../../ui/truncate-controls.mjs";
-import { roomContextWorld } from "../../render/v1/room-context.mjs";
+import { createWorldContext } from "../../ui/play-world-context.mjs";
 import { cellForTool, describeCell } from "../../render/v1/world-renderer.mjs";
-import { encodeVoxelRoom, loadMainWorldV2 } from "../../render/v1/voxel-world-v2.mjs";
+import { encodeVoxelRoom } from "../../render/v1/voxel-world-v2.mjs";
+import { loadBrowserWorld, updateLoadProgress, paintLoadProgress } from "../../ui/browser-world.mjs";
 import {
   eraseOneObjectAtCell,
   objectPaintsInsideClickedBody,
@@ -83,6 +84,7 @@ let world;
 let parser;
 let toolboxCatalog;
 let renderer;
+let roomWorld;
 let currentRoom;
 let currentTool = ".";
 let selectedCell = null;
@@ -105,7 +107,7 @@ const countBlock = (objects, blockId) => objects.filter((object) => object.block
 const coordinateLabel = ({ x, y, z }) => `${x}, ${y}, ${z}`;
 
 function renderEditorRoom(renderedRoom = currentRoom, options = {}) {
-  renderer.setWorld(roomContextWorld(world, currentRoom, renderedRoom), options);
+  renderer.setWorld(roomWorld(currentRoom, renderedRoom), options);
 }
 
 function setStatus(message, error = false) {
@@ -184,7 +186,7 @@ function inspectCoordinate(coordinate, { select = true } = {}) {
   elements.cellValue.disabled = false;
   elements.applyCell.disabled = false;
   elements.cellValue.value = JSON.stringify(objectsAtCell(currentRoom.objects, coordinate), null, 2);
-  if (select) renderer.selectCell(renderer.world.rooms[0], coordinate.x, coordinate.y, coordinate.z);
+  if (select) renderer.selectCell(renderer.world.rooms.find(room => !room.renderDimmed), coordinate.x, coordinate.y, coordinate.z);
   else renderer.selectCell(null);
 }
 
@@ -228,7 +230,7 @@ function updatePlacementPreview(hit = hoverHit) {
     renderer.setPlacementPreview(null);
     if (hit && currentTool === "__erase_top__") {
       renderer.selectCell(
-        renderer.world.rooms[0],
+        renderer.world.rooms.find(room => !room.renderDimmed),
         hit.sourceX ?? hit.cellX,
         hit.sourceY ?? hit.cellY,
         hit.sourceZ ?? 0
@@ -779,10 +781,7 @@ try {
     elements.edgeFind, elements.edgeExact, ...document.querySelectorAll("[data-transform], .camera-pad .pad-button")];
   loadingControls.forEach((button) => { button.disabled = true; });
   [world, parser, toolboxCatalog] = await Promise.all([
-    loadMainWorldV2((complete, total) => {
-      elements.loadProgress.max = total + 1;
-      elements.loadProgress.value = complete;
-    }),
+    loadBrowserWorld((complete, total, phase) => updateLoadProgress(elements.loadProgress, complete, total, phase)),
     fetch("./level_parsing.json").then((response) => response.json()),
     fetch("./toolbox.json").then((response) => response.json())
   ]);
@@ -791,7 +790,10 @@ try {
   const requested = new URL(location.href).searchParams.get("room")?.toUpperCase();
   currentRoom = world.rooms.find((room) => room.position.join("X") === requested) || world.rooms[0];
   savedObjects = cloneObjects(currentRoom.objects);
-  renderer = new NumberedMazeRenderer(elements.canvas, roomContextWorld(world, currentRoom), {
+  roomWorld = createWorldContext(world);
+  updateLoadProgress(elements.loadProgress, 85, 100, "Drawing room");
+  await paintLoadProgress();
+  renderer = new WorldContextRenderer(elements.canvas, roomWorld(currentRoom), {
     mode: "editor",
     onInspect: inspect,
     onSelect: inspect,
@@ -802,6 +804,7 @@ try {
   });
   new ResizeObserver(() => renderer.resize()).observe(elements.stage);
   updateRoomChrome();
+  await paintLoadProgress();
   elements.loadProgress.value = elements.loadProgress.max;
   loadingControls.forEach((button) => { button.disabled = false; });
   elements.stage.classList.add("is-ready");

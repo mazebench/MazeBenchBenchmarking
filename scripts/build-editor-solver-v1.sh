@@ -2,8 +2,7 @@
 set -eu
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-engine_tools=${MAZEBENCH_UNIT_TEST_REPO:-"$project_root/../MazeBenchEngineUnitTest"}
-zig="$engine_tools/node_modules/.bin/zig"
+zig="$project_root/node_modules/.bin/zig"
 output="$project_root/world-solver/v1/editor-solver.wasm"
 source="$project_root/world-solver/v1/native/editor-solver-wasm.cpp"
 set -- "${1:-editor}"
@@ -78,8 +77,8 @@ ZIG_GLOBAL_CACHE_DIR="$project_root/.zig-global-cache" \
   -Wl,--initial-memory=100663296 \
   -Wl,--max-memory=2147483648 \
   -o "$output" \
-  -I"$project_root/engine/v1/core/include" \
-  "$project_root/engine/v1/core/src/physics.cpp" \
+  -I"$project_root/engine/include" \
+  "$project_root/engine/src/physics.cpp" \
   "$source"
 
 echo "Built $output"

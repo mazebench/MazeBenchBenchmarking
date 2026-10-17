@@ -1,4 +1,4 @@
-import { instantiateMazeBenchEngineV1 } from "../../engine/v1/engine.mjs";
+import { instantiateMazeBenchEngineV1 } from "../../engine/current/engine.mjs";
 import { loadMainWorldV2 } from "../../render/v1/voxel-world-v2.mjs";
 import { runRandomAgentV1 } from "./random-agent.mjs";
 import { runRoomBfsV1 } from "./room-bfs.mjs";

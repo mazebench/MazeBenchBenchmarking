@@ -20,7 +20,29 @@ Once the server is running, you can go directly to:
 
 ---
 
-The MazeBench Engine is copied from https://github.com/mazebench-temp/MazeBenchEngineUnitTest
+This repository also contains the canonical C++ engine, visual physics test
+editor, and every authored/native/WASM test imported from MazeBenchEngineUnitTest.
+All future engine and rendering development happens here.
+
+For the test lab and development tools:
+
+```sh
+npm ci
+npm run dev:lab       # http://localhost:3001
+npm run build         # lab, canonical engine, and solver accelerators
+npm test              # native engine + lab/WASM + site integration tests
+npm run test:parity   # shared renderer identity and live engine equivalence
+```
+
+The main site still runs with `node server.mjs` on port 8080. Physics source
+lives in `engine/src` and `engine/include`; authored test data is in
+`project-data`; the test editor is in `apps/web`. See [the test-lab guide](docs/test-lab.md)
+and [the consolidation notes](docs/consolidation.md).
+
+Both live browser applications use the same built WASM and rendering geometry
+module. Scene/coordinate adapters and camera controls remain specific to their
+interfaces. Signed historical benchmark runtimes remain frozen under their
+versioned paths; moving repositories does not upgrade or reseal recorded runs.
 
 ---
 

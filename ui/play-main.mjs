@@ -1,17 +1,17 @@
 // Browser entry point; keep play/v1/main.mjs unchanged for signed historical runs.
-import { loadMazeBenchEngineV1 } from "../engine/v1/engine.mjs";
+import { loadMazeBenchEngineV1 } from "../engine/current/engine.mjs";
 import { AsciiMazeRendererV2 } from "../render-ascii/v2/ascii-renderer.mjs";
 import { createPlayWorldContext } from "./play-world-context.mjs";
 import { PlayWorldRenderer } from "./play-world-renderer.mjs";
 import { installTruncateControls } from "./truncate-controls.mjs";
-import { loadMainWorldV2 } from "../render/v1/voxel-world-v2.mjs";
+import { loadBrowserWorld, updateLoadProgress, paintLoadProgress } from "./browser-world.mjs";
 import { bindCameraHold } from "../render/v1/camera-controls.mjs";
 import { cameraRelativeMoveDirection } from "../play/v1/camera-relative-input.mjs";
-import { ConnectedWorldSessionV1 } from "../play/v1/connected-world-session.mjs";
+import { ConnectedWorldSessionV1 } from "../play/current/connected-world-session.mjs";
 import {
   DEFAULT_PLAY_FRAME_DELAY_MS,
   PlaySessionV1
-} from "../play/v1/play-session.mjs";
+} from "../play/current/play-session.mjs";
 import { installRoomControlsV1 } from "../play/v1/room-controls.mjs";
 import { MoveSequencePlayer, parseMoveSequence } from "./move-sequence.mjs";
 
@@ -327,10 +327,7 @@ window.addEventListener("keydown", (event) => {
 
 try {
   [world, engine] = await Promise.all([
-    loadMainWorldV2((complete, total) => {
-      elements.loadProgress.max = total + 1;
-      elements.loadProgress.value = complete;
-    }),
+    loadBrowserWorld((complete, total, phase) => updateLoadProgress(elements.loadProgress, complete, total, phase)),
     loadMazeBenchEngineV1()
   ]);
   markCurrentRoom = installRoomControlsV1(
@@ -341,6 +338,8 @@ try {
   const requested = new URL(location.href).searchParams.get("room")?.toUpperCase() || "HXI";
   currentRoom = world.rooms.find((room) => room.position.join("X") === requested) || world.rooms[0];
   roomWorld = createPlayWorldContext(world);
+  updateLoadProgress(elements.loadProgress, 85, 100, "Drawing room");
+  await paintLoadProgress();
   renderer = new PlayWorldRenderer(elements.canvas, roomWorld(currentRoom), { mode: "play" });
   installTruncateControls(document.getElementById("cutaway-controls"), renderer, { ghosts: true });
   const params = new URL(location.href).searchParams;
@@ -370,6 +369,7 @@ try {
   setViewMode("3d");
   elements.viewToggle.disabled = false;
   elements.reset.disabled = false;
+  await paintLoadProgress();
   elements.loadProgress.value = elements.loadProgress.max;
   elements.stage.classList.add("is-ready");
 } catch (error) {

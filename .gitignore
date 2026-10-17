@@ -3,4 +3,17 @@ outputs/
 work/
 .zig-cache/
 .zig-global-cache/
+node_modules/
+.build/
+apps/web/dist/
+apps/web/.next/
+apps/web/.vinext/
+apps/web/out/
+apps/web/.wrangler/
+.wrangler/
+dist/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+.env*
 environments/mazebench/mazebench/runtime/

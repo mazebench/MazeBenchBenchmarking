@@ -1,4 +1,4 @@
-import { instantiateMazeBenchEngineV1 } from "../../engine/v1/engine.mjs";
+import { instantiateMazeBenchEngineV1 } from "../../engine/current/engine.mjs";
 import { createEditorSolverSessionV1 } from "./native-solver-runtime.mjs";
 
 const yieldToWorker = () => new Promise((resolve) => setTimeout(resolve, 0));

@@ -1,4 +1,4 @@
-import { loadMazeBenchEngineV1 } from "../../engine/v1/engine.mjs";
+import { loadMazeBenchEngineV1 } from "../../engine/current/engine.mjs";
 import { loadMainWorldV2 } from "../../render/v1/voxel-world-v2.mjs";
 import { findRoomTransitionsV1, tagEdgeFinderObjectsV1 } from "./edge-runtime.mjs";
 

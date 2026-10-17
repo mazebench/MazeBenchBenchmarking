@@ -1,4 +1,4 @@
-import { loadMazeBenchEngineV1 } from "../../engine/v1/engine.mjs";
+import { loadMazeBenchEngineV1 } from "../../engine/current/engine.mjs";
 
 export const EDITOR_SOLVER_PRESETS_V1 = Object.freeze({
   quick: Object.freeze({ id: "quick", label: "Quick", maximumNodes: 12_000, maximumEdges: 512 }),

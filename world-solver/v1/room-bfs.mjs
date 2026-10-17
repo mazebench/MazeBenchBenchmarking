@@ -1,8 +1,8 @@
 import {
   engineRoleIdForObject,
   readEngineStateV1
-} from "../../engine/v1/adapter.mjs";
-import { ConnectedWorldSessionV1 } from "../../play/v1/connected-world-session.mjs";
+} from "../../engine/current/adapter.mjs";
+import { ConnectedWorldSessionV1 } from "../../play/current/connected-world-session.mjs";
 
 export const ROOM_BFS_START_POSITION_V1 = Object.freeze(["H", "I"]);
 export const ROOM_BFS_DIRECTIONS_V1 = Object.freeze(["up", "right", "down", "left"]);

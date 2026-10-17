@@ -1,7 +1,7 @@
 // Benchmark-owned command-state A* wrapper. The imported engine stays
 // byte-for-byte unchanged; this translation unit only consumes its internals.
-#include "../../../engine/v1/core/src/search.cpp"
-#include "../../../engine/v1/core/src/wasm_api.cpp"
+#include "../../../engine/src/search.cpp"
+#include "../../../engine/src/wasm_api.cpp"
 
 namespace {
 

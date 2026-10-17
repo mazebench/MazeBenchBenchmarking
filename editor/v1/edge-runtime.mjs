@@ -1,5 +1,5 @@
-import { engineRoleIdForObject } from "../../engine/v1/adapter.mjs";
-import { ConnectedWorldSessionV1 } from "../../play/v1/connected-world-session.mjs";
+import { engineRoleIdForObject } from "../../engine/current/adapter.mjs";
+import { ConnectedWorldSessionV1 } from "../../play/current/connected-world-session.mjs";
 
 function cloneState(state) {
   return { width: state.width, height: state.height, objects: state.objects.map((object) => ({ ...object })) };
