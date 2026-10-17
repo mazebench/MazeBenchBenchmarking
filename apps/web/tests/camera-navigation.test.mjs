@@ -39,14 +39,18 @@ test("keyboard zoom uses deterministic bounded steps", () => {
   assert.equal(stepCameraZoom(Number.NaN, 1), 1.12);
 });
 
-test("the editor reserves E for erase and only zooms from minus and plus keys", async () => {
+test("the editor shares Q/E zoom with the level editor and retains minus/plus aliases", async () => {
   const canvas = await readFile(
     new URL("../app/MazeBenchCanvas.tsx", import.meta.url),
     "utf8",
   );
   assert.match(canvas, /key === "-"[\s\S]*?key === "="[\s\S]*?zoomCamera/);
   assert.doesNotMatch(canvas, /onWheel=/);
-  assert.doesNotMatch(canvas, /key === "q"/);
+  assert.match(canvas, /key === "q"/);
+  assert.match(canvas, /key === "e"/);
+  const editor = await readFile(new URL("../app/VoxelBench.tsx", import.meta.url), "utf8");
+  assert.match(editor, /key === "x"[\s\S]*?setSelectedBlock\(DELETE_TOOL_ID\)/);
+  assert.doesNotMatch(editor, /key === "e"/);
 });
 
 test("editor camera fitting stays locked while voxel layers change", async () => {

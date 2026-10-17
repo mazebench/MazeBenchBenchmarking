@@ -153,6 +153,20 @@ test("cards retain world-specific scores and use a fixed elapsed time for paused
   assert.deepEqual(ice.metrics.slice(1, 3), [["Levels solved", "5/30"], ["Level", "6"]]);
 });
 
+test("compact cards identify the model company independently of its runner", () => {
+  const direct = runCardValues({ provider: "claude-code", model: "claude-sonnet-5-5", effort: "high", tools_enabled: false });
+  const hosted = runCardValues({ provider: "prime-agent", model: "anthropic/claude-sonnet-5-5" });
+  assert.equal(direct.logo, hosted.logo);
+  assert.match(direct.logo, /\/assets\/model-logos\/claude-color\.svg$/);
+  assert.equal(direct.tools, "(tools off)");
+  assert.equal(hosted.tools, "(tools on)");
+  assert.equal(direct.effort, "high");
+  assert.equal(hosted.effort, "default");
+  const unknown = runCardValues({ provider: "prime-agent", model: "unknown/new-model" });
+  assert.equal(unknown.logo, null);
+  assert.equal(unknown.company, "unknown");
+});
+
 test("company and model filters compose, and sorting groups models with newest runs first", () => {
   const runs = [
     { id: "sol", model: "gpt-6-sol", provider: "codex", created_at: "2026-10-03" },

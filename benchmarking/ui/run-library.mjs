@@ -4,6 +4,11 @@ const dates = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
 const count = value => (value || 0).toLocaleString();
 const text = (element, value) => { if (element.textContent !== String(value)) element.textContent = value; };
+const companyLogos = new Map([
+  ["OpenAI", "openai"], ["Anthropic (Claude)", "claude-color"], ["Google", "gemini-color"],
+  ["Meta", "meta-color"], ["xAI", "grok"], ["DeepSeek", "deepseek-color"],
+  ["Alibaba", "alibaba-color"], ["Mistral", "mistral-color"]
+]);
 
 export function providerName(provider) {
   return ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity", "muse-code": "Meta Muse Code", "prime-agent": "Prime Agent" })[provider] || provider;
@@ -42,8 +47,19 @@ function duration(run) {
 
 export function runCardValues(run) {
   const numbered = ["ice-maze", "slotski"].includes(run.world);
+  const company = runCompany(run) || "Unknown provider";
+  const logo = companyLogos.get(company);
+  const rateLimited = Boolean(run.rate_limit && run.status === "failed");
   return {
     href: `./run.html?id=${encodeURIComponent(run.id)}`,
+    company,
+    logo: logo ? new URL(`./assets/model-logos/${logo}.svg`, import.meta.url).href : null,
+    monochromeLogo: ["openai", "grok"].includes(logo),
+    effort: run.effort || "default",
+    tools: run.provider === "prime-agent" || run.tools_enabled ? "(tools on)" : "(tools off)",
+    statusTone: rateLimited || ["queued", "preparing", "pausing"].includes(run.status) ? "yellow"
+      : ["running", "continuing"].includes(run.status) ? "green"
+      : ["failed", "interrupted"].includes(run.status) ? "red" : "gray",
     condition: `${run.observation_mode === "vision" ? "Vision · " : ""}${run.provider === "prime-agent" ? "Native Python" : run.tools_enabled ? "Python on" : "Python off"}`,
     status: run.rate_limit && run.status === "failed" ? "Rate limited" : String(run.status || "unknown").replaceAll("-", " "),
     rateLimit: run.status === "failed" ? formatRateLimit(run.rate_limit) : null,
@@ -68,27 +84,35 @@ export function runPage(runs, requestedPage = 0, size = 24) {
 
 function createCard() {
   const card = document.createElement("article");
-  card.innerHTML = `<a class="record-card-link"><div class="record-top"><strong class="record-model"></strong><span class="record-status"></span></div><div class="record-context"><span class="condition"></span><span class="record-meta"></span></div><p class="record-rate-limit" hidden></p><span class="run-progress"><i></i></span><div class="record-metrics">${"<span><small></small><b></b></span>".repeat(4)}</div></a><div class="record-footer"><span class="record-date"></span><button type="button" class="record-delete danger" aria-label="Delete run"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></svg></button></div>`;
+  card.innerHTML = `<a class="record-card-link"><div class="record-top"><span class="record-logo" role="img"><img alt="" width="20" height="20" hidden><span class="record-logo-fallback" aria-hidden="true">?</span></span><strong class="record-model"></strong><span class="record-effort"></span><span class="condition"></span><span class="record-status" role="img"></span></div><div class="record-metrics">${"<span><small></small><b></b></span>".repeat(4)}</div></a><div class="record-footer"><span class="record-date"></span><button type="button" class="record-delete danger" aria-label="Delete run"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></svg></button></div>`;
   return card;
 }
 
 function updateCard(card, run, values) {
   card.className = `record-card${run.tools_enabled ? " tools" : ""}`;
   card.querySelectorAll("a").forEach(link => { if (link.getAttribute("href") !== values.href) link.setAttribute("href", values.href); });
-  text(card.querySelector(".condition"), values.condition);
+  const logo = card.querySelector(".record-logo");
+  logo.setAttribute("aria-label", values.company);
+  logo.title = values.company;
+  logo.classList.toggle("monochrome", values.monochromeLogo);
+  const logoImage = logo.querySelector("img");
+  if (values.logo && logoImage.getAttribute("src") !== values.logo) logoImage.src = values.logo;
+  if (!values.logo) logoImage.removeAttribute("src");
+  logoImage.hidden = !values.logo;
+  logo.querySelector(".record-logo-fallback").hidden = Boolean(values.logo);
+  text(card.querySelector(".condition"), values.tools);
+  const effort = card.querySelector(".record-effort");
+  text(effort, values.effort);
+  effort.title = `Reasoning effort: ${values.effort}`;
+  effort.setAttribute("aria-label", effort.title);
   const status = card.querySelector(".record-status");
-  status.className = `record-status ${values.rateLimit ? "rate-limited" : run.status}`;
-  text(status, values.status);
-  const rateLimit = card.querySelector(".record-rate-limit");
-  rateLimit.hidden = !values.rateLimit;
-  text(rateLimit, values.rateLimit || "");
-  text(card.querySelector(".record-model"), modelLabel(run.model));
-  text(card.querySelector(".record-meta"), values.context);
-  card.querySelector(".record-context").title = values.meta;
+  status.dataset.tone = values.statusTone;
+  status.title = values.rateLimit ? `${values.status}: ${values.rateLimit}` : values.status;
+  status.setAttribute("aria-label", status.title);
+  const model = card.querySelector(".record-model");
+  text(model, run.model || "Unknown model");
+  model.title = `${run.model || "Unknown model"} · ${values.condition} · ${values.meta}`;
   text(card.querySelector(".record-date"), values.timestamp);
-  const progress = card.querySelector(".run-progress");
-  progress.hidden = !run.action_limit;
-  progress.querySelector("i").style.width = `${values.progress}%`;
   card.querySelectorAll(".record-metrics > span").forEach((metric, index) => {
     text(metric.querySelector("small"), values.metrics[index][0]);
     text(metric.querySelector("b"), values.metrics[index][1]);

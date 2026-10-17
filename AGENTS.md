@@ -78,6 +78,19 @@ Play history records only commands that change the canonical engine state or
 move the player to another room. A blocked or otherwise ineffective command
 must not create an undo snapshot or increment the move counter.
 
+Play controller input lives in ui/play-gamepad.mjs and uses the browser's standard
+gamepad mapping. Left stick/D-pad moves are camera-relative and repeat only when
+the current command finishes; never queue held input behind animations or a move
+sequence. Right stick turns use the same cardinal camera as keyboard controls;
+tilt and ZL/ZR zoom share smooth camera motion without taking ownership of keyboard
+or pointer holds. ZL zooms in, ZR zooms out; each press of any of the four right-side
+face buttons undoes once in Play. Flyover shares controller polling and mapping,
+with left stick/D-pad panning and continuous right-stick camera rotation.
+Controller activity hides the surrounding UI in Play and Flyover; mouse or keyboard
+input restores it, and a still-held controller must not immediately hide it again.
+Suspend input while editing text or when the page loses focus, and release controller
+input on disconnect. Preserve signed play/v1 JavaScript.
+
 ## Connected-world Play transitions
 
 World topology and reset-on-leave policy belong to Play Mode, not the vendored
@@ -144,8 +157,8 @@ The canonical engine exposes an exact reachability API through
 `search_edges`, `search_edge_count`, and `search_edge_solution`. It enumerates
 boundary-reachable states without requiring a gem and preserves distinct
 dynamic board states even when the player coordinates coincide. Keep ordinary
-gem solving on `search_solve`. Edge Finder is editor-local and independent of
-the Random World Agent.
+gem solving on `search_solve`. The editor no longer exposes Edge Finder;
+retain the reachability API for its other consumers and tests.
 
 `world-solver/v1/` is deliberately a simple random walk across the complete
 256×256 pixel world, rooted at authored room H×I. It chooses only Up, Right,
@@ -170,7 +183,7 @@ goal-distance ordering and an adjustable physics-interaction bias. Bias 0 is
 off; a positive value explores commands that move non-player bodies or change
 mechanisms sooner, with at most three interaction credits per command. Because
 that bias and the weighted heuristic affect ordering, its returned route is
-explicitly not a shortest-route proof. Exact Shortest always forces both
+explicitly not a shortest-route proof. BFS (the exact-shortest preset) always forces both
 weights to zero and retains uniform-cost shortest-command semantics. The editor
 reports global board states/sec and attempted engine command simulations/sec
 live for both modes.
@@ -277,6 +290,19 @@ Gate and puncher physics are implemented upstream. Gate ASCII rendering now
 reflects lowered/raised states. Puncher ASCII face-fixture rules remain pending
 at the user's request; do not extend this contract to punchers until requested.
 
+## Shared editor UI
+
+The level editor and test lab share ui/editor-shell.css, ui/editor-controls.css,
+and the camera-button definitions in ui/editor-camera-pad.mjs. Update those
+shared sources for common editor appearance; keep test timeline, metadata, and
+project-format behavior in apps/web. Toolbox thumbnails use each editor's
+scene adapter, with one renderer per batch rather than per tile. The lab keeps
+that renderer between palette variants and caches cropped thumbnails in memory;
+camera and tool changes must not reapply unchanged room geometry. Project
+decode/encode runs in the lab's project-codec worker, with only changed tests
+sent after the initial save. Preserve snapshot ordering, revision checks,
+superseded-save cancellation, and the existing compact file format.
+
 ## 3D room context
 
 The canonical cube/slope geometry, mounted-number visibility, and camera-depth
@@ -296,6 +322,9 @@ families form connected surfaces with internal faces and coplanar seams removed.
 Keep material, dimmed-context, and numbered-body boundaries separate. The world
 map's browser entry point is `ui/world-main.mjs`; historical `render/v1/` modules
 remain unchanged for signed benchmark observations.
+Flyover uses ui/flyover-renderer.mjs for continuous drag and A/D rotation, with
+the same grain overlay and visual-effects stylesheet as Edit and Play. Its free
+yaw must not change the cardinal camera used for camera-relative Play moves.
 
 Browser Play and the editor render all 256 rooms, with the active room at full
 brightness and the rest dimmed. `ui/world-context-renderer.mjs` caches full

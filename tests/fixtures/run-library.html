@@ -19,7 +19,11 @@
     const view = new RunListView(container);
     view.update(runs);
     assert(container.children.length === 24, "A thousand records must create only 24 cards.");
-    assert(!container.querySelector("img"), "Model labels must stay plain text.");
+    assert(!container.querySelector(".record-model img"), "Model labels must stay plain text.");
+    assert(container.querySelector(".record-model").textContent === runs[0].model, "Model slug must render literally.");
+    assert([...container.querySelectorAll("img")].every(image => image.src.endsWith("/assets/model-logos/openai.svg")), "Logos must come from the fixed local asset map.");
+    const status = container.querySelector(".record-status");
+    assert(!status.textContent && status.getAttribute("aria-label") === "paused" && status.dataset.tone === "gray", "Status must be an accessible dot without visible description.");
     const cards = [...container.children];
     const link = cards[0].querySelector("a");
     link.focus();

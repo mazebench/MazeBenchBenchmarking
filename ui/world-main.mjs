@@ -1,9 +1,11 @@
 // Browser entry point; retain render/v1/main.mjs for signed historical runs.
 import { bindCameraHold } from "../render/v1/camera-controls.mjs";
 import { RENDERER_VERSION } from "../render/v1/world-renderer.mjs";
-import { JoinedMazeRenderer } from "./joined-maze-renderer.mjs";
+import { FlyoverRenderer } from "./flyover-renderer.mjs";
 import { loadBrowserWorld, updateLoadProgress, paintLoadProgress } from "./browser-world.mjs";
 import { prepareWorldSurfaces } from "./prepared-world-surfaces.mjs";
+import { installFlyoverGamepadControls } from "./play-gamepad.mjs";
+import { installGamepadPresentation } from "./gamepad-presentation.mjs";
 
 const elements = {
   canvas: document.getElementById("world"),
@@ -89,8 +91,25 @@ bindHold("zoom-in", "q", () => renderer.zoomBy(0.8));
 bindHold("zoom-out", "e", () => renderer.zoomBy(1 / 0.8));
 bindHold("tilt-up", "w");
 bindHold("tilt-down", "s");
-document.getElementById("rotate-left").addEventListener("click", () => renderer?.rotateCardinal(-1));
-document.getElementById("rotate-right").addEventListener("click", () => renderer?.rotateCardinal(1));
+bindHold("rotate-left", "a");
+bindHold("rotate-right", "d");
+const gamepadButtons = {
+  left: document.getElementById("rotate-left"), right: document.getElementById("rotate-right"),
+  up: document.getElementById("tilt-up"), down: document.getElementById("tilt-down"),
+  zoomIn: document.getElementById("zoom-in"), zoomOut: document.getElementById("zoom-out")
+};
+installFlyoverGamepadControls({
+  ...installGamepadPresentation(),
+  isReady: () => Boolean(renderer && !elements.viewport.classList.contains("is-loading")),
+  onCameraInput: input => renderer?.setGamepadCameraInput(input),
+  onFeedback: ({ yaw, tilt, zoom }) => {
+    const active = { left: yaw < 0, right: yaw > 0, up: tilt > 0, down: tilt < 0,
+      zoomIn: zoom < 0, zoomOut: zoom > 0 };
+    for (const [name, button] of Object.entries(gamepadButtons)) {
+      button.classList.toggle("is-gamepad-active", active[name]);
+    }
+  }
+});
 elements.canvas.addEventListener("dblclick", () => renderer?.focusRoom(selectedRoom));
 elements.dismissRoom.addEventListener("click", dismissSelection);
 window.addEventListener("keydown", (event) => {
@@ -105,7 +124,7 @@ try {
   await prepareWorldSurfaces(world, (complete, total) => progress(65 + 30 * complete / total, 100, "Building world"));
   progress(95, 100, "Drawing world");
   await paintLoadProgress();
-  renderer = new JoinedMazeRenderer(elements.canvas, world, {
+  renderer = new FlyoverRenderer(elements.canvas, world, {
     mode: "world",
     onSelect: select,
     onInspect: inspect,

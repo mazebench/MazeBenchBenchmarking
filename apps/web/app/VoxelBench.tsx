@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import LabToolboxPreviews from "./LabToolboxPreviews";
 import MazeBenchCanvas, { type PaintSurface } from "./MazeBenchCanvas";
 import SearchBench, { normalizeSearchLevels, type SearchLevel } from "./SearchBench";
 import {
@@ -54,7 +55,6 @@ import {
   blockCanShareCell,
   blockUsesPolycubeGroup,
   cellObjectSelectionKey,
-  cellObjectSemanticKey,
   createCellObjectMultisetDiffer,
   eraseOneObjectAtCell,
   normalizeOccupancyProfile,
@@ -102,8 +102,8 @@ import {
 } from "./cycleExpectation.mjs";
 import {
   decodeProjectPayload,
-  encodeProjectBundle,
 } from "./projectFormat.mjs";
+import { createProjectCodec } from "./projectCodec";
 
 type Direction = "up" | "down" | "left" | "right";
 type FrameKind = "start" | "expected";
@@ -799,6 +799,19 @@ function normalizeTests(
   });
 }
 
+async function normalizeTestsInBatches(...[tests, ...settings]: Parameters<typeof normalizeTests>) {
+  const normalized: TestCase[] = [];
+  let started = performance.now();
+  for (let index = 0; index < tests.length; index += 8) {
+    normalized.push(...normalizeTests(tests.slice(index, index + 8), ...settings));
+    if (performance.now() - started >= 8) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      started = performance.now();
+    }
+  }
+  return normalized;
+}
+
 function keyOf(voxel: Pick<Voxel, "x" | "y" | "z">) {
   return `${voxel.x},${voxel.y},${voxel.z}`;
 }
@@ -946,14 +959,6 @@ function replaceEditableFrame(
   return { ...test, intermediate };
 }
 
-function sortVoxels(voxels: Voxel[]) {
-  return [...voxels].sort((a, b) => {
-    const coord = keyOf(a).localeCompare(keyOf(b));
-    return coord || cellObjectSemanticKey(a).localeCompare(cellObjectSemanticKey(b)) ||
-      String(a.instanceId ?? "").localeCompare(String(b.instanceId ?? ""));
-  });
-}
-
 function clampWorldDimension(value: number) {
   return Math.min(32, Math.max(3, Math.round(Number.isFinite(value) ? value : 3)));
 }
@@ -972,10 +977,6 @@ function cropFrameToWorld(frame: Frame, world: WorldSettings): Frame {
 
 function cropTestToWorld(test: TestCase, world: WorldSettings = test.world): TestCase {
   return applyWorldToTest({ ...test, input: "up" }, world) as TestCase;
-}
-
-function cropTestsToWorld(tests: TestCase[]) {
-  return tests.map((test) => cropTestToWorld(test));
 }
 
 function createFrameComparisonContext(
@@ -1935,7 +1936,7 @@ export default function VoxelBench() {
   useEffect(() => { ++suiteRevisionRef.current; }, [tests, blocks, roles]);
   const [showResult, setShowResult] = useState(false);
   const [toast, setToast] = useState("");
-  const [inspectorTab, setInspectorTab] = useState<"test" | "tool">("test");
+
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(""), 5000);
@@ -1964,6 +1965,12 @@ export default function VoxelBench() {
   const repoRevisionRef = useRef<string | null>(null);
   const repoSaveBlockedRef = useRef(false);
   const repoSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const projectCodecRef = useRef<ReturnType<typeof createProjectCodec> | null>(null);
+  useEffect(() => {
+    const codec = createProjectCodec();
+    projectCodecRef.current = codec;
+    return () => { codec.dispose(); projectCodecRef.current = null; };
+  }, []);
   const activeTest = tests.find((test) => test.id === activeId) ?? tests[0];
   const folderPaths = useMemo(
     () => new Map(folders.map((folder) => [folder.id, folderPathLabel(folders, folder.id)])),
@@ -1975,9 +1982,10 @@ export default function VoxelBench() {
   );
   const activeTestLocked = activeTest ? isTestLocked(activeTest) : false;
   const activeWorld = activeTest?.world ?? DEFAULT_WORLD;
-  const activeFrame = activeTest
-    ? cropFrameToWorld(editableFrame(activeTest, frameKind, intermediateIndex), activeWorld)
-    : { voxels: [] };
+  const editableSource = activeTest ? editableFrame(activeTest, frameKind, intermediateIndex) : null;
+  const activeFrame = useMemo(() => editableSource
+    ? cropFrameToWorld(editableSource, activeWorld)
+    : { voxels: [] }, [editableSource, activeWorld]);
   const selectedTimelineTick = frameKind === "start"
     ? 0
     : intermediateIndex === null
@@ -2072,7 +2080,7 @@ export default function VoxelBench() {
 
       for (const saved of candidates) {
         try {
-          const parsed = decodeProjectPayload(JSON.parse(saved)) as {
+          const parsed = await projectCodecRef.current!.decode(saved) as {
           blocks: StoredBlockDefinition[];
           folders?: StoredTestFolder[];
           tags?: StoredTestFolder[];
@@ -2084,6 +2092,16 @@ export default function VoxelBench() {
           if (!parsed.blocks?.length || !parsed.tests?.length) continue;
           const legacyWorld = normalizeWorld(parsed.world ?? DEFAULT_WORLD);
           const restoredRoles = normalizeRoles(parsed.roles);
+          const restoredBlocks = normalizeBlocks(parsed.blocks, restoredRoles);
+          const restoredFolders = normalizeFolders(parsed.tags ?? parsed.folders);
+          const restoredTests = await normalizeTestsInBatches(
+            parsed.tests,
+            restoredFolders,
+            restoredBlocks,
+            restoredRoles,
+            parsed.blocks,
+            legacyWorld,
+          );
           if (cancelled) return;
           setRoles(restoredRoles);
           setSelectedRoleId(restoredRoles.find((role) => role.id === "pushable")?.id ?? restoredRoles[0].id);
@@ -2093,17 +2111,7 @@ export default function VoxelBench() {
               ? current.roleId
               : restoredRoles[0].id,
           }));
-          const restoredBlocks = normalizeBlocks(parsed.blocks, restoredRoles);
           setBlocks(restoredBlocks);
-          const restoredFolders = normalizeFolders(parsed.tags ?? parsed.folders);
-          const restoredTests = normalizeTests(
-            parsed.tests,
-            restoredFolders,
-            restoredBlocks,
-            restoredRoles,
-            parsed.blocks,
-            legacyWorld,
-          );
           setFolders(restoredFolders);
           setTests(restoredTests);
           setSavedSearchLevels(normalizeSearchLevels(parsed.searches, restoredBlocks));
@@ -2132,7 +2140,7 @@ export default function VoxelBench() {
   useEffect(() => {
     if (!projectLoaded) return;
     let cancelled = false;
-    const timer = window.setTimeout(() => {
+    const saveProject = async () => {
       const project = {
         schemaVersion: 15,
         coordinateSystem: { horizontalAxes: ["x", "y"], verticalAxis: "z", floorLayer: 0 },
@@ -2140,16 +2148,10 @@ export default function VoxelBench() {
         blocks,
         tags: folders,
         searches: savedSearchLevels,
-        tests: cropTestsToWorld(tests).map((test) => ({
-          ...test,
-          start: { voxels: sortVoxels(test.start.voxels) },
-          intermediate: test.intermediate.map((frame) => ({
-            voxels: sortVoxels(frame.voxels),
-          })),
-          expected: { voxels: sortVoxels(test.expected.voxels) },
-        })),
+        tests,
       };
-      const serialized = JSON.stringify(encodeProjectBundle(project));
+      const serialized = await projectCodecRef.current!.encode(project);
+      if (cancelled) return;
       let browserBackupPreserved = true;
       try {
         localStorage.setItem(STORAGE_KEY, serialized);
@@ -2184,6 +2186,11 @@ export default function VoxelBench() {
         if (!browserBackupPreserved && !cancelled) {
           setToast("Repo save unavailable · project is too large for the browser backup");
         }
+      });
+    };
+    const timer = window.setTimeout(() => {
+      void saveProject().catch(() => {
+        if (!cancelled) setToast("Could not prepare the project for saving. Your edits are still open.");
       });
     }, 350);
     return () => {
@@ -2877,7 +2884,7 @@ export default function VoxelBench() {
         undoPaint();
         return;
       }
-      if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && key === "e") {
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && key === "x") {
         event.preventDefault();
         setGenericPrompt(null);
         setGroupToolPinned(false);
@@ -3657,8 +3664,7 @@ export default function VoxelBench() {
     ));
   };
 
-  const exportProject = () => {
-    const boundedTests = cropTestsToWorld(tests);
+  const exportProject = async () => {
     const project = {
       schemaVersion: 15,
       coordinateSystem: { horizontalAxes: ["x", "y"], verticalAxis: "z", floorLayer: 0 },
@@ -3666,23 +3672,20 @@ export default function VoxelBench() {
       blocks,
       tags: folders,
       searches: savedSearchLevels,
-      tests: boundedTests.map((test) => ({
-        ...test,
-        start: { voxels: sortVoxels(test.start.voxels) },
-        intermediate: test.intermediate.map((frame) => ({
-          voxels: sortVoxels(frame.voxels),
-        })),
-        expected: { voxels: sortVoxels(test.expected.voxels) },
-      })),
+      tests,
     };
-    const payload = JSON.stringify(encodeProjectBundle(project));
-    const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "voxelbench-project.compact.json";
-    anchor.click();
-    URL.revokeObjectURL(url);
-    setToast("Compact project exported");
+    try {
+      const payload = await projectCodecRef.current!.encode(project);
+      const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "voxelbench-project.compact.json";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setToast("Compact project exported");
+    } catch {
+      setToast("Could not export the project. Your edits are still open.");
+    }
   };
 
   const importProject = (event: ChangeEvent<HTMLInputElement>) => {
@@ -3754,8 +3757,26 @@ export default function VoxelBench() {
   if (!activeTest) return null;
 
   return (
-    <main className="app-shell">
-      <header className="author-header">
+    <main className={`app-shell ${activeWorkspace === "tests" ? "maze-editor lab-editor" : ""}`}>
+      {activeWorkspace === "tests" ? <header className="editor-topbar">
+        <div className="editor-navigation">
+          <button className="back-link" onClick={() => setActiveWorkspace("suite")} title="Back to the test library"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg><span>Back</span></button>
+          <div className="editor-title"><strong>Editor</strong><span className="editor-room-name" title={activeTest.name}>{activeTest.name}</span></div>
+        </div>
+        <nav className="editor-actions" aria-label="Editor actions">
+          <button className="primary" disabled={activeTest.hidden} title="Run this test in all four directions (⌘Enter / Ctrl+Enter)" onClick={() => runTest(activeTest)}>Run test</button>
+          <button disabled={activeTestLocked || !historyState.canUndo} title="Undo last edit (⌘Z / Ctrl+Z)" onClick={undoPaint}>Undo</button>
+          <button disabled={activeTestLocked || !historyState.canRedo} title="Redo last edit (⇧⌘Z / Ctrl+Shift+Z)" onClick={redoPaint}>Redo</button>
+          <details className="editor-menu"><summary aria-label="More editor actions"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></summary><div className="menu-items">
+            <button className="lab-mobile-redo" disabled={activeTestLocked || !historyState.canRedo} onClick={redoPaint}>Redo</button>
+            <button onClick={() => toggleTestLocked(activeTest.id)}>{activeTestLocked ? "Unlock test" : "Lock test"}</button>
+            <button onClick={() => importRef.current?.click()}>Import JSON…</button>
+            <button onClick={exportProject}>Export JSON</button>
+            <button onClick={() => setActiveWorkspace("suite")}>Test library</button>
+            <button onClick={() => setActiveWorkspace("search")}>Search</button>
+          </div></details>
+        </nav>
+      </header> : <header className="author-header">
         <div className="author-topbar">
           <nav className="author-nav" aria-label="Maze Bench navigation">
             <span className="brand-link">
@@ -3763,26 +3784,26 @@ export default function VoxelBench() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/favicon.svg" alt="" />Maze Bench
             </span>
-            <button className={`nav-link ${activeWorkspace === "tests" ? "is-active" : ""}`} aria-pressed={activeWorkspace === "tests"} onClick={() => setActiveWorkspace("tests")}>Editor</button>
+            <button className="nav-link" aria-pressed={false} onClick={() => setActiveWorkspace("tests")}>Editor</button>
             <button className={`nav-link ${activeWorkspace === "suite" ? "is-active" : ""}`} aria-pressed={activeWorkspace === "suite"} onClick={() => setActiveWorkspace("suite")}>Test Suite</button>
             <button className={`nav-link ${activeWorkspace === "search" ? "is-active" : ""}`} aria-pressed={activeWorkspace === "search"} onClick={() => setActiveWorkspace("search")}>Search</button>
           </nav>
           <div className="author-title">
-            <span>{activeWorkspace === "tests" ? "Test editor" : activeWorkspace === "suite" ? "TEST LIBRARY" : "EVOLUTIONARY LAB"}</span>
-            <h1>{activeWorkspace === "tests" ? activeTest.name : activeWorkspace === "suite" ? "Test Suite" : "3D Puzzle Search"}</h1>
+            <span>{activeWorkspace === "suite" ? "TEST LIBRARY" : "EVOLUTIONARY LAB"}</span>
+            <h1>{activeWorkspace === "suite" ? "Test Suite" : "3D Puzzle Search"}</h1>
           </div>
           <div className="author-actions">
             <details className="project-actions"><summary>Project <span aria-hidden="true">⌄</span></summary><div>
               <button type="button" onClick={() => importRef.current?.click()}>Import JSON…</button>
               <button type="button" onClick={exportProject}>Export JSON</button>
             </div></details>
-            {activeWorkspace === "tests" && <button className="tool-button tool-button--primary" disabled={activeTest.hidden} title={activeTest.hidden ? "Unhide this case before running it" : "Run this test in all four directions"} onClick={() => runTest(activeTest)}>Run test</button>}
             {activeWorkspace === "suite" && <button className="tool-button tool-button--primary" onClick={runSuite} disabled={suiteProgress !== null}>{suiteProgress === null ? "Run suite" : `Running ${suiteProgress} / ${runnableTestCases(tests).length}`}</button>}
           </div>
-          <input ref={importRef} type="file" accept="application/json" hidden onChange={importProject} />
           {toast && <p className="author-status" role="status"><span />{toast}</p>}
         </div>
-      </header>
+      </header>}
+      <input ref={importRef} type="file" accept="application/json" hidden onChange={importProject} />
+      {toast && activeWorkspace === "tests" && <p className="lab-editor-status" role="status">{toast}</p>}
 
       {saveConflict && <div className="save-conflict" role="alert">
         <span>Saving paused: the project changed on disk. Your unsaved edits are still in this tab; export them before reloading.</span>
@@ -3825,8 +3846,8 @@ export default function VoxelBench() {
         />
       )}
 
-      {activeWorkspace === "tests" && <section className="author-layout">
-        <section className="author-workspace">
+      {activeWorkspace === "tests" && <section className="editor-layout">
+        <section className="lab-editor-workspace">
           <div className="editor-toolbar" aria-label="Frame controls">
               <div className="frame-switch" role="group" aria-label="Frame to edit">
                 <button className={`${frameKind === "start" && intermediateIndex === null ? "active" : ""} ${tickIsInCycle(activeTest.cycle, 0) ? "cycle-span" : ""} ${activeTest.cycle?.startTick === 0 ? "cycle-start" : ""}`} title={activeTest.cycle?.startTick === 0 ? "Cycle begins here" : undefined} onClick={() => { setFrameKind("start"); setIntermediateIndex(null); setGroupSelection(null); }}><span>01</span> Start</button>
@@ -3834,10 +3855,6 @@ export default function VoxelBench() {
                   <button key={index} className={`${intermediateIndex === index ? "active" : ""} ${tickIsInCycle(activeTest.cycle, index + 1) ? "cycle-span" : ""} ${activeTest.cycle?.startTick === index + 1 ? "cycle-start" : ""} ${activeTest.cycle?.repeatTick === index + 1 ? "cycle-repeat" : ""}`} title={activeTest.cycle?.startTick === index + 1 ? "Cycle begins here" : activeTest.cycle?.repeatTick === index + 1 ? "Full state repeats here" : tickIsInCycle(activeTest.cycle, index + 1) ? "Inside expected cycle" : undefined} onClick={() => { setFrameKind("expected"); setIntermediateIndex(index); setGroupSelection(null); }}><span>{String(index + 2).padStart(2, "0")}</span> Tick {index + 1}</button>
                 ))}
                 <button className={frameKind === "expected" && intermediateIndex === null ? "active" : ""} onClick={() => { setFrameKind("expected"); setIntermediateIndex(null); setGroupSelection(null); }}><span>{String(activeTest.intermediate.length + 2).padStart(2, "0")}</span> Expected</button>
-              </div>
-              <div className="stage-history" role="group" aria-label="Paint history">
-                <button type="button" aria-label="Undo paint" title="Undo paint · ⌘Z" disabled={activeTestLocked || !historyState.canUndo} onClick={undoPaint}>↶</button>
-                <button type="button" aria-label="Redo paint" title="Redo paint · ⇧⌘Z" disabled={activeTestLocked || !historyState.canRedo} onClick={redoPaint}>↷</button>
               </div>
               <details className="editor-frame-menu"><summary>Frame <span aria-hidden="true">⌄</span></summary><div>
               {frameKind === "expected" && intermediateIndex === null && <button type="button" className="copy-start-button" title="Replace expected room with a copy of the start room" disabled={activeTestLocked} onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); duplicateFrame(); }}>Copy from start room</button>}
@@ -3851,8 +3868,7 @@ export default function VoxelBench() {
               </div></details>
               <button type="button" className="tool-button editor-generate" disabled={activeTestLocked} onClick={generateTimeline}>Generate frames</button>
           </div>
-          <section className="author-stage" aria-label="Voxel frame editor">
-            <div className="editor-scene-caption"><span>{frameKind === "start" ? "Start" : intermediateIndex === null ? "Expected" : `Tick ${intermediateIndex + 1}`}</span><span>{activeWorld.width} × {activeWorld.height} · WASD to orbit</span></div>
+          <section className="editor-stage lab-editor-stage is-ready" aria-label="Voxel frame editor">
             <MazeBenchCanvas cameraSceneKey={activeTest.id} frame={activeFrame} blocks={blocks} genericBlockIds={genericBlockIds} world={activeWorld} layer={layer} selectedVoxelKeys={selectedVoxelKeys} selectionMode={groupSelectionMode} selectedBlock={selectedBlock} selectedBlockCanShare={selectedBlockCanShare} eraseMode={selectedBlock === DELETE_TOOL_ID} interactive paintable={!activeTestLocked} onCameraQuarterTurnChange={setCameraQuarterTurns} onSelectVoxel={selectVoxelGroup} onSelectVoxels={selectVoxelGroups} onPaint={paint} onPaintGestureStart={beginPaintGesture} onPaintGestureEnd={endPaintGesture} />
             {generatedTimeline?.testId === activeTest.id && (
               <section className="timeline-review" aria-label="Generated C++ timeline review">
@@ -3870,15 +3886,41 @@ export default function VoxelBench() {
                 />
               </section>
             )}
-            <div className="author-hotbar" aria-label="Block palette · Left and right arrows choose tools">
-              <span className="author-hotbar__toolname is-visible">{selectedToolName}</span>
-              <div className="author-hotbar__slots">
-                <button type="button" className={`author-hotbar__slot author-hotbar__eraser ${!groupSelectionMode && !activeGroupSelection && selectedBlock === DELETE_TOOL_ID ? "is-active" : ""}`} aria-label="Erase tool" title="Erase cube · E · ←/→ chooses tools" onClick={() => { setGenericPrompt(null); setGroupToolPinned(false); setGroupSelection(null); setSelectedBlock(DELETE_TOOL_ID); setToast("Erase tool selected"); }}>
-                  <span className="author-hotbar__key">E</span>
-                  <svg className="author-tool-icon author-tool-icon--eraser" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" /><path d="M22 21H7" /><path d="m5 11 9 9" /></svg>
+            {genericPrompt && (
+              <div className="generic-id-backdrop" role="presentation" onPointerDown={(event) => { if (event.target === event.currentTarget) setGenericPrompt(null); }}>
+                <section className="generic-id-modal" role="dialog" aria-modal="true" aria-labelledby="generic-id-title" aria-describedby="generic-id-message">
+                  <span className="generic-id-modal__eyebrow">{blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "lift" ? "Lift state" : blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "gate" ? "Gate state" : blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "puncher" ? "Puncher state" : blocks.find((block) => block.id === genericPrompt.blockId)?.roleId === "orange-wall" ? "Orange mechanism state" : "Generic numbered family"}</span>
+                  <h2 id="generic-id-title">Choose {blocks.find((block) => block.id === genericPrompt.blockId)?.name ?? "object"} {blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "lift" || blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "gate" || blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "puncher" ? "state" : blocks.find((block) => block.id === genericPrompt.blockId)?.roleId === "orange-wall" ? "remaining rise" : "ID"}</h2>
+                  <p id="generic-id-message">{blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "lift" ? "Use 0 for lowered or 1 for raised. The face you paint chooses Up, Front, Right, Back, or Left and stores the matching full ID from 0–9." : blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "gate" ? "Use 0 for the lowered red slab or 1 for the raised red gate cube." : blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "puncher" ? "Use 0 for the unsprung puncher or 1 for the sprung puncher. The side face you paint chooses its punch direction." : blocks.find((block) => block.id === genericPrompt.blockId)?.roleId === "orange-wall" ? "Use 0 when it will not rise. N means this wall or slope still needs to rise N mechanism steps." : "Cubes painted with the same number belong to the same generic object."}</p>
+                  <label className="field"><span>{blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "puncher" ? "State (0 unsprung · 1 sprung)" : blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "lift" || blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "gate" ? "State (0 lowered · 1 raised)" : blocks.find((block) => block.id === genericPrompt.blockId)?.roleId === "orange-wall" ? "Remaining rise (0 or more)" : "ID (0 or more)"}</span><input ref={genericIdInputRef} inputMode="numeric" value={genericPrompt.value} aria-invalid={Boolean(genericPromptError)} onChange={(event) => { setGenericPrompt((current) => current ? { ...current, value: event.target.value } : current); setGenericPromptError(""); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); confirmGenericSelection(); } else if (event.key === "Escape") { event.preventDefault(); setGenericPrompt(null); } }} /></label>
+                  {genericPromptError && <small className="generic-id-modal__error" role="alert">{genericPromptError}</small>}
+                  <div className="generic-id-modal__actions"><button className="tool-button" type="button" onClick={() => setGenericPrompt(null)}>Cancel</button><button className="tool-button tool-button--primary" type="button" onClick={confirmGenericSelection}>Select</button></div>
+                </section>
+              </div>
+            )}
+            {showResult && activeResult && !activeResult.pass && (
+              <FailureTraceComparison
+                blocks={blocks}
+                genericBlockIds={genericBlockIds}
+                layer={layer}
+                onClose={() => setShowResult(false)}
+                result={activeResult}
+              />
+            )}
+          </section>
+        </section>
+
+        <aside className="editor-sidebar lab-editor-sidebar" aria-label="Editor tools and test settings">
+            <section className="panel tools-panel">
+              <div className="panel-heading"><div><span>Toolbox</span><strong>{selectedToolName}</strong></div></div>
+              <p className="description">{groupSelectionMode || activeGroupSelection ? "Select objects to move together. Shift-drag selects an area." : selectedBlock === DELETE_TOOL_ID ? "Click an object to remove it." : roles.find((role) => role.id === selectedDefinition?.roleId)?.description || "Select a tool, then click a face to place it."}</p>
+              <div id="lab-toolbox" className="toolbox" aria-label="MazeBench tools">
+                <button type="button" className={`tool eraser-tool ${!groupSelectionMode && !activeGroupSelection && selectedBlock === DELETE_TOOL_ID ? "is-current" : ""}`} aria-label="Erase tool" title="Erase cube · X · ←/→ chooses tools" onClick={() => { setGenericPrompt(null); setGroupToolPinned(false); setGroupSelection(null); setSelectedBlock(DELETE_TOOL_ID); setToast("Erase tool selected"); }}>
+                  <span>ERASE</span>
+
                 </button>
-                <button type="button" className={`author-hotbar__slot author-hotbar__group ${groupSelectionMode || activeGroupSelection ? "is-active" : ""}`} aria-label="Select group tool" aria-pressed={groupToolPinned} title="Camera-relative arrows · Shift+↑/↓ changes layer · Delete erases" onClick={activateGroupTool}>
-                  <span className="author-hotbar__key">G</span>
+                <button type="button" className={`tool group-tool ${groupSelectionMode || activeGroupSelection ? "is-current" : ""}`} aria-label="Select group tool" aria-pressed={groupToolPinned} title="Camera-relative arrows · Shift+↑/↓ changes layer · Delete erases" onClick={activateGroupTool}>
+                  <span>G</span>
                   <span className="group-tool-icon" aria-hidden="true"><i /><i /><i /></span>
                 </button>
                 {blocks.map((block, index) => {
@@ -3926,47 +3968,18 @@ export default function VoxelBench() {
                               ? "four horizontal directions · click a side face to choose · ←/→ chooses tools"
                               : `${roles.find((role) => role.id === block.roleId)?.name ?? block.roleId} · ←/→ chooses tools`;
                   return (
-                    <button key={block.id} className={`author-hotbar__slot ${!groupSelectionMode && !activeGroupSelection && selectedBlock === block.id ? "is-active" : ""}`} title={`${block.name} — ${title}`} onClick={() => requestBlockSelection(block.id)}>
-                      <span className="author-hotbar__key">{index + 1}</span>
-                      <span className={`swatch-cube ${block.visual.kind === "floating-floor" ? "floating-floor" : ""} ${block.visual.kind === "slope" ? `slope slope--${slopeDirection}` : ""} ${block.visual.kind === "button" ? `pressure-button pressure-button--${hiddenButton ? "hidden" : "visible"}` : ""} ${block.roleId === "orange-wall" ? `orange-wall orange-wall--${hiddenOrangeWall ? "hidden" : "cube"}` : ""} ${block.visual.kind === "lift" ? `lift lift--${binaryStateRaised ? "raised" : "lowered"} lift--top` : ""} ${block.visual.kind === "gate" ? `gate gate--${binaryStateRaised ? "raised" : "lowered"}` : ""} ${isPuncher ? `puncher puncher--${binaryStateRaised ? "sprung" : "unsprung"}` : ""} ${generic ? "generic" : orangeWallDepth === null ? "" : "stateful"} ${genericLabel && genericLabel.length > 5 ? "generic-label-long" : genericLabel && genericLabel.length > 2 ? "generic-label-medium" : ""}`} data-generic-label={genericLabel} style={{ "--block-color": block.color } as React.CSSProperties}>{slopeOption && !generic && orangeWallDepth === null ? <i className="slope-direction-glyph" aria-hidden="true">{slopeOption.glyph}</i> : isPuncher ? <i className="puncher-direction-glyph" aria-hidden="true">→</i> : null}</span>
+                    <button key={block.id} data-block-id={block.id} data-generic-family={generic ? block.roleId : undefined} style={{ "--tool-color": block.color } as React.CSSProperties} aria-label={block.name} aria-pressed={!groupSelectionMode && !activeGroupSelection && selectedBlock === block.id} className={`tool ${!groupSelectionMode && !activeGroupSelection && selectedBlock === block.id ? "is-current" : ""}`} title={`${block.name} — ${title}`} onClick={() => requestBlockSelection(block.id)}>
+                      <canvas width={96} height={96} aria-hidden="true" />{(genericLabel !== undefined || index < 9) && <span>{genericLabel ?? index + 1}</span>}
                     </button>
                   );
                 })}
-                <span className="author-hotbar__divider" />
-                <button className="author-hotbar__slot author-hotbar__add" aria-label="Define a new block" onClick={() => { setInspectorTab("tool"); setAddingBlock(true); }}>＋</button>
-              </div>
-            </div>
-            {genericPrompt && (
-              <div className="generic-id-backdrop" role="presentation" onPointerDown={(event) => { if (event.target === event.currentTarget) setGenericPrompt(null); }}>
-                <section className="generic-id-modal" role="dialog" aria-modal="true" aria-labelledby="generic-id-title" aria-describedby="generic-id-message">
-                  <span className="generic-id-modal__eyebrow">{blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "lift" ? "Lift state" : blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "gate" ? "Gate state" : blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "puncher" ? "Puncher state" : blocks.find((block) => block.id === genericPrompt.blockId)?.roleId === "orange-wall" ? "Orange mechanism state" : "Generic numbered family"}</span>
-                  <h2 id="generic-id-title">Choose {blocks.find((block) => block.id === genericPrompt.blockId)?.name ?? "object"} {blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "lift" || blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "gate" || blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "puncher" ? "state" : blocks.find((block) => block.id === genericPrompt.blockId)?.roleId === "orange-wall" ? "remaining rise" : "ID"}</h2>
-                  <p id="generic-id-message">{blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "lift" ? "Use 0 for lowered or 1 for raised. The face you paint chooses Up, Front, Right, Back, or Left and stores the matching full ID from 0–9." : blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "gate" ? "Use 0 for the lowered red slab or 1 for the raised red gate cube." : blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "puncher" ? "Use 0 for the unsprung puncher or 1 for the sprung puncher. The side face you paint chooses its punch direction." : blocks.find((block) => block.id === genericPrompt.blockId)?.roleId === "orange-wall" ? "Use 0 when it will not rise. N means this wall or slope still needs to rise N mechanism steps." : "Cubes painted with the same number belong to the same generic object."}</p>
-                  <label className="field"><span>{blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "puncher" ? "State (0 unsprung · 1 sprung)" : blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "lift" || blocks.find((block) => block.id === genericPrompt.blockId)?.visual.kind === "gate" ? "State (0 lowered · 1 raised)" : blocks.find((block) => block.id === genericPrompt.blockId)?.roleId === "orange-wall" ? "Remaining rise (0 or more)" : "ID (0 or more)"}</span><input ref={genericIdInputRef} inputMode="numeric" value={genericPrompt.value} aria-invalid={Boolean(genericPromptError)} onChange={(event) => { setGenericPrompt((current) => current ? { ...current, value: event.target.value } : current); setGenericPromptError(""); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); confirmGenericSelection(); } else if (event.key === "Escape") { event.preventDefault(); setGenericPrompt(null); } }} /></label>
-                  {genericPromptError && <small className="generic-id-modal__error" role="alert">{genericPromptError}</small>}
-                  <div className="generic-id-modal__actions"><button className="tool-button" type="button" onClick={() => setGenericPrompt(null)}>Cancel</button><button className="tool-button tool-button--primary" type="button" onClick={confirmGenericSelection}>Select</button></div>
-                </section>
-              </div>
-            )}
-            {showResult && activeResult && !activeResult.pass && (
-              <FailureTraceComparison
-                blocks={blocks}
-                genericBlockIds={genericBlockIds}
-                layer={layer}
-                onClose={() => setShowResult(false)}
-                result={activeResult}
-              />
-            )}
-          </section>
-        </section>
 
-        <aside className="author-sidebar" data-inspector={inspectorTab}>
-          <div className="editor-inspector-tabs" role="group" aria-label="Inspector">
-            <button aria-pressed={inspectorTab === "test"} onClick={() => setInspectorTab("test")}>Test</button>
-            <button aria-pressed={inspectorTab === "tool"} onClick={() => setInspectorTab("tool")}>Tool</button>
-          </div>
+                <button className="tool add-tool" aria-label="Define a new block" onClick={() => { setAddingBlock(true); }}>＋</button>
+              </div>
+              {projectLoaded && <LabToolboxPreviews blocks={blocks} genericBlockIds={genericBlockIds} genericIds={selectedGenericIds} orangeWallDepths={selectedOrangeWallDepths} cameraQuarterTurns={cameraQuarterTurns} />}
+            </section>
           <div className="editor-lock-row"><span>{activeTestLocked ? <><LockIcon /> Read only</> : "Editing enabled"}</span><button onClick={() => toggleTestLocked(activeTest.id)}>{activeTestLocked ? "Unlock" : "Lock"}</button></div>
-          <details className="author-panel inspector-test" open>
+          <details className="panel inspector-test">
             <summary><span className="chevron">▸</span><span>Test details</span></summary>
             <div className="author-panel__body">
               <label className="field"><span>Name</span><input value={activeTest.name} onChange={(event) => updateTestMetadata(activeTest.id, { name: event.target.value })} /></label>
@@ -3979,7 +3992,7 @@ export default function VoxelBench() {
 
           <button className="editor-library-link inspector-test" onClick={() => setActiveWorkspace("suite")}><span>Browse test library</span><span>{counts.runnable} tests ›</span></button>
 
-          <details className="author-panel inspector-tool" open>
+          <details className="panel inspector-tool" open={addingBlock || groupSelectionMode || Boolean(activeGroupSelection) || undefined}>
             <summary><span className="chevron">▸</span><span>Selected tool</span><button type="button" className="panel-add" aria-label="Add block" onClick={(event) => { event.preventDefault(); setAddingBlock((value) => !value); }}>＋</button></summary>
             <div className="author-panel__body">
               {addingBlock ? (
@@ -4006,7 +4019,7 @@ export default function VoxelBench() {
                   </section>
                 </div>
               ) : selectedBlock === DELETE_TOOL_ID ? (
-                <div className="eraser-description"><svg className="author-tool-icon author-tool-icon--eraser" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" /><path d="M22 21H7" /><path d="m5 11 9 9" /></svg><div><strong>Erase tool</strong><small>Click a visible cube to remove it. Press E to select.</small></div></div>
+                <div className="eraser-description"><svg className="author-tool-icon author-tool-icon--eraser" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" /><path d="M22 21H7" /><path d="m5 11 9 9" /></svg><div><strong>Erase tool</strong><small>Click a visible cube to remove it. Press X to select.</small></div></div>
               ) : selectedDefinition ? (
                 <div className="definition-form">
                   <div className="selected-block-title"><span className={`swatch-cube large ${selectedDefinition.visual.kind === "floating-floor" ? "floating-floor" : ""} ${selectedDefinition.visual.kind === "slope" ? `slope slope--${selectedSlopeDirection}` : ""} ${selectedDefinition.visual.kind === "button" ? `pressure-button pressure-button--${selectedDefinition.visual.buttonForm === "hidden" ? "hidden" : "visible"}` : ""} ${selectedDefinition.roleId === "orange-wall" ? `orange-wall orange-wall--${selectedDefinition.visual.orangeForm === "hidden" ? "hidden" : "cube"} stateful` : ""} ${selectedDefinition.visual.kind === "lift" ? `lift lift--${liftIsRaised(selectedGenericIds[selectedDefinition.id] ?? 0) ? "raised" : "lowered"} lift--top` : ""} ${selectedDefinition.visual.kind === "gate" ? `gate gate--${gateIsRaised(selectedGenericIds[selectedDefinition.id] ?? 0) ? "raised" : "lowered"}` : ""} ${selectedDefinition.visual.kind === "puncher" ? `puncher puncher--${puncherIsSprung(selectedGenericIds[selectedDefinition.id] ?? 0) ? "sprung" : "unsprung"}` : ""} ${genericBlockIds.has(selectedDefinition.id) ? "generic" : ""}`} data-generic-label={genericBlockIds.has(selectedDefinition.id) ? selectedDefinition.visual.kind === "lift" ? String(liftIsRaised(selectedGenericIds[selectedDefinition.id] ?? 0) ? 1 : 0) : selectedDefinition.visual.kind === "gate" ? String(gateIsRaised(selectedGenericIds[selectedDefinition.id] ?? 0) ? 1 : 0) : selectedDefinition.visual.kind === "puncher" ? String(puncherIsSprung(selectedGenericIds[selectedDefinition.id] ?? 0) ? 1 : 0) : "N" : selectedOrangeWallDepth ?? undefined} style={{ "--block-color": selectedDefinition.color } as React.CSSProperties}>{selectedSlopeOption && !genericBlockIds.has(selectedDefinition.id) && selectedOrangeWallDepth === null ? <i className="slope-direction-glyph" aria-hidden="true">{selectedSlopeOption.glyph}</i> : selectedDefinition.visual.kind === "puncher" ? <i className="puncher-direction-glyph" aria-hidden="true">→</i> : null}</span><div><strong>{selectedDefinition.name}</strong><small>{selectedDefinition.id}</small></div></div>
@@ -4026,7 +4039,7 @@ export default function VoxelBench() {
             </div>
           </details>
 
-          <details className="author-panel inspector-tool" open={addingRole || undefined}>
+          <details className="panel inspector-tool" open={addingRole || undefined}>
             <summary><span className="chevron">▸</span><span>Physics roles</span><button type="button" className="panel-add" aria-label="Add physics role" onClick={(event) => { event.preventDefault(); setAddingRole((value) => !value); }}>＋</button></summary>
             <div className="author-panel__body">
               {addingRole ? (
@@ -4048,7 +4061,7 @@ export default function VoxelBench() {
             </div>
           </details>
 
-          <details className="author-panel inspector-test">
+          <details className="panel inspector-test">
             <summary><span className="chevron">▸</span><span>Room size</span><em>{activeWorld.width} × {activeWorld.height} × ∞</em></summary>
             <div className="author-panel__body">
               <TestWorldEditor key={`${activeTest.id}:${activeWorld.width}:${activeWorld.height}`} locked={activeTestLocked} test={activeTest} onSave={saveWorldDimensions} />

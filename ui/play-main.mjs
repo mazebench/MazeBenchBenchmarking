@@ -14,6 +14,8 @@ import {
 } from "../play/current/play-session.mjs";
 import { installRoomControlsV1 } from "../play/v1/room-controls.mjs";
 import { MoveSequencePlayer, parseMoveSequence } from "./move-sequence.mjs";
+import { installPlayGamepadControls } from "./play-gamepad.mjs";
+import { installGamepadPresentation } from "./gamepad-presentation.mjs";
 
 const elements = {
   stage: document.getElementById("stage"),
@@ -253,6 +255,39 @@ bindCamera("zoom-in", "q", () => renderer.zoomBy(0.8));
 bindCamera("zoom-out", "e", () => renderer.zoomBy(1 / 0.8));
 document.getElementById("rotate-left").addEventListener("click", () => rotateCamera(-1));
 document.getElementById("rotate-right").addEventListener("click", () => rotateCamera(1));
+
+const gamepadButtons = {
+  turnLeft: document.getElementById("rotate-left"),
+  turnRight: document.getElementById("rotate-right"),
+  tiltUp: document.getElementById("tilt-up"),
+  tiltDown: document.getElementById("tilt-down"),
+  zoomIn: document.getElementById("zoom-in"),
+  zoomOut: document.getElementById("zoom-out"),
+  undo: elements.undo
+};
+installPlayGamepadControls({
+  ...installGamepadPresentation(),
+  isReady: () => Boolean(session && renderer && elements.stage.classList.contains("is-ready")),
+  canMove: () => !sequencePlayer.running && Boolean(session?.state) && !session.running
+    && !session.queue.length && !elements.directionButtons[0].disabled,
+  isAscii: () => viewMode === "ascii",
+  onMove: moveFromCamera,
+  onUndo: undoPlay,
+  onRotate: rotateCamera,
+  onPitchStep: step => setAsciiPitch(asciiPitch + step),
+  onCameraInput: input => renderer?.setGamepadCameraInput(input),
+  onStatus: text => { document.getElementById("controller-status").textContent = text; },
+  onFeedback: ({ move, turn, tilt, zoom, undoButtons }) => {
+    for (const button of elements.directionButtons) {
+      button.classList.toggle("is-gamepad-active", !button.disabled && button.dataset.direction === move);
+    }
+    const active = { turnLeft: turn < 0, turnRight: turn > 0, tiltUp: tilt > 0,
+      tiltDown: tilt < 0, zoomIn: zoom < 0, zoomOut: zoom > 0, undo: Boolean(undoButtons) && !elements.undo.disabled };
+    for (const [name, button] of Object.entries(gamepadButtons)) {
+      button.classList.toggle("is-gamepad-active", active[name]);
+    }
+  }
+});
 
 elements.viewToggle.addEventListener("click", toggleViewMode);
 elements.reset.addEventListener("click", resetPlay);

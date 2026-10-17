@@ -9,7 +9,7 @@ export const EDITOR_SOLVER_PRESETS_V1 = Object.freeze({
   }),
   exact: Object.freeze({
     id: "exact-shortest",
-    label: "Exact Shortest",
+    label: "BFS",
     maximumNodes: 180_000,
     maximumEdges: 8_192,
     heuristicWeight: 0

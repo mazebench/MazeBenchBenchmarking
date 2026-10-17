@@ -39,7 +39,11 @@ test('past reset times and short waits do not promise a quota is available', () 
 test('failed run cards distinguish a rate limit from other failures', () => {
   const run = { model: 'muse-wonder-1.0', status: 'failed', rate_limit: rateLimitDetails(error) };
   assert.equal(runCardValues(run).status, 'Rate limited');
+  assert.equal(runCardValues(run).statusTone, 'yellow');
   assert(runCardValues(run).rateLimit);
   assert.equal(runCardValues({ ...run, rate_limit: null }).status, 'failed');
+  assert.equal(runCardValues({ ...run, rate_limit: null }).statusTone, 'red');
   assert.equal(runCardValues({ ...run, status: 'running' }).rateLimit, null);
+  assert.equal(runCardValues({ ...run, status: 'running' }).statusTone, 'green');
+  assert.equal(runCardValues({ ...run, status: 'paused' }).statusTone, 'gray');
 });

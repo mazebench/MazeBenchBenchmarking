@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { EDITOR_CAMERA_BUTTONS } from "../../../ui/editor-camera-pad.mjs";
 import { cameraYawQuarterTurns, stepCameraZoom } from "./cameraNavigation.mjs";
 import {
   marqueeRectangle,
@@ -122,6 +123,7 @@ type MazeBenchRenderer = {
     mode: "perspective";
     preserveSceneCache?: boolean;
     skipRender?: boolean;
+    skipResize?: boolean;
     tilt?: number;
     yaw?: number;
     zoom?: number;
@@ -232,7 +234,7 @@ type CameraMotion = {
   };
 };
 
-type CanvasProps = {
+export type CanvasProps = {
   frame: Frame;
   blocks: BlockDefinition[];
   genericBlockIds: ReadonlySet<string>;
@@ -249,9 +251,12 @@ type CanvasProps = {
   cameraLayerRange?: { minimum: number; maximum: number };
   cameraSceneKey?: string;
   // Controlled camera for a shared, persistent snapshot renderer.
-  snapshotCamera?: { yaw: number; tilt: number };
+  snapshotCamera?: { yaw: number; tilt: number; zoom?: number };
   onSnapshot?: (dataUrl: string) => void;
+  // Synchronous capture for in-memory thumbnails, avoiding PNG encode/decode.
+  onSnapshotCanvas?: (canvas: HTMLCanvasElement) => void;
   snapshotRequestId?: number | string;
+  snapshotSize?: number;
   onPaint?: (
     x: number,
     y: number,
@@ -603,7 +608,9 @@ export default function MazeBenchCanvas({
   cameraSceneKey,
   snapshotCamera,
   onSnapshot,
+  onSnapshotCanvas,
   snapshotRequestId,
+  snapshotSize = 256,
   onPaint,
   onPaintGestureEnd,
   onPaintGestureStart,
@@ -615,6 +622,7 @@ export default function MazeBenchCanvas({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<RuntimeState | null>(null);
   const onSnapshotRef = useRef(onSnapshot);
+  const onSnapshotCanvasRef = useRef(onSnapshotCanvas);
   const minimumLayer = cameraLayerRange?.minimum;
   const maximumLayer = cameraLayerRange?.maximum;
   const sceneData = useMemo(() => frameToPlayData(
@@ -645,11 +653,13 @@ export default function MazeBenchCanvas({
   const publishedCameraQuarterTurnRef = useRef<number | null>(null);
   const marqueeDragRef = useRef<MarqueeDrag | null>(null);
   const [marqueeRect, setMarqueeRect] = useState<ReturnType<typeof marqueeRectangle> | null>(null);
+  const [activeCameraKeys, setActiveCameraKeys] = useState<ReadonlySet<string>>(new Set());
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => {
     onSnapshotRef.current = onSnapshot;
-  }, [onSnapshot]);
+    onSnapshotCanvasRef.current = onSnapshotCanvas;
+  }, [onSnapshot, onSnapshotCanvas]);
 
   const publishCameraQuarterTurn = useCallback((yaw: number) => {
     const quarterTurns = cameraYawQuarterTurns(yaw);
@@ -744,6 +754,7 @@ export default function MazeBenchCanvas({
       mode: "perspective",
       preserveSceneCache: true,
       skipRender: true,
+      skipResize: true,
     });
     app.render(now);
 
@@ -884,6 +895,7 @@ export default function MazeBenchCanvas({
     let renderFrame = 0;
     const app = runtime.app;
     const onCapture = onSnapshotRef.current;
+    const onCanvasCapture = onSnapshotCanvasRef.current;
     runtime.layerOffset = sceneData.layerOffset;
     app.editorCameraElevationOffset = sceneData.layerOffset;
     app.editorCameraMaximumLogicalLayer = maximumLayer;
@@ -905,13 +917,14 @@ export default function MazeBenchCanvas({
         app.render();
         canvas.dataset.renderDurationMs = (performance.now() - renderStarted).toFixed(2);
         publishRendererState(app, canvas);
+        onCanvasCapture?.(canvas);
         if (!onCapture) return;
         // Copy the freshly rendered buffer immediately. No second render or
         // new WebGL context is needed, and each callback belongs to this job.
         try {
           const thumbnail = document.createElement("canvas");
-          thumbnail.width = 256;
-          thumbnail.height = Math.max(1, Math.round(256 * canvas.height / canvas.width));
+          thumbnail.width = snapshotSize;
+          thumbnail.height = Math.max(1, Math.round(snapshotSize * canvas.height / canvas.width));
           const context = thumbnail.getContext("2d");
           if (!context) throw new Error("Snapshot canvas is unavailable");
           context.drawImage(canvas, 0, 0, thumbnail.width, thumbnail.height);
@@ -923,7 +936,7 @@ export default function MazeBenchCanvas({
       });
     });
     return () => { cancelled = true; window.cancelAnimationFrame(renderFrame); };
-  }, [status, sceneData, maximumLayer, cameraSceneKey, setCamera, snapshotCamera, snapshotRequestId]);
+  }, [status, sceneData, maximumLayer, cameraSceneKey, setCamera, snapshotCamera, snapshotRequestId, snapshotSize]);
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -958,6 +971,9 @@ export default function MazeBenchCanvas({
         return;
       }
       const key = event.key.toLowerCase();
+      if (["w", "a", "s", "d"].includes(key) && !event.repeat) {
+        setActiveCameraKeys((current) => new Set([...current, key]));
+      }
       if (key === "w" || key === "s") {
         event.preventDefault();
         motion.heldTiltKeys.add(key);
@@ -968,18 +984,25 @@ export default function MazeBenchCanvas({
       } else if (key === "n" && !event.repeat) {
         event.preventDefault();
         pointCameraNorth();
-      } else if ((key === "-" || key === "_" || key === "=" || key === "+") && !event.repeat) {
+      } else if (key === "/" && !event.repeat) {
         event.preventDefault();
-        zoomCamera(key === "=" || key === "+" ? 1 : -1);
+        setCamera({ yaw: 0, tilt: 0.58, zoom: 0.85 });
+      } else if ((key === "q" || key === "e" || key === "-" || key === "_" || key === "=" || key === "+") && !event.repeat) {
+        event.preventDefault();
+        zoomCamera(key === "e" || key === "=" || key === "+" ? 1 : -1);
       }
     };
     const onKeyUp = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
+      if (["w", "a", "s", "d"].includes(key)) {
+        setActiveCameraKeys((current) => { const next = new Set(current); next.delete(key); return next; });
+      }
       if (key !== "w" && key !== "s") return;
       motion.heldTiltKeys.delete(key);
       recomputeTiltDirection();
     };
     const onBlur = () => {
+      setActiveCameraKeys(new Set());
       motion.heldTiltKeys.clear();
       motion.pointerTiltDirection = 0;
       recomputeTiltDirection();
@@ -1003,7 +1026,7 @@ export default function MazeBenchCanvas({
       pendingPaintSampleRef.current = null;
       paintStrokeRef.current = null;
     };
-  }, [interactive, pointCameraNorth, recomputeTiltDirection, rotateCamera, zoomCamera]);
+  }, [interactive, pointCameraNorth, recomputeTiltDirection, rotateCamera, zoomCamera, setCamera]);
 
   useEffect(() => {
     if (paintable) return;
@@ -1295,16 +1318,38 @@ export default function MazeBenchCanvas({
         </div>
       )}
       {interactive && (
-        <div className="editor-camera-controls"><div className="control-pad camera-pad" aria-label="Camera controls" title="− zooms out · + zooms in · E selects the eraser">
-          <button className="control-button dpad-button" type="button" data-camera="up" aria-label="Camera up" onPointerDown={() => { cameraMotionRef.current.pointerTiltDirection = -1; recomputeTiltDirection(); }} onPointerUp={() => { cameraMotionRef.current.pointerTiltDirection = 0; recomputeTiltDirection(); }} onPointerLeave={() => { cameraMotionRef.current.pointerTiltDirection = 0; recomputeTiltDirection(); }} />
-          <button className="control-button dpad-button" type="button" data-camera="left" aria-label="Rotate camera left" onClick={() => rotateCamera(-1)} />
-          <button className="dpad-center compass-reset" type="button" aria-label="Point camera north" title="Point north · N" onClick={pointCameraNorth}>N</button>
-          <button className="control-button dpad-button" type="button" data-camera="right" aria-label="Rotate camera right" onClick={() => rotateCamera(1)} />
-          <button className="control-button dpad-button" type="button" data-camera="down" aria-label="Camera down" onPointerDown={() => { cameraMotionRef.current.pointerTiltDirection = 1; recomputeTiltDirection(); }} onPointerUp={() => { cameraMotionRef.current.pointerTiltDirection = 0; recomputeTiltDirection(); }} onPointerLeave={() => { cameraMotionRef.current.pointerTiltDirection = 0; recomputeTiltDirection(); }} />
-        </div><div className="editor-zoom" role="group" aria-label="Camera zoom">
-          <button type="button" aria-label="Zoom out" title="Zoom out · −" onClick={() => zoomCamera(-1)}>−</button>
-          <button type="button" aria-label="Zoom in" title="Zoom in · +" onClick={() => zoomCamera(1)}>+</button>
-        </div></div>
+        <>
+          <div className="camera-pad" role="group" aria-label="Camera controls">
+            {EDITOR_CAMERA_BUTTONS.map(({ direction, key, label }) => <button
+              key={direction} className={`pad-button ${activeCameraKeys.has(key.toLowerCase()) ? "is-key-active" : ""}`}
+              type="button" data-camera={direction} aria-label={label} aria-keyshortcuts={key} title={`${label} (${key})`}
+              disabled={status !== "ready"}
+              onPointerDown={(event) => {
+                event.currentTarget.setPointerCapture(event.pointerId);
+                event.currentTarget.classList.add("is-pointer-active");
+                if (direction === "up" || direction === "down") {
+                  cameraMotionRef.current.pointerTiltDirection = direction === "up" ? -1 : 1;
+                  recomputeTiltDirection();
+                }
+              }}
+              onLostPointerCapture={(event) => {
+                event.currentTarget.classList.remove("is-pointer-active");
+                cameraMotionRef.current.pointerTiltDirection = 0;
+                recomputeTiltDirection();
+              }}
+              onClick={() => {
+                if (direction === "left" || direction === "right") rotateCamera(direction === "left" ? -1 : 1);
+              }}
+            ><span className={`pad-arrow ${direction}`} aria-hidden="true" /><kbd aria-hidden="true">{key}</kbd></button>)}
+            <span className="pad-label" aria-hidden="true">CAM</span>
+          </div>
+          <details className="camera-help">
+            <summary>Camera controls</summary>
+            <dl><div><dt>Rotate</dt><dd>A / D</dd></div><div><dt>Tilt</dt><dd>W / S</dd></div><div><dt>Zoom</dt><dd>Q / E</dd></div><div><dt>Center</dt><dd>/</dd></div></dl>
+            <p>Shift-drag or middle-drag to rotate the camera.</p>
+            <p><button type="button" aria-label="Zoom out" onClick={() => zoomCamera(-1)}>−</button> <button type="button" aria-label="Zoom in" onClick={() => zoomCamera(1)}>+</button> <button type="button" onClick={() => setCamera({ yaw: 0, tilt: 0.58, zoom: 0.85 })}>Reset view</button></p>
+          </details>
+        </>
       )}
     </div>
   );

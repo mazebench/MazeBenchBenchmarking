@@ -154,7 +154,7 @@ test("editor UI exposes both solver modes, physics bias, and live throughput", a
     readFile(new URL("../editor/v1/solver-worker.mjs", import.meta.url), "utf8")
   ]);
   assert.match(html, /Fast A\*/);
-  assert.match(html, /Exact Shortest/);
+  assert.match(html, /id="exact-solve"[^>]*>BFS</);
   assert.match(html, /id="physics-interaction-weight"[^>]*value="0"/);
   assert.match(main, /board states\/s/);
   assert.match(main, /command sims\/s/);

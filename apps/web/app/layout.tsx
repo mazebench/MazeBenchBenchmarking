@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "../../../ui/editor-shell.css";
+import "../../../ui/editor-controls.css";
+import "./lab-editor.css";
 
 export const metadata: Metadata = {
   title: "VoxelBench — Visual physics tests",

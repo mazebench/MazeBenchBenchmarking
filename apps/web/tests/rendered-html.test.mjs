@@ -21,7 +21,8 @@ test("server-renders the VoxelBench editor", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>VoxelBench/);
-  assert.match(html, /Test editor/i);
+  assert.match(html, /class="app-shell maze-editor lab-editor"/);
+  assert.match(html, /aria-label="Editor actions"/);
   assert.match(html, /aria-label="Frame controls"/);
   assert.match(html, /Selected tool/);
   assert.match(html, /Physics roles/);
@@ -45,19 +46,19 @@ test("server-renders the VoxelBench editor", async () => {
   assert.match(html, /MazeBench floating floor/);
   assert.match(html, /Interactive MazeBench perspective polycube editor/);
   assert.match(html, /Erase tool/);
-  assert.match(html, /Block palette · Left and right arrows choose tools/);
+  assert.match(html, /aria-label="MazeBench tools"/);
   assert.match(html, /←\/→ chooses tools/);
   assert.match(html, /Select group tool/);
   assert.match(html, /Camera-relative arrows · Shift\+↑\/↓ changes layer · Delete erases/);
-  assert.match(html, /Undo paint/);
-  assert.match(html, /Redo paint/);
+  assert.match(html, />Undo<\/button>/);
+  assert.match(html, />Redo<\/button>/);
   assert.match(html, /Reset room/);
   assert.match(html, /Movement input/i);
   assert.match(html, /Description/);
   assert.match(html, /Moving Up pushes the single crate one cell onto the goal/);
   assert.match(html, /Checked in all four directions/);
   assert.match(html, /Camera controls/);
-  assert.match(html, /Point camera north/);
+  assert.match(html, /Reset view/);
   assert.match(html, /01<\/span> Start/);
   assert.match(html, /02<\/span> Expected/);
   assert.match(html, />Tags</);
@@ -65,9 +66,9 @@ test("server-renders the VoxelBench editor", async () => {
   assert.match(html, /Subtags/);
   assert.match(html, /Movement &amp; walls/);
   assert.match(html, /Push boxes/);
-  assert.match(html, />Test Suite<\/button>/);
+  assert.match(html, />Test library<\/button>/);
   assert.match(html, /Browse test library/);
-  assert.match(html, /aria-label="Inspector"/);
+  assert.match(html, /aria-label="Editor tools and test settings"/);
   assert.doesNotMatch(html, /aria-label="Collapse Movement &amp; walls"/);
   assert.match(html, /Run test/);
   assert.match(html, /Z is unbounded/);
@@ -233,7 +234,7 @@ test("the editor exposes visible and invisible Orange Walls and Buttons", async 
   assert.match(editor, /id: "orange-button", name: "Orange button"[\s\S]*?occupancy: "sensor"/);
   assert.match(editor, /id: "orange-button-hidden", name: "Invisible orange button"[\s\S]*?buttonForm: "hidden"/);
   assert.doesNotMatch(editor, /id: "orange-wall-face"/);
-  assert.match(editor, /pressure-button--\$\{hiddenButton \? "hidden" : "visible"\}/);
+  assert.match(editor, /hiddenButton[\s\S]*?invisible editor-only pressure sensor/);
 });
 
 test("red gates and punchers use the MazeBench Three.js recipes", async () => {

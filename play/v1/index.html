@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Play MazeBench. Explore rooms, collect gems, and find your way through the world.">
     <title>MazeBench — Play</title>
+    <link rel="icon" type="image/svg+xml" href="../../favicon.svg">
     <link rel="stylesheet" href="../../render/v1/visual-effects.css">
     <link rel="stylesheet" href="../../render-ascii/v1/styles.css">
     <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="../../ui/play-gamepad.css">
     <link rel="stylesheet" href="../../render/v1/cutaway-controls.css">
   </head>
   <body>
@@ -97,6 +99,19 @@
             <label class="timing-control" for="animation-delay"><span>Frame delay <small>ms</small></span><input id="animation-delay" type="number" min="0" max="10000" step="0.1" value="20" inputmode="decimal"></label>
             <small id="animation-rate">50 frames per second</small>
             <p>Set to 0 for instant moves.</p>
+          </div>
+        </details>
+
+        <details class="panel controller-panel">
+          <summary>Controller</summary>
+          <div class="controller-help">
+            <p id="controller-status" role="status">Press a controller button to connect.</p>
+            <dl>
+              <div><dt>Move</dt><dd>Left stick / D-pad</dd></div>
+              <div><dt>Camera</dt><dd>Right stick</dd></div>
+              <div><dt>Zoom in / out</dt><dd>ZL / ZR · L2 / R2 · LT / RT</dd></div>
+              <div><dt>Undo</dt><dd>Any right-side face button</dd></div>
+            </dl>
           </div>
         </details>
       </aside>

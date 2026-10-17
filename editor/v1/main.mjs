@@ -1,3 +1,4 @@
+import { mountEditorCameraPad } from "../../ui/editor-camera-pad.mjs";
 import { WorldContextRenderer } from "../../ui/world-context-renderer.mjs";
 import { bindCameraHold } from "../../render/v1/camera-controls.mjs";
 import { installTruncateControls } from "../../ui/truncate-controls.mjs";
@@ -35,6 +36,8 @@ import {
   genericToolDescriptor
 } from "./generic-tools.mjs";
 
+mountEditorCameraPad(document.querySelector(".camera-pad"));
+
 const elements = {
   stage: document.getElementById("stage"),
   canvas: document.getElementById("editor-canvas"),
@@ -67,10 +70,6 @@ const elements = {
   copySolutionUdlr: document.getElementById("copy-solution-udlr"),
   solverCopyStatus: document.getElementById("solver-copy-status"),
   solverCopyFallback: document.getElementById("solver-copy-fallback"),
-  edgeFind: document.getElementById("edge-find"),
-  edgeExact: document.getElementById("edge-exact"),
-  edgeResult: document.getElementById("edge-result"),
-  edgeList: document.getElementById("edge-list"),
   genericDialog: document.getElementById("generic-dialog"),
   genericForm: document.getElementById("generic-form"),
   genericTitle: document.getElementById("generic-title"),
@@ -134,12 +133,8 @@ function invalidateSolution({ cancel = true } = {}) {
   elements.cancelSolve.disabled = true;
   elements.replaySolution.disabled = true;
   updateSolutionCopy();
-  elements.edgeFind.disabled = false;
-  elements.edgeExact.disabled = false;
   elements.solverResult.textContent = "Room changed; run a solver again.";
   elements.solverPath.textContent = "";
-  elements.edgeResult.textContent = "Room changed; run Edge Finder again.";
-  elements.edgeList.textContent = "";
 }
 
 function setSolverBusy(busy, label = "") {
@@ -150,8 +145,6 @@ function setSolverBusy(busy, label = "") {
   elements.cancelSolve.disabled = !busy;
   elements.replaySolution.disabled = busy || !lastSolution?.solution?.length;
   updateSolutionCopy();
-  elements.edgeFind.disabled = busy;
-  elements.edgeExact.disabled = busy;
   if (label) elements.solverResult.textContent = label;
 }
 
@@ -620,47 +613,6 @@ async function replaySolution() {
   }
 }
 
-async function runEdgeFinder(preset) {
-  if (solverBusy) return;
-  elements.edgeList.textContent = "";
-  setSolverBusy(true);
-  elements.edgeResult.textContent = `${preset.label} edge search is running…`;
-  setStatus(`Finding connected-world exits from ${currentRoom.position.join("×")}…`);
-  try {
-    const result = await solvers.findEdges(currentRoom, preset, {
-      onProgress: (message) => { elements.edgeResult.textContent = message; }
-    });
-    const entries = result.results.length;
-    const transitions = result.results.flatMap((entry) => entry.transitions.map((transition) => ({
-      ...transition,
-      startId: entry.startId
-    })));
-    const candidates = result.results.reduce((sum, entry) => sum + entry.search.edgeCount, 0);
-    elements.edgeResult.textContent = `${transitions.length} exact room-crossing states · ${entries} start state${entries === 1 ? "" : "s"} · ${candidates.toLocaleString()} boundary witnesses checked`;
-    for (const transition of transitions.slice(0, 200)) {
-      const destination = transition.destinationRoom.position?.join("×") || transition.destinationRoom.fileName;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "edge-route";
-      button.innerHTML = `<b>Entry ${transition.startId} → ${destination} · ${transition.hops.length} seam${transition.hops.length === 1 ? "" : "s"}</b><code>${solverPathLabelV1(transition.solution)}</code>`;
-      elements.edgeList.append(button);
-    }
-    if (transitions.length > 200) {
-      elements.edgeList.append(`Showing 200 of ${transitions.length} room-crossing states.`);
-    }
-    setStatus(transitions.length
-      ? `Edge Finder found ${transitions.length} connected-world entry states.`
-      : "No neighboring room crossing was reachable from these starts.", !transitions.length);
-  } catch (error) {
-    if (error?.name !== "AbortError") {
-      elements.edgeResult.textContent = error?.message || "Edge Finder failed.";
-      setStatus(error?.message || "Edge Finder failed.", true);
-    }
-  } finally {
-    setSolverBusy(false);
-  }
-}
-
 elements.menu.addEventListener("click", (event) => {
   if (event.target.closest(".menu-items button, .menu-items a")) {
     elements.menu.open = false;
@@ -691,8 +643,6 @@ elements.genericDialog.addEventListener("pointerdown", (event) => {
 });
 elements.quickSolve.addEventListener("click", () => runSolver(EDITOR_SOLVER_PRESETS_V1.fast));
 elements.exactSolve.addEventListener("click", () => runSolver(EDITOR_SOLVER_PRESETS_V1.exact));
-elements.edgeFind.addEventListener("click", () => runEdgeFinder(EDITOR_SOLVER_PRESETS_V1.quick));
-elements.edgeExact.addEventListener("click", () => runEdgeFinder(EDITOR_SOLVER_PRESETS_V1.exact));
 elements.cancelSolve.addEventListener("click", () => {
   replayGeneration += 1;
   if (solvers.cancel()) setStatus("Solver cancelled.");
@@ -778,7 +728,7 @@ for (const [id, direction] of [["rotate-left", -1], ["rotate-right", 1]]) {
 
 try {
   const loadingControls = [elements.eraser, elements.quickSolve, elements.exactSolve,
-    elements.edgeFind, elements.edgeExact, ...document.querySelectorAll("[data-transform], .camera-pad .pad-button")];
+    ...document.querySelectorAll("[data-transform], .camera-pad .pad-button")];
   loadingControls.forEach((button) => { button.disabled = true; });
   [world, parser, toolboxCatalog] = await Promise.all([
     loadBrowserWorld((complete, total, phase) => updateLoadProgress(elements.loadProgress, complete, total, phase)),
