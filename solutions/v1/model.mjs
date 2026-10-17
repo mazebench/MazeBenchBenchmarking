@@ -134,7 +134,7 @@ export class SolutionsModel {
   }
   async move(direction,onFrame=null) {
     const result = await this.step(this.current, direction,onFrame);
-    if (!result.changed) return { snapshot: this.snapshot(), message: result.rejected || 'No change.' };
+    if (!result.changed) return { snapshot: this.snapshot(), message: result.rejected || 'No change.', rejected: result.rejected || null };
     this.current = result; this.pending.push(direction); this.pendingSteps.push(result);
     if (result.crossings.length || result.gained.length) this.commit(result.gained.length ? 'Gem route' : 'Room crossing');
     return { snapshot: this.snapshot(), message: result.crossings.length ? `Entered ${roomLabel(this.rooms.get(result.room))}. Resume spot saved.` : result.gained.length ? 'Gem reached. Route saved.' : 'Move recorded.' };

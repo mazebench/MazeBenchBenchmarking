@@ -33,8 +33,15 @@
     <main class="editor-layout">
       <section id="stage" class="editor-stage" aria-label="Three-dimensional level editor">
         <canvas id="editor-canvas"></canvas>
-        <div id="cutaway-controls" class="cutaway-controls" role="group" aria-label="Room cutaway" hidden></div>
+        <details class="cutaway-panel"><summary>Truncate</summary><div id="cutaway-controls" class="cutaway-controls" role="group" aria-label="Truncate room" hidden></div></details>
         <div id="loading" class="loading"><progress id="load-progress" max="257" value="0" aria-label="Loading editor"></progress></div>
+        <div class="camera-pad" role="group" aria-label="Camera controls">
+          <button id="tilt-up" class="pad-button" type="button" aria-label="Tilt camera up" aria-keyshortcuts="W" title="Tilt up (W)" disabled><span class="pad-arrow up" aria-hidden="true"></span><kbd aria-hidden="true">W</kbd></button>
+          <button id="rotate-left" class="pad-button" type="button" aria-label="Rotate camera left" aria-keyshortcuts="A" title="Rotate left (A)" disabled><span class="pad-arrow left" aria-hidden="true"></span><kbd aria-hidden="true">A</kbd></button>
+          <span class="pad-label" aria-hidden="true">CAM</span>
+          <button id="rotate-right" class="pad-button" type="button" aria-label="Rotate camera right" aria-keyshortcuts="D" title="Rotate right (D)" disabled><span class="pad-arrow right" aria-hidden="true"></span><kbd aria-hidden="true">D</kbd></button>
+          <button id="tilt-down" class="pad-button" type="button" aria-label="Tilt camera down" aria-keyshortcuts="S" title="Tilt down (S)" disabled><span class="pad-arrow down" aria-hidden="true"></span><kbd aria-hidden="true">S</kbd></button>
+        </div>
         <details class="camera-help">
           <summary>Camera controls</summary>
           <dl><div><dt>Rotate</dt><dd>A / D</dd></div><div><dt>Tilt</dt><dd>W / S</dd></div><div><dt>Pan</dt><dd>Arrow keys</dd></div><div><dt>Zoom</dt><dd>Q / E</dd></div><div><dt>Center</dt><dd>/</dd></div></dl>
@@ -64,7 +71,6 @@
           <label class="solver-weight">
             <span>Physics interaction bias</span>
             <input id="physics-interaction-weight" type="number" min="0" max="1000" step="1" value="0" inputmode="numeric">
-            <small>0 is off; higher values explore box and mechanism motion sooner.</small>
           </label>
           <div class="solver-actions">
             <button id="quick-solve" type="button">Fast A*</button>
@@ -74,6 +80,11 @@
           </div>
           <output id="solver-result" class="solver-result" aria-live="polite"></output>
           <div id="solver-path" class="solver-path" aria-label="Solver path"></div>
+          <div class="solver-actions solver-copy-actions">
+            <button id="copy-solution-udlr" type="button" disabled>Copy UDLR</button>
+          </div>
+          <output id="solver-copy-status" class="solver-result" role="status"></output>
+          <textarea id="solver-copy-fallback" class="solver-copy-fallback" aria-label="Solution to copy" readonly hidden></textarea>
           </div>
         </details>
 
@@ -135,5 +146,6 @@
     </div>
 
     <script type="module" src="./main.mjs"></script>
+    <script type="module" src="../../ui/control-pad-feedback.mjs"></script>
   </body>
 </html>

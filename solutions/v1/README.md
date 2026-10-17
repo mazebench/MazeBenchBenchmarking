@@ -3,20 +3,28 @@
 Open [Solutions](http://localhost:8080/solutions/v1/) from the main navigation.
 Start the site with `node server.mjs` from the repository root if needed.
 
-- Begin at H×I, or use **Start room** to open a separate solution at another
-  room's authored player position. Switching rooms restores that room's local
-  solution without replacing routes saved under other starting rooms. Reloading
-  opens the last selected starting room. Move
+- A new solution opens the starting-room picker automatically. Choose H×I or
+  another room's authored player position. Picking a room with saved progress
+  resumes that room's local solution. Reloading an existing solution opens the
+  last selected starting room without showing the picker again. Move
   with the arrow keys or the movement pad. A solution started outside H×I
   proves reachability from its chosen room, not from the usual game start.
+- The starting-room picker shows the world grid, a room-layout preview, player
+  start and gem count. Search by coordinates such as `HxI`, use the game-start
+  or current-room shortcuts, or filter to saved solutions. Saved run and move
+  counts appear before opening a room; browsing the picker does not replay them.
 - **Undo** (Z or ⌘/Ctrl+Z) removes one move, including moves in generated
   routes and room crossings. It restores the exact board and gem ledger and
   works after reload. It deletes the last command from the active draft or
   newest saved route, along with any checkpoint/proof created only by that
   command. Undo never adds a move or a separate saved route. Existing older
   branches remain intact; resuming one starts a new editing session.
+- **Remove solution & restart** in the top row asks for confirmation, then
+  immediately stops ongoing verification, removes the entire solution for the
+  selected starting room, and reopens the starting-room picker. It remains
+  available while saved routes are being verified. Cancel keeps the solution.
+  Solutions belonging to other starting rooms stay saved.
 - **Find next gem** combines native room A* with connected-room route search.
-  **Reach new room** searches for a crossing into an unvisited room.
 - Tap a tile in the 3D view to immediately run A*, follow the route, and save
   its moves. Dragging still controls the camera. **Adjust target** lets you
   refine X/Y/height and search again; an empty height accepts any height.
@@ -40,11 +48,6 @@ Start the site with `node server.mjs` from the repository root if needed.
   A* also saves completed routes. These run endpoints are not spawn points.
   There is no manual Save spot action. View/copy moves or replay a run from
   **Saved runs**.
-- **Clear all runs** removes the entire saved collection in one action after
-  confirmation: every run, discovered spawn, current draft, and reachability
-  proof. It returns to the chosen authored start, keeps normal room starts, and
-  saves the empty collection so cleared runs stay gone after reload. Clearing
-  cannot be undone and never becomes a recorded move.
 - **Setup** beside a saved spawn shows the sequence that recreates it. A setup
   starts at the game start or an authored room start, then stacks the move
   sequences of the preceding spawns. It never teleports to arbitrary coordinates.

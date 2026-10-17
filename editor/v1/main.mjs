@@ -1,5 +1,6 @@
-import { ThreeMazeRendererV1 } from "../../render/v1/three-renderer.mjs";
-import { installCutawayControls } from "../../render/v1/cutaway-controls.mjs";
+import { NumberedMazeRenderer } from "../../ui/numbered-maze-renderer.mjs";
+import { bindCameraHold } from "../../render/v1/camera-controls.mjs";
+import { installTruncateControls } from "../../ui/truncate-controls.mjs";
 import { roomContextWorld } from "../../render/v1/room-context.mjs";
 import { cellForTool, describeCell } from "../../render/v1/world-renderer.mjs";
 import { encodeVoxelRoom, loadMainWorldV2 } from "../../render/v1/voxel-world-v2.mjs";
@@ -62,6 +63,9 @@ const elements = {
   replaySolution: document.getElementById("replay-solution"),
   solverResult: document.getElementById("solver-result"),
   solverPath: document.getElementById("solver-path"),
+  copySolutionUdlr: document.getElementById("copy-solution-udlr"),
+  solverCopyStatus: document.getElementById("solver-copy-status"),
+  solverCopyFallback: document.getElementById("solver-copy-fallback"),
   edgeFind: document.getElementById("edge-find"),
   edgeExact: document.getElementById("edge-exact"),
   edgeResult: document.getElementById("edge-result"),
@@ -127,6 +131,7 @@ function invalidateSolution({ cancel = true } = {}) {
   elements.physicsInteractionWeight.disabled = false;
   elements.cancelSolve.disabled = true;
   elements.replaySolution.disabled = true;
+  updateSolutionCopy();
   elements.edgeFind.disabled = false;
   elements.edgeExact.disabled = false;
   elements.solverResult.textContent = "Room changed; run a solver again.";
@@ -142,6 +147,7 @@ function setSolverBusy(busy, label = "") {
   elements.physicsInteractionWeight.disabled = busy;
   elements.cancelSolve.disabled = !busy;
   elements.replaySolution.disabled = busy || !lastSolution?.solution?.length;
+  updateSolutionCopy();
   elements.edgeFind.disabled = busy;
   elements.edgeExact.disabled = busy;
   if (label) elements.solverResult.textContent = label;
@@ -557,6 +563,35 @@ async function runSolver(preset) {
   }
 }
 
+function updateSolutionCopy() {
+  const unavailable = !lastSolution?.solution?.length;
+  elements.copySolutionUdlr.disabled = unavailable;
+  if (unavailable) {
+    elements.solverCopyStatus.textContent = "";
+    elements.solverCopyFallback.hidden = true;
+    elements.solverCopyFallback.value = "";
+  }
+}
+
+async function copySolution() {
+  const solution = lastSolution?.solution;
+  if (!solution?.length) return;
+  const text = solverPathLabelV1(solution);
+  elements.solverCopyFallback.hidden = true;
+  try {
+    await navigator.clipboard.writeText(text);
+    if (lastSolution?.solution !== solution) return;
+    elements.solverCopyStatus.textContent = "UDLR string copied.";
+  } catch {
+    if (lastSolution?.solution !== solution) return;
+    elements.solverCopyFallback.value = text;
+    elements.solverCopyFallback.hidden = false;
+    elements.solverCopyFallback.focus();
+    elements.solverCopyFallback.select();
+    elements.solverCopyStatus.textContent = "Press ⌘C or Ctrl+C to copy the selected solution.";
+  }
+}
+
 async function replaySolution() {
   if (solverBusy || !lastSolution?.solution?.length) return;
   const generation = ++replayGeneration;
@@ -663,6 +698,7 @@ elements.cancelSolve.addEventListener("click", () => {
   setSolverBusy(false);
 });
 elements.replaySolution.addEventListener("click", replaySolution);
+elements.copySolutionUdlr.addEventListener("click", copySolution);
 elements.undo.addEventListener("click", () => {
   const previous = undoStack.pop();
   if (!previous) return;
@@ -728,9 +764,19 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
+for (const [id, key] of [["tilt-up", "w"], ["tilt-down", "s"]]) {
+  bindCameraHold(document.getElementById(id), { key, getRenderer: () => renderer });
+}
+for (const [id, direction] of [["rotate-left", -1], ["rotate-right", 1]]) {
+  document.getElementById(id).addEventListener("click", () => {
+    renderer?.rotateCardinal(direction);
+    setTimeout(() => updatePlacementPreview(), 410);
+  });
+}
+
 try {
   const loadingControls = [elements.eraser, elements.quickSolve, elements.exactSolve,
-    elements.edgeFind, elements.edgeExact, ...document.querySelectorAll("[data-transform]")];
+    elements.edgeFind, elements.edgeExact, ...document.querySelectorAll("[data-transform], .camera-pad .pad-button")];
   loadingControls.forEach((button) => { button.disabled = true; });
   [world, parser, toolboxCatalog] = await Promise.all([
     loadMainWorldV2((complete, total) => {
@@ -745,13 +791,13 @@ try {
   const requested = new URL(location.href).searchParams.get("room")?.toUpperCase();
   currentRoom = world.rooms.find((room) => room.position.join("X") === requested) || world.rooms[0];
   savedObjects = cloneObjects(currentRoom.objects);
-  renderer = new ThreeMazeRendererV1(elements.canvas, roomContextWorld(world, currentRoom), {
+  renderer = new NumberedMazeRenderer(elements.canvas, roomContextWorld(world, currentRoom), {
     mode: "editor",
     onInspect: inspect,
     onSelect: inspect,
     onPaint: paint
   });
-  installCutawayControls(document.getElementById("cutaway-controls"), renderer, {
+  installTruncateControls(document.getElementById("cutaway-controls"), renderer, {
     onChange: () => { hoverHit = null; updatePlacementPreview(); }
   });
   new ResizeObserver(() => renderer.resize()).observe(elements.stage);

@@ -25,7 +25,7 @@
       <section id="stage" class="play-stage" aria-label="MazeBench play mode with 3D and ASCII views">
         <div class="play-viewport">
           <canvas id="play-canvas" aria-label="MazeBench room"></canvas>
-          <div id="cutaway-controls" class="cutaway-controls" role="group" aria-label="Room cutaway" hidden></div>
+          <details class="cutaway-panel"><summary>Truncate</summary><div id="cutaway-controls" class="cutaway-controls" role="group" aria-label="Truncate room" hidden></div></details>
           <div id="ascii-view" class="ascii-view" hidden>
             <div class="ascii-toolbar">
               <strong>ASCII</strong>
@@ -36,7 +36,6 @@
             <div class="ascii-scroll">
               <div class="ascii-frame">
                 <pre id="ascii-board" class="ascii-board" aria-label="MazeBench ASCII room"></pre>
-                <div id="ascii-legend" class="ascii-legend" aria-label="Dynamic glyph legend" hidden></div>
               </div>
             </div>
           </div>
@@ -81,6 +80,17 @@
           <div id="room-grid" class="room-grid" aria-label="World room grid"></div>
         </section>
 
+        <section class="panel sequence-panel" aria-labelledby="sequence-title">
+          <h2 id="sequence-title">Move sequence</h2>
+          <label class="visually-hidden" for="move-sequence">UDLR sequence</label>
+          <textarea id="move-sequence" rows="3" placeholder="Paste UDLR, e.g. DRRDLU" spellcheck="false" autocapitalize="characters" aria-describedby="sequence-status"></textarea>
+          <div class="sequence-actions">
+            <button id="run-sequence" type="button" disabled>Run sequence</button>
+            <button id="stop-sequence" type="button" disabled>Stop</button>
+          </div>
+          <output id="sequence-status" role="status" aria-live="polite"></output>
+        </section>
+
         <details class="panel playback-panel">
           <summary>Playback settings</summary>
           <div class="playback-controls">
@@ -92,6 +102,7 @@
       </aside>
     </main>
 
-    <script type="module" src="./main.mjs"></script>
+    <script type="module" src="../../ui/play-main.mjs"></script>
+    <script type="module" src="../../ui/control-pad-feedback.mjs"></script>
   </body>
 </html>

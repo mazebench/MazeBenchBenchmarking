@@ -1,3 +1,5 @@
+@import url("../../ui/ascii-font.css");
+
 .ascii-view {
   position: absolute;
   inset: 0;
@@ -77,7 +79,7 @@
   border-radius: 4px;
   background: #080a0d;
   box-shadow: 0 16px 70px #000a;
-  font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  font-family: var(--ascii-font-family);
   font-size: clamp(6px, 1.05vmin, 12px);
   font-variant-ligatures: none;
   font-weight: 700;

@@ -13,6 +13,7 @@ import { withRunnerLiveness } from "./benchmarking/server-lifecycle.mjs";
 import { RunLibrary } from "./benchmarking/run-library.mjs";
 import { RunDashboard } from "./benchmarking/run-dashboard.mjs";
 import { ReportReader } from "./benchmarking/report-reader.mjs";
+import { previewBenchmarkPrompt } from "./benchmarking/prompt-preview.mjs";
 import { TokenTelemetry } from "./benchmarking/token-telemetry.mjs";
 import { isTrustedLocalRequest } from "./benchmarking/v1/http-security.mjs";
 import { decodeVoxelRoom, encodeVoxelRoom } from "./render/v1/voxel-world-v2.mjs";
@@ -123,6 +124,10 @@ async function saveV2Level(request, response, fileName) {
 
 async function benchmarkApi(request, response, url) {
   try {
+    if (request.method === "GET" && url.pathname === "/api/benchmark/v1/prompt") {
+      sendJson(response, 200, await previewBenchmarkPrompt(root, Object.fromEntries(url.searchParams)));
+      return true;
+    }
     if (request.method === "GET" && url.pathname === "/api/benchmark/v1/providers") {
       sendJson(response, 200, await benchmarkSupervisor.providers({ force: url.searchParams.get("force") === "1" }));
       return true;

@@ -78,9 +78,9 @@ button:focus-visible, a:focus-visible {
 @media (hover: hover) {
   .nav-link:hover { background: #ffffff14; }
   .nav-link.primary:hover { background: #3298ff; }
-  .pad-button:hover, .zoom-controls button:hover { background: #ffffff10; }
+  .zoom-controls button:hover { background: #ffffff10; }
 }
-.nav-link:active, .pad-button:active, .pad-button.is-active, .zoom-controls button:active, .zoom-controls button.is-active {
+.nav-link:active, .zoom-controls button:active, .zoom-controls button.is-active {
   background: #ffffff24;
 }
 .nav-link.primary:active { background: #0067d5; }

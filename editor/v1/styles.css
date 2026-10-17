@@ -1,4 +1,5 @@
 @import url("../../render/v1/loading.css");
+@import url("../../render/v1/control-pads.css");
 
 :root {
   color-scheme: dark;
@@ -21,7 +22,7 @@ button, input, select, textarea { font: inherit; color: var(--text); border: 1px
 button, summary { cursor: pointer; }
 button, a, summary { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 button:disabled { cursor: default; opacity: .35; }
-button:not(:disabled):hover { border-color: #ffffff38; }
+button:not(:disabled, .pad-button):hover { border-color: #ffffff38; }
 button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #64b5ff; outline-offset: 3px; }
 a { color: inherit; text-decoration: none; }
 summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; list-style: none; font-size: 13px; font-weight: 550; }
@@ -58,7 +59,8 @@ details[open] > summary::after { transform: rotate(90deg); }
 .editor-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #050608; }
 .editor-stage canvas { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
 .editor-stage.is-ready .loading { display: none; }
-.camera-help { position: absolute; left: 16px; bottom: 16px; max-width: calc(100% - 32px); padding: 0 14px; border: 1px solid #ffffff14; border-radius: 14px; background: #1c1c1edb; backdrop-filter: blur(16px); color: var(--muted); }
+.editor-stage:not(.is-ready) .camera-pad { visibility: hidden; }
+.camera-help { position: absolute; right: 16px; bottom: 16px; max-width: calc(100% - 208px); padding: 0 14px; border: 1px solid #ffffff14; border-radius: 14px; background: #1c1c1edb; backdrop-filter: blur(16px); color: var(--muted); }
 .camera-help summary { gap: 20px; font-size: 12px; }
 .camera-help dl { display: grid; gap: 9px; margin: 6px 0 12px; font-size: 12px; }
 .camera-help dl div { display: flex; justify-content: space-between; gap: 32px; }
@@ -123,10 +125,11 @@ details.panel { padding: 4px 16px; }
 .transform-grid button, .solver-actions button { min-height: 44px; padding: 0 8px; font-size: 12px; }
 .solver-weight { display: grid; grid-template-columns: 1fr 64px; align-items: center; gap: 6px 10px; margin: 12px 0; font-size: 12px; }
 .solver-weight input { width: 64px; height: 44px; padding: 0 10px; font-size: 13px; }
-.solver-weight small { grid-column: 1 / -1; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .solver-result { display: block; margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.solver-path { overflow: auto; max-height: 90px; margin-top: 10px; padding: 10px; border-radius: 10px; background: #090a0c; color: var(--cyan); font: 12px/1.5 ui-monospace, monospace; word-spacing: 3px; }
+.solver-path { overflow: auto; max-height: 90px; margin-top: 10px; padding: 10px; border-radius: 10px; background: #090a0c; color: var(--cyan); font: 12px/1.5 ui-monospace, monospace; overflow-wrap: anywhere; }
 .solver-result:empty, .solver-path:empty, .edge-list:empty { display: none; }
+.solver-copy-actions { margin-top: 10px; grid-template-columns: 1fr; }
+.solver-copy-fallback { width: 100%; min-height: 80px; margin-top: 10px; padding: 10px; resize: vertical; font: 12px/1.5 ui-monospace, monospace; }
 .edge-start { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--muted); font-size: 12px; }
 .edge-start select { min-width: 0; min-height: 44px; padding: 0 8px; font-size: 12px; }
 .edge-list { display: grid; gap: 8px; overflow: auto; max-height: 200px; margin-top: 10px; }

@@ -64,6 +64,23 @@
         </section>
       </section>
 
+      <section id="agent-prompts" class="prompt-panel" aria-labelledby="prompt-title">
+        <details id="prompt-details">
+          <summary>
+            <span class="prompt-heading"><span id="prompt-title" role="heading" aria-level="2">Agent prompt</span><span>Read the instructions sent when a run starts.</span></span>
+            <span id="prompt-context" class="prompt-context">Current launch settings</span>
+          </summary>
+          <div class="prompt-content">
+            <div class="prompt-toolbar">
+              <p id="prompt-description">Updates with the settings above. Switch Python on or off to read either matched-pair prompt.</p>
+              <button id="copy-prompt" type="button" disabled>Copy prompt</button>
+            </div>
+            <p id="prompt-status" class="prompt-status" role="status" aria-live="polite">Loading prompt…</p>
+            <pre id="prompt-text" tabindex="0" aria-label="Full launch prompt" hidden></pre>
+          </div>
+        </details>
+      </section>
+
       <section class="records-section" aria-labelledby="runs-title">
         <div class="records-heading">
           <div>

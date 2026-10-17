@@ -86,6 +86,29 @@ details[open] > summary::after { transform: rotate(90deg); }
 .runtime-content span { margin-top: 6px; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .runtime-content button { flex-shrink: 0; font-size: 12px; }
 .records-section { margin-top: 36px; }
+.prompt-panel { margin-top: 24px; padding: 4px 28px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); }
+.prompt-panel summary { min-height: 92px; gap: 20px; }
+.prompt-heading { min-width: 0; }
+.prompt-heading #prompt-title { display: block; margin: 0 0 6px; font-size: 20px; font-weight: 600; letter-spacing: -.4px; }
+.prompt-heading > span:last-child, .prompt-context { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
+.prompt-context { margin-left: auto; text-align: right; }
+.prompt-panel summary::after { margin-left: 0; }
+.prompt-content { padding: 0 0 24px; }
+.prompt-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid var(--line); padding: 16px 0; }
+.prompt-toolbar p { margin: 0; max-width: 600px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.prompt-toolbar button { flex-shrink: 0; }
+.prompt-status { margin: 0 0 12px; color: var(--muted-strong); font-size: 12px; line-height: 1.5; }
+.prompt-status:empty { display: none; }
+#prompt-text { max-height: 440px; margin: 0; padding: 20px; overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--background); color: var(--muted-strong); white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; }
+#prompt-text:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+@media (max-width: 640px) {
+  .prompt-panel { padding: 4px 18px; }
+  .prompt-panel summary { flex-wrap: wrap; gap: 6px 12px; padding: 16px 0; }
+  .prompt-heading { flex: 1; }
+  .prompt-context { order: 1; width: 100%; margin: 0; text-align: left; }
+  .prompt-toolbar { align-items: flex-start; gap: 12px; }
+  #prompt-text { padding: 14px; font-size: 12px; }
+}
 .records-heading { align-items: center; margin-bottom: 20px; gap: 16px; }
 .records-heading h2 { margin: 0 0 6px; font-size: 24px; font-weight: 600; letter-spacing: -.5px; }
 .records-heading p { font-size: 13px; }

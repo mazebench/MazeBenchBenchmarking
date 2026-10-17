@@ -1,6 +1,7 @@
 import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs";
 import { RunListView, providerName, runCompany, selectRuns } from "./run-library.mjs";
 import { modelLabel } from "./model-label.mjs";
+import { setupPromptPreview } from "./prompt-preview.mjs";
 const elements = Object.fromEntries([
   "world", "world-description", "world-objective", "connection-status", "launch-form", "provider", "model", "effort", "action-limit", "run-options-summary",
   "tools-enabled", "tools-label", "launch-note", "sequence-option", "sequence-enabled", "observation-option", "observation-mode", "vision-preview", "vision-preview-image", "vision-preview-status", "vision-room", "vision-left", "vision-right", "vision-tilt", "launch-single", "launch-pair",
@@ -56,6 +57,7 @@ async function api(path, options = {}) {
 }
 
 const runList = new RunListView(elements["run-list"]);
+const updatePrompt = setupPromptPreview(document.getElementById("agent-prompts"), launchPayload);
 let latestRuns = [];
 let pollTimer;
 
@@ -121,6 +123,7 @@ function updateModels() {
   }
   updateEfforts();
   updateReadiness();
+  updatePrompt();
 }
 async function loadModels() {
   const catalog = await api("/api/benchmark/v1/models");
@@ -303,6 +306,11 @@ elements.world.addEventListener("change", () => {
   updateWorld();
 });
 updateWorld();
+updatePrompt();
+elements["launch-form"].addEventListener("change", updatePrompt);
+document.getElementById("prompt-details").addEventListener("toggle", event => {
+  if (event.currentTarget.open) updatePrompt();
+});
 elements["action-limit"].addEventListener("change", updateRunOptionsSummary);
 elements["sequence-enabled"].addEventListener("change", updateRunOptionsSummary);
 elements.model.addEventListener("change", updateEfforts);

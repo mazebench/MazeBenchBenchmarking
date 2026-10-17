@@ -147,6 +147,6 @@ export async function replayEngineSolutionV1(room, blocks, solution, onFrame, op
 }
 
 export function solverPathLabelV1(solution) {
-  const arrows = { up: "↑", right: "→", down: "↓", left: "←" };
-  return solution.map((direction) => arrows[direction] || direction).join(" ");
+  const letters = { up: "U", right: "R", down: "D", left: "L" };
+  return solution.map((direction) => letters[direction] || direction).join("");
 }

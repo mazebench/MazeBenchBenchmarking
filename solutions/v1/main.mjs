@@ -1,45 +1,100 @@
 import { loadMainWorldV2 } from '../../render/v1/voxel-world-v2.mjs';
-import { ThreeMazeRendererV1 } from '../../render/v1/three-renderer.mjs';
-import { installCutawayControls } from '../../render/v1/cutaway-controls.mjs';
+import { NumberedMazeRenderer } from '../../ui/numbered-maze-renderer.mjs';
+import { installTruncateControls } from '../../ui/truncate-controls.mjs';
 import { roomContextWorld } from '../../render/v1/room-context.mjs';
 import { roomFromEngineStateV1 } from '../../engine/v1/adapter.mjs';
 import { bindCameraHold } from '../../render/v1/camera-controls.mjs';
 import { cameraRelativeMoveDirection } from '../../play/v1/camera-relative-input.mjs';
-import { readProject, saveProject } from './storage.mjs';
+import { readProject, readProjectKeys, saveProject, deleteProject } from './storage.mjs';
+import { SolutionRestartController } from './restart.mjs';
+import { StartRoomPicker } from './start-room-picker.mjs';
 import { playSolutionFrames } from './animation.mjs';
+import { MoveSequencePlayer, parseMoveSequence } from '../../ui/move-sequence.mjs';
 
 const $=id=>document.getElementById(id), label=r=>r.position.join('×'), number=n=>Number(n).toLocaleString();
-let world, renderer, snapshot, inspected, target=null, fingerprint, busy=false, sequence=0, replayGeneration=0, routeLimit=30;
+let world, renderer, snapshot, inspected, target=null, hoverKey=null, fingerprint, busy=false, sequence=0, replayGeneration=0, routeLimit=30;
 const jobs=new Map(), mapButtons=new Map();
 const moves=n=>`${number(n)} move${n===1?'':'s'}`;
 const duration=ms=>ms<1000?`${Math.max(1,Math.round(ms))} ms`:`${(ms/1000).toFixed(1)}s`;
-let shownMoves=null,pendingImport=null;
+let shownMoves=null,pendingImport=null,solutionStartRoom=null,startPicker=null;
 const defaultStartRoom=()=>world.rooms.find(room=>room.position.join('x')==='HxI')?.fileName;
 const projectKey=room=>room===defaultStartRoom()?fingerprint:`${fingerprint}:${room}`;
 const activeKey=()=>`active:${fingerprint}`;
+const sequenceSession={
+  get state(){return snapshot?.state;},
+  get running(){return busy;},
+  get playerCount(){return snapshot?.position?1:0;},
+  get generation(){return snapshot?.startRoom;},
+  async move(direction){
+    const result=await request('move',{direction});
+    if(result.frames?.length)await animateFrames(result.frames);
+    if(result.snapshot){snapshot=result.snapshot;inspected=snapshot.room;render();}
+    if(result.rejected)throw new Error(result.rejected);
+  }
+};
+const sequencePlayer=new MoveSequencePlayer(()=>sequenceSession,({running,message:text})=>{
+  $('sequence-status').textContent=text;
+  setBusy(running);
+  if(!running)message(text);
+});
+function updateSequenceControls(){
+  disableControl($('move-sequence'));
+  disableControl($('run-sequence'),!snapshot?.position||!$('move-sequence').value.trim());
+  $('stop-sequence').disabled=!sequencePlayer.running||Boolean(sequencePlayer.reason);
+}
 const worker=new Worker(new URL('./worker.mjs',import.meta.url),{type:'module',name:'mazebench-solutions'});
+const restartController=new SolutionRestartController({
+  stop:()=>{
+    worker.onmessage=null;worker.onerror=null;worker.terminate();jobs.clear();
+    replayGeneration++;sequencePlayer.stop('Restarting solution');
+  },
+  remove:room=>deleteProject(projectKey(room)),
+  select:room=>saveProject(activeKey(),room),
+  reload:()=>location.reload()
+});
 worker.onmessage=async({data})=>{
+  if(restartController.stopped)return;
   const job=jobs.get(data.id);if(!job)return;
   if(data.type==='progress'){job.progress?.(data.value);return;}
   jobs.delete(data.id);
   if(data.type==='error'){job.reject(Object.assign(new Error(data.error),{code:data.code}));return;}
   if(data.saved&&fingerprint){
-    $('save-state').textContent='Saving…';
-    try{await saveProject(projectKey(data.saved.startRoom||defaultStartRoom()),data.saved);if(job.requestType==='import')await saveProject(activeKey(),data.saved.startRoom||defaultStartRoom());$('save-state').textContent='Saved on this device';}
-    catch{ $('save-state').textContent='Not saved · export a copy'; $('save-state').title='Browser storage is unavailable. Export your routes to keep a copy.'; }
+    try{await restartController.save(async()=>{await saveProject(projectKey(data.saved.startRoom||defaultStartRoom()),data.saved);if(job.requestType==='import')await saveProject(activeKey(),data.saved.startRoom||defaultStartRoom());});if(!restartController.stopped)saveWarning();}
+    catch{if(!restartController.stopped)saveWarning('Not saved · export a copy');}
   }
+  if(restartController.stopped)return;
   job.resolve(data.value);
 };
 worker.onerror=event=>{for(const job of jobs.values())job.reject(new Error(event.message||'The solver stopped. Reload to restore saved routes.'));jobs.clear();setBusy(false);};
-function request(type,payload={},progress){return new Promise((resolve,reject)=>{const id=++sequence;jobs.set(id,{resolve,reject,progress,requestType:type});worker.postMessage({id,type,payload});});}
-function message(text){$('status').textContent=text;}
+function request(type,payload={},progress){if(restartController.stopped)return Promise.reject(new Error('Solution restart requested.'));return new Promise((resolve,reject)=>{const id=++sequence;jobs.set(id,{resolve,reject,progress,requestType:type});worker.postMessage({id,type,payload});});}
+function message(text){if(!restartController.stopped)$('status').textContent=text;}
+function saveWarning(text=''){
+  $('save-state').textContent=text;$('save-state').hidden=!text;
+  $('save-state').title=text?'Browser storage is unavailable. Export your routes to keep a copy.':'';
+}
 function importNotice(warnings){
   const notice=$('import-notice'),count=warnings?.count||0;
   notice.hidden=!count;
   notice.textContent=count?`Import repaired · ${number(count)} invalid action${count===1?' or saved spawn':'s or saved spawns'} skipped. Valid progress kept.`:'';
   notice.title=warnings?.examples?.join('\n')||'';
 }
-function setBusy(value){busy=value;document.querySelectorAll('[data-direction],#search-time,#find-gem,#find-room,#find-target,#export,#full-solution,#choose-start,.spot,.spawn-setup,.route-row button').forEach(b=>b.disabled=value);$('undo').disabled=value||!snapshot?.canUndo;for(const [id,button]of mapButtons)button.disabled=value||!snapshot?.visitedRooms.includes(id);$('clear-runs').disabled=value||!(snapshot?.routes.length||snapshot?.pending.length);$('import').disabled=value||!snapshot;$('import').title='Import a solution JSON and open its starting room';$('cancel').hidden=!value;}
+// Lock immediately; CSS delays only the visual dimming of temporarily busy controls.
+function disableControl(control,unavailable=false,pending=busy){
+  control.classList.toggle('busy-disabled',pending&&!unavailable);
+  control.disabled=pending||unavailable;
+}
+function setBusy(value){
+  busy=value||sequencePlayer.running||restartController.stopped;
+  if(busy&&hoverKey!==null)selectTarget();
+  document.querySelectorAll('[data-direction],#search-time,#find-gem,#find-target,#export,#full-solution,.spot,.spawn-setup,.route-row button').forEach(button=>disableControl(button));
+  disableControl($('undo'),!snapshot?.canUndo);
+  disableControl($('restart-solution'),!fingerprint||!solutionStartRoom,restartController.restarting);
+  for(const [id,button]of mapButtons)button.disabled=busy||!snapshot?.visitedRooms.includes(id);
+  disableControl($('import'),!snapshot);
+  $('import').title='Import a solution JSON and open its starting room';
+  $('cancel').hidden=!busy||sequencePlayer.running||restartController.stopped;
+  updateSequenceControls();
+}
 async function action(type,payload={},success){
   if(busy)return;
   setBusy(true);
@@ -56,7 +111,6 @@ async function action(type,payload={},success){
     if(result.frames?.length)await animateFrames(result.frames);
     if(result.snapshot){snapshot=result.snapshot;inspected=snapshot.room;render();}
     if(type==='import')importNotice(result.warnings);
-    if(type==='clear-runs')importNotice(null);
     if(success)success(result);else message(result.message||'Resume spot saved.');
   }catch(error){
     message(error.message);
@@ -77,13 +131,30 @@ function showBoard(roomId,state=null){
   const rendered=state?roomFromEngineStateV1(state,room):{...room,objects:room.objects.filter((o,i)=>!collected.has(`${room.fileName}:${i}`))};
   const context=roomContextWorld(world,room,rendered,{omitDimmedRoleIds:['player']});
   if(!renderer){
-    renderer=new ThreeMazeRendererV1($('room-canvas'),context,{mode:'play',pickVoxels:true,onSelect:chooseTile});
-    installCutawayControls($('cutaway-controls'),renderer,{ghosts:true});
+    renderer=new NumberedMazeRenderer($('room-canvas'),context,{mode:'play',pickVoxels:true,onSelect:chooseTile,onInspect:hoverTile});
+    installTruncateControls($('cutaway-controls'),renderer,{ghosts:true,onChange:selectTarget});
     new ResizeObserver(()=>renderer.resize()).observe($('stage'));
   }
   else renderer.setWorld(context,{preserveCamera:true});
-  const active=renderer.world.rooms.find(r=>r.fileName===target?.room);
-  renderer.selectCell(active||null,target?.x,target?.y,target?.z??undefined);
+  selectTarget();
+}
+function selectTarget(){
+  hoverKey=null;
+  const active=renderer?.world.rooms.find(r=>r.fileName===target?.room);
+  renderer?.selectCell(active||null,target?.x,target?.y,target?.z??undefined);
+}
+function hoverTile(hit){
+  if(busy||!snapshot?.visitedRooms.includes(hit?.room.fileName))hit=null;
+  const x=hit?.sourceX??hit?.cellX,y=hit?.sourceY??hit?.cellY,z=hit?.sourceZ??0;
+  const key=hit?`${hit.room.fileName}:${x},${y},${z}`:null;
+  if(key===hoverKey)return;
+  hoverKey=key;
+  if(hit){
+    renderer.selectCell(hit.room,x,y,z);
+    // Keep the outline visible on the block's opaque faces.
+    renderer.selection.material.depthTest=false;
+    renderer.render();
+  }else selectTarget();
 }
 function chooseTile(hit){
   if(!hit||busy||!snapshot.visitedRooms.includes(hit.room.fileName))return;
@@ -94,21 +165,21 @@ function chooseTile(hit){
   find({...target});
 }
 function showTarget(){
+  selectTarget();
   $('target-panel').hidden=!target;$('clear-target').hidden=!target;
-  if(!target){renderer?.selectCell(null);$('view-note').textContent='Tap a tile to move there';return;}
+  if(!target){$('view-note').textContent='Tap a tile to move there';return;}
   const room=roomById(target.room);
   $('target-room').textContent=`Room ${label(room)} · from ${label(roomById(snapshot.room))}`;
   $('target-x').value=target.x;$('target-y').value=target.y;$('target-z').value=target.z??'';
   $('view-note').textContent=`Target ${label(room)} · (${target.x}, ${target.y}${target.z==null?'':`, ${target.z}`})`;
-  renderer?.selectCell(renderer.world.rooms.find(r=>r.fileName===target.room)||null,target.x,target.y,target.z??undefined);
 }
 function inspect(id){if(busy||!snapshot?.visitedRooms.includes(id))return;target=null;inspected=id;render();}
 function render(){
-  $('undo').disabled=busy||!snapshot.canUndo;
-  $('choose-start').textContent=`Start room · ${label(roomById(snapshot.startRoom))}`;
+  if(restartController.stopped)return;
+  disableControl($('undo'),!snapshot.canUndo);
+  disableControl($('restart-solution'),!fingerprint||!solutionStartRoom,restartController.restarting);
   const room=roomById(inspected), current=inspected===snapshot.room;
   $('room-name').textContent=label(room);
-  $('source-label').textContent=current?`Visited room · (${snapshot.position.x}, ${snapshot.position.y}, ${snapshot.position.z})`:`Inspecting room · route begins in ${label(roomById(snapshot.room))}`;
   $('return-current').hidden=current;
   $('path-length').textContent=`${moves(snapshot.pending.length)} in current segment`;
   $('rooms-count').replaceChildren(document.createTextNode(`${snapshot.visitedRooms.length} `),Object.assign(document.createElement('small'),{textContent:`/ ${snapshot.roomCount}`}));
@@ -133,26 +204,25 @@ function render(){
   $('spot-count').textContent=spots.length;$('spots').replaceChildren();
   if(!spots.length)$('spots').append(Object.assign(document.createElement('p'),{className:'empty',textContent:'No authored start or discovered entrance yet. Find a route into this room.'}));
   for(const spot of spots){
-    const button=document.createElement('button');button.className=`spot${spot.id===snapshot.source?' active':''}`;button.disabled=busy;
+    const button=document.createElement('button');button.className=`spot${spot.id===snapshot.source?' active':''}`;disableControl(button);
     const title=document.createElement('strong');title.textContent=`${spot.kind==='start'?'Room start':'Room entrance'} · (${spot.position.x}, ${spot.position.y}, ${spot.position.z})`;
     const subtitle=document.createElement('span');subtitle.textContent=`${spot.setupBase==='game'?'Game start':`Go to room ${label(roomById(spot.setupRoom))}`}${spot.setupMoves?` + ${moves(spot.setupMoves)}`:''}`;
     button.append(title,subtitle);
     if(spot.entry&&JSON.stringify(spot.entry)!==JSON.stringify(spot.position)){const note=document.createElement('span');note.textContent=`Entered at (${spot.entry.x}, ${spot.entry.y}, ${spot.entry.z}); resumes after the move settles.`;button.append(note);}
     button.addEventListener('click',()=>action('resume',{id:spot.id},()=>{target=null;showTarget();message('Room reset to this spot. Collected gems stay collected.');}));
     const row=document.createElement('div');row.className='spawn-row';row.append(button);
-    if(spot.kind!=='start'){const setup=document.createElement('button');setup.className='spawn-setup';setup.textContent='Setup';setup.disabled=busy;setup.setAttribute('aria-label',`View setup for ${title.textContent}, ${subtitle.textContent}`);setup.onclick=()=>openMoves(spot.id,true);row.append(setup);}
+    if(spot.kind!=='start'){const setup=document.createElement('button');setup.className='spawn-setup';setup.textContent='Setup';disableControl(setup);setup.setAttribute('aria-label',`View setup for ${title.textContent}, ${subtitle.textContent}`);setup.onclick=()=>openMoves(spot.id,true);row.append(setup);}
     $('spots').append(row);
   }
   $('route-count').textContent=snapshot.routes.length;
-  $('clear-runs').disabled=busy||!(snapshot.routes.length||snapshot.pending.length);
   $('routes').replaceChildren();
   if(!snapshot.routes.length)$('routes').append(Object.assign(document.createElement('p'),{className:'empty',textContent:'Runs appear here when you reach a gem, enter another room, or finish a planned route.'}));
   for(const route of snapshot.routes.slice(-routeLimit).reverse()){
     const from=snapshot.spots.find(s=>s.id===route.from),to=snapshot.spots.find(s=>s.id===route.to),row=document.createElement('div');row.className='route-row';
     const copy=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('p');title.textContent=`${label(roomById(from.room))} → ${label(roomById(to.room))}`;
     detail.textContent=`${route.label} · ${moves(route.moves)}${route.gems.length?` · ${route.gems.length} gem${route.gems.length===1?'':'s'}`:''}${route.accessible?'':' · Starting room not visited'}`;copy.append(title,detail);
-    const replay=document.createElement('button');replay.textContent='Replay';replay.disabled=busy;replay.addEventListener('click',()=>replayRoute(route.id));
-    const showMoves=document.createElement('button');showMoves.textContent='Moves';showMoves.disabled=busy;showMoves.onclick=()=>openMoves(route.id);
+    const replay=document.createElement('button');replay.textContent='Replay';disableControl(replay);replay.addEventListener('click',()=>replayRoute(route.id));
+    const showMoves=document.createElement('button');showMoves.textContent='Moves';disableControl(showMoves);showMoves.onclick=()=>openMoves(route.id);
     row.append(copy,showMoves,replay);$('routes').append(row);
   }
   if(snapshot.routes.length>routeLimit){const more=document.createElement('button');more.textContent='Show earlier routes';more.onclick=()=>{routeLimit+=30;render();};$('routes').append(more);}
@@ -183,7 +253,6 @@ async function animateFrames(frames,{replay=false,total=0}={}){
   $('cancel').textContent=replay?'Stop replay':'Skip animation';$('cancel').hidden=frames.length<2;
   try{return await playSolutionFrames(frames,frame=>{
     showBoard(frame.room,frame.state);$('room-name').textContent=label(roomById(frame.room));
-    $('source-label').textContent=replay?`Saved route replay · ${frame.command} / ${total}`:'Playing move…';
     message(replay?`Replaying saved route · ${frame.command} / ${total}`:'Playing moves…');
   },{cancelled:()=>generation!==replayGeneration});}
   finally{$('cancel').textContent='Cancel search';$('cancel').hidden=true;}
@@ -203,17 +272,6 @@ async function openMoves(id,spawn=false){
   try{shownMoves=await request(spawn?'spawn-moves':'moves',{id});$('full-path-label').hidden=!shownMoves.path;$('full-path').checked=false;renderMoves();$('moves-dialog').showModal();}
   catch(error){message(error.message);}
 }
-$('clear-runs').onclick=()=>{
-  if(busy||!(snapshot?.routes.length||snapshot?.pending.length))return;
-  const count=snapshot.routes.length;
-  $('clear-description').textContent=`Clear all ${count} saved run${count===1?'':'s'}, their saved spawn points, and your current moves? This resets this solution to ${label(roomById(snapshot.startRoom))} and cannot be undone.`;
-  $('clear-dialog').showModal();
-};
-$('cancel-clear').onclick=()=>$('clear-dialog').close();
-$('confirm-clear').onclick=()=>{
-  $('clear-dialog').close();
-  action('clear-runs',{},result=>{target=null;shownMoves=null;routeLimit=30;showTarget();message(result.message);});
-};
 $('full-solution').onclick=()=>action('full-solution',{},full=>{
   shownMoves={actions:full.commands,path:null,fullSolution:full};$('full-path-label').hidden=true;$('full-path').checked=false;renderMoves();$('moves-dialog').showModal();message(full.complete?'Full solution verified.':`${full.blockedRuns.length} runs could not be included. See the details in Full solution.`);
 });
@@ -222,15 +280,48 @@ $('close-moves').onclick=()=>$('moves-dialog').close();
 $('copy-moves').onclick=async()=>{try{await navigator.clipboard.writeText($('moves-text').value);$('copy-moves').textContent='Copied';}catch{$('moves-text').select();$('copy-moves').textContent='Select and copy the moves above';}};
 
 $('find-gem').onclick=()=>find({kind:'gem'});
-$('find-room').onclick=()=>find({kind:'room'});
+$('move-sequence').addEventListener('input',()=>{
+  try{$('sequence-status').textContent=`${parseMoveSequence($('move-sequence').value).length} moves ready.`;}
+  catch(error){$('sequence-status').textContent=$('move-sequence').value.trim()?error.message:'';}
+  updateSequenceControls();
+});
+$('run-sequence').onclick=async()=>{
+  if(busy||!snapshot)return;
+  try{
+    parseMoveSequence($('move-sequence').value);
+    target=null;inspected=snapshot.room;render();
+    await sequencePlayer.run($('move-sequence').value);
+  }catch(error){$('sequence-status').textContent=error.message;}
+};
+$('stop-sequence').onclick=()=>sequencePlayer.stop();
 $('undo').onclick=()=>action('undo');
+$('restart-solution').onclick=()=>{
+  if(restartController.restarting||!fingerprint||!solutionStartRoom)return;
+  $('restart-description').textContent=`Remove the entire solution starting in ${label(roomById(solutionStartRoom))}, including all saved runs and current moves? This stops any ongoing verification or search and opens the starting-room picker for a new run. This cannot be undone.`;
+  $('restart-dialog').showModal();
+};
+$('cancel-restart').onclick=()=>$('restart-dialog').close();
+$('confirm-restart').onclick=async()=>{
+  if(!$('restart-dialog').open||restartController.restarting||!fingerprint||!solutionStartRoom)return;
+  $('restart-dialog').close();
+  const room=solutionStartRoom;
+  const restart=restartController.restart(room);
+  setBusy(true);$('cancel').hidden=true;
+  $('status').textContent='Removing solution · preparing a new run…';
+  saveWarning();
+  try{await restart;}
+  catch(error){
+    $('status').textContent=`Could not finish removing the solution: ${error.message}. Try Remove solution & restart again.`;
+    setBusy(true);
+  }
+};
 $('cancel').onclick=()=>{worker.postMessage({type:'cancel'});replayGeneration++;message('Stopping…');};
 $('return-current').onclick=()=>inspect(snapshot.room);
 $('clear-target').onclick=()=>{target=null;showTarget();};
 $('find-target').onclick=()=>{if(!target)return;target={...target,x:Number($('target-x').value),y:Number($('target-y').value),z:$('target-z').value===''?null:Number($('target-z').value)};showTarget();find(target);};
 for(const button of document.querySelectorAll('[data-direction]'))button.onclick=()=>action('move',{direction:cameraRelativeMoveDirection(button.dataset.direction,renderer?.heading||0)});
 window.addEventListener('keydown',event=>{
-  if(event.defaultPrevented||event.altKey||['INPUT','SELECT','TEXTAREA'].includes(event.target.tagName)||event.target.isContentEditable||$('moves-dialog').open||$('clear-dialog').open||$('start-dialog').open||$('import-replace-dialog').open||$('import-world-dialog').open)return;
+  if(event.defaultPrevented||event.altKey||['INPUT','SELECT','TEXTAREA'].includes(event.target.tagName)||event.target.isContentEditable||$('moves-dialog').open||$('restart-dialog').open||$('start-dialog').open||$('import-replace-dialog').open||$('import-world-dialog').open)return;
   if(event.key.toLowerCase()==='z'&&!event.shiftKey){event.preventDefault();if(!event.repeat&&snapshot?.canUndo)action('undo');return;}
   if(event.metaKey||event.ctrlKey)return;
   const direction={ArrowUp:'up',ArrowRight:'right',ArrowDown:'down',ArrowLeft:'left'}[event.key];
@@ -263,6 +354,7 @@ $('import-file').onchange=async()=>{
   }catch(error){message(error.message);setBusy(false);}
 };
 function importFile(prepared,allowChanges=false){
+  solutionStartRoom=prepared.startRoom;
   action('import',{...prepared,allowWorldChange:allowChanges,allowEngineChange:allowChanges},result=>{target=null;shownMoves=null;routeLimit=30;showTarget();message(`${result.message} Opened ${label(roomById(result.snapshot.startRoom))}.`);});
 }
 $('cancel-import-replace').onclick=()=>{pendingImport=null;$('import-replace-dialog').close();};
@@ -277,18 +369,23 @@ $('confirm-import-world').onclick=()=>{
   if(prepared){message('Rechecking your moves with the current engine and rooms…');importFile(prepared,true);}
 };
 $('import-world-dialog').addEventListener('cancel',()=>{pendingImport=null;});
-$('choose-start').onclick=()=>{if(busy)return;$('start-room').value=snapshot.startRoom;$('start-dialog').showModal();};
+function chooseStartingRoom(){
+  if(busy)return;
+  startPicker??=new StartRoomPicker({document,world,readProject,readProjectKeys,projectKey});
+  return startPicker.open(null,{initialRoom:solutionStartRoom});
+}
 $('cancel-start').onclick=()=>$('start-dialog').close();
 $('confirm-start').onclick=async()=>{
   const room=$('start-room').value;$('start-dialog').close();
-  if(busy||room===snapshot.startRoom)return;
+  if(busy||!roomById(room))return;
+  solutionStartRoom=room;
   setBusy(true);message(`Opening solution in ${label(roomById(room))}…`);
   try{
     const saved=await readProject(projectKey(room));
     if(saved&&(saved.startRoom||defaultStartRoom())!==room)throw new Error('The saved solution starts in a different room.');
     const result=saved?await request('restore',{saved},p=>message(`Verifying saved routes · ${p.done} / ${p.total}`)):await request('new-solution',{room});
     snapshot=result.snapshot;inspected=snapshot.room;target=null;shownMoves=null;routeLimit=30;importNotice(null);render();
-    await saveProject(activeKey(),room);
+    await restartController.save(()=>saveProject(activeKey(),room));
     message(saved?`Your solution starting in ${label(roomById(room))} is ready.`:`New solution starting in ${label(roomById(room))}. Tap a tile or find a route.`);
   }catch(error){message(error.message);}
   finally{setBusy(false);}
@@ -299,22 +396,21 @@ $('export').onclick=()=>action('export',{},data=>{
 try{
   world=await loadMainWorldV2((done,total)=>{$('load-progress').max=total;$('load-progress').value=done;});
   const initial=await request('init',{world});fingerprint=initial.fingerprint;snapshot=initial.snapshot;inspected=snapshot.room;
-  const playerBlocks=new Set(world.blocks.filter(block=>block.roleId==='player').map(block=>block.id));
-  for(const room of [...world.rooms].sort((a,b)=>a.rowIndex-b.rowIndex||a.columnIndex-b.columnIndex)){
-    if(!room.objects.some(object=>playerBlocks.has(object.blockId)))continue;
-    const option=document.createElement('option');option.value=room.fileName;option.textContent=`Room ${label(room)}`;$('start-room').append(option);
-  }
   for(const room of [...world.rooms].sort((a,b)=>a.rowIndex-b.rowIndex||a.columnIndex-b.columnIndex)){
     const button=document.createElement('button');button.title=`Room ${label(room)}`;button.setAttribute('aria-label',button.title);button.disabled=true;button.onclick=()=>inspect(room.fileName);mapButtons.set(room.fileName,button);$('world-map').append(button);
   }
   render();$('loading').hidden=true;
+  let needsStartingRoom=false;
   try{
     const lastRoom=await readProject(activeKey()),startRoom=roomById(lastRoom)?lastRoom:defaultStartRoom();
+    solutionStartRoom=startRoom;setBusy(true);
     const saved=await readProject(projectKey(startRoom));
+    needsStartingRoom=!saved;
     if(saved){setBusy(true);message('Verifying your saved routes…');const result=await request('restore',{saved},p=>message(`Verifying saved routes · ${p.done} / ${p.total}`));snapshot=result.snapshot;inspected=snapshot.room;render();message('Your saved routes are ready.');}
     else if(startRoom!==defaultStartRoom()){setBusy(true);const result=await request('new-solution',{room:startRoom});snapshot=result.snapshot;inspected=snapshot.room;render();message(`Start in ${label(roomById(startRoom))}. Tap a tile or find a route.`);}
-    else{message('Start in H×I, or choose another starting room above.');$('save-state').textContent='Saves on this device';}
+    else{message('Choose a starting room for your new solution.');}
   }
-  catch(error){message(`Saved routes could not be loaded: ${error.message}`);$('save-state').textContent='Export to keep your routes';}
+  catch(error){if(!restartController.stopped){message(`Saved routes could not be loaded: ${error.message}`);saveWarning('Export to keep your routes');}}
   setBusy(false);
+  if(needsStartingRoom&&!restartController.stopped)await chooseStartingRoom();
 }catch(error){$('loading').textContent=error.message;message(error.message);console.error(error);}

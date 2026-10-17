@@ -102,6 +102,14 @@ These extra cells must never enter room saves, rendered objects, or gem IDs.
 
 ## Play animation timing
 
+The browser Play entry point is `ui/play-main.mjs`. Make browser-only Play UI
+changes there. `play/v1/main.mjs` is retained unchanged because its bytes are
+included in historical benchmark runtime manifests; it is no longer loaded by
+the Play page. Shared session and physics behavior remains under `play/v1/`.
+Browser ASCII projection lives under `render-ascii/v2/`; its room bounds include
+empty tiles at every pitch. Keep `render-ascii/v1/` JavaScript unchanged for
+signed benchmark observations.
+
 Play Mode presents each C++ engine tick as one animation frame. Its default
 delay is 20 ms per engine frame (50 FPS). The Play sidebar can set the
 frame delay directly in milliseconds. A delay of 0 ms is Instant mode: it skips
@@ -314,14 +322,36 @@ at the user's request; do not extend this contract to punchers until requested.
 
 ## 3D room context
 
-Play Mode's 3D view and the editor render the active room at full brightness
-with the surrounding 3x3 neighborhood as dimmed spatial context. Neighbor rooms
-use immutable authored data, do not participate in Play physics, and are not
-paintable or selectable in the editor. The active room stays centered even at
-the edge of the world. Play suppresses the neighboring rooms' authored player
-objects so only the actual active player is shown. Do not render the entire
-256-room world in these live views: it contains roughly 95,000 authored objects
-and would be rebuilt during animation and editing. ASCII Mode remains room-local.
+The shared cube/slope geometry, mounted-number visibility, and camera-depth kernel is canonical
+in UnitTesting at `apps/web/public/mazebench-runtime/joined-voxel-surface.mjs`.
+Both applications use that kernel, with their own scene adapters and cameras.
+After kernel changes, run `node scripts/sync-rendering.mjs`, then
+`node scripts/sync-rendering.mjs --check` and the rendering tests in both repos.
+This browser-only sync is independent of the engine sync and must never modify
+historical benchmark runtime modules. Do not claim full application or lighting
+parity from a kernel check alone.
+
+Keep the shared distance-aware perspective near plane in both browser renderers.
+A fixed tiny near plane makes lowered gates/lifts fight their supporting surface
+at world-map zoom. Close editor views retain their original near clipping plane;
+update distant depth precision after camera positioning, including cached scenes.
+
+Browser 3D views share `ui/joined-maze-renderer.mjs`: matching cube/slope
+families form connected surfaces with internal faces and coplanar seams removed.
+Keep material, dimmed-context, and numbered-body boundaries separate. The world
+map's browser entry point is `ui/world-main.mjs`; historical `render/v1/` modules
+remain unchanged for signed benchmark observations.
+
+Browser Play renders all 256 rooms, with the active room at full brightness and
+the rest dimmed. `ui/play-world-renderer.mjs` caches immutable background room
+geometry and rebuilds only the active room during engine frames. Rebuild the
+background cache only when its authored source, loaded models, or cutaway changes.
+Suppress background players so only the live player appears. Background rooms
+never participate in physics; connected-room loading remains lazy. Keep the
+camera centered on the active room across transitions, with enough zoom range
+to view the entire world. Preserve historical `render/v1/` JavaScript.
+The editor and Solutions keep their 3x3 context; dimmed rooms are not paintable
+or selectable. ASCII Mode remains room-local.
 Mouse-wheel and trackpad scrolling must not zoom any 3D view; zoom remains
 available through Q/E and the explicit map zoom buttons.
 
