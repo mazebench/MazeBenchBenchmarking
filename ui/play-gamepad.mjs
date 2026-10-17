@@ -2,7 +2,6 @@
 const DEAD_ZONE = 0.28;
 const MOVE_THRESHOLD = 0.5;
 const RELEASE_THRESHOLD = 0.35;
-const CARDINAL_SNAP_RATIO = Math.tan(15 * Math.PI / 180);
 
 function axis(pad, index) {
   const value = pad.axes?.[index];
@@ -29,27 +28,18 @@ function direction(x, y, previous) {
   return useX ? (x < 0 ? "left" : "right") : (y < 0 ? "up" : "down");
 }
 
-function movementVector(x, y) {
-  if (!x && !y) return null;
-  // Snap within 15 degrees on either side of a cardinal direction.
-  if (Math.abs(y) <= Math.abs(x) * CARDINAL_SNAP_RATIO + 1e-10) y = 0;
-  else if (Math.abs(x) <= Math.abs(y) * CARDINAL_SNAP_RATIO + 1e-10) x = 0;
-  return { x, y };
-}
-
 export function readPlayGamepad(pad, previousMove = null) {
   if (!pad || pad.connected === false || pad.mapping !== "standard") return null;
   const dpad = [12, 13, 14, 15].map(index => button(pad, index) >= 0.5);
   const dpadActive = dpad.some(Boolean);
   const threshold = previousMove ? RELEASE_THRESHOLD : MOVE_THRESHOLD;
   const x = axis(pad, 0), y = axis(pad, 1);
-  const moveVector = dpadActive
-    ? movementVector(Number(dpad[3]) - Number(dpad[2]), Number(dpad[1]) - Number(dpad[0]))
-    : Math.max(Math.abs(x), Math.abs(y)) >= threshold ? movementVector(x, y) : null;
-  const move = moveVector ? direction(moveVector.x, moveVector.y, previousMove) : null;
+  const move = dpadActive
+    ? direction(Number(dpad[3]) - Number(dpad[2]), Number(dpad[1]) - Number(dpad[0]), previousMove)
+    : Math.max(Math.abs(x), Math.abs(y)) >= threshold ? direction(x, y, previousMove) : null;
   return {
-    move, moveVector,
-    moveSource: moveVector ? (dpadActive ? "dpad" : "stick") : null,
+    move,
+    moveSource: move ? (dpadActive ? "dpad" : "stick") : null,
     turn: Math.abs(axis(pad, 2)) >= 0.55 ? Math.sign(axis(pad, 2)) : 0,
     yaw: analog(axis(pad, 2)),
     panHorizontal: dpadActive ? Number(dpad[3]) - Number(dpad[2]) : analog(x),
@@ -71,7 +61,6 @@ export class PlayGamepadInput {
   reset(pad) {
     this.move = null;
     this.moveKey = "";
-    this.moveBalance = 0;
     this.moved = false;
     this.turn = 0;
     this.pitchStep = 0;
@@ -89,23 +78,15 @@ export class PlayGamepadInput {
     this.undoButtons = input.undoButtons;
     if (undoPressed) this.callbacks.onUndo?.();
     // A held movement stick must not immediately redo the move being undone.
-    const vector = input.undoButtons ? null : input.moveVector;
-    const moveKey = vector ? `${input.moveSource}:${Math.sign(vector.x)},${Math.sign(vector.y)}` : "";
+    const move = input.undoButtons ? null : input.move;
+    const moveKey = move ? `${input.moveSource}:${move}` : "";
     if (moveKey !== this.moveKey) {
       this.moveKey = moveKey;
-      this.move = vector ? input.move : null;
-      this.moveBalance = 0;
+      this.move = move;
       this.moved = false;
       this.nextMove = now;
     }
-    if (vector && now >= this.nextMove && this.callbacks.canMove()) {
-      // Advance only when issuing a command, never while an animation is busy.
-      // Equal diagonals alternate; other angles proportion the two directions
-      // to the stick, with at most half a move of accumulated rounding error.
-      this.moveBalance += Math.abs(vector.x) / (Math.abs(vector.x) + Math.abs(vector.y));
-      const horizontal = this.moveBalance > 0.5 + 1e-10;
-      if (horizontal) this.moveBalance--;
-      this.move = horizontal ? (vector.x < 0 ? "left" : "right") : (vector.y < 0 ? "up" : "down");
+    if (this.move && now >= this.nextMove && this.callbacks.canMove()) {
       this.callbacks.onMove(this.move);
       // Stick holds repeat evenly; only the D-pad pauses after its first step.
       this.nextMove = now + (input.moveSource === "dpad" && !this.moved ? 260 : 130);

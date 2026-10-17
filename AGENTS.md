@@ -83,6 +83,10 @@ and brightness transitions take 250 ms. Consecutive room transitions retarget
 from the displayed state without stopping the actor at each seam. Turning tweens
 off renders only the final state. Reduced-motion preferences also bypass 3D
 tweens. ASCII retains discrete engine-tick frames.
+Human Play gems gently bob and rotate continuously on the same display clock,
+including cached rooms and command scenes. Update only gem transforms, keep their
+phase across rebuilds, and honor the Tweens/reduced-motion settings. Do not run
+the idle 3D animation loop while viewing ASCII or a hidden tab.
 Undo/reset/room selection must cancel presentation immediately, including undo
 of the first in-flight move, without allowing stale completions to overwrite the
 replacement state. AI vision observations and all signed benchmark renderers
@@ -96,11 +100,9 @@ Play controller input lives in ui/play-gamepad.mjs and uses the browser's standa
 gamepad mapping. Left stick/D-pad moves are camera-relative and repeat only when
 the current command finishes; never queue held input behind animations or a move
 sequence. Stick holds repeat every 130 ms from the first move; D-pad holds pause
-260 ms after the first move, then repeat every 130 ms. Left-stick angles within
-15 degrees of a cardinal direction snap to it.
-Other angles distribute commands between the two axes; 45-degree holds alternate
-one for one. Advance the alternation only when issuing a move, never per poll or
-while playback is busy. Right stick turns use the same cardinal camera as keyboard controls;
+260 ms after the first move, then repeat every 130 ms. Left-stick diagonals choose
+one cardinal direction, retaining it until the other axis is clearly stronger;
+never alternate commands between axes. Right stick turns use the same cardinal camera as keyboard controls;
 tilt and ZL/ZR zoom share smooth camera motion without taking ownership of keyboard
 or pointer holds. ZL zooms in, ZR zooms out; each press of any of the four right-side
 face buttons undoes once in Play. Flyover shares controller polling and mapping,

@@ -126,6 +126,7 @@ function setViewMode(mode) {
   renderer?.cancelCameraMotion();
   viewMode = mode === "ascii" ? "ascii" : "3d";
   const ascii = viewMode === "ascii";
+  renderer?.setGemMotionEnabled(!ascii && tweensEnabled);
   elements.asciiView.hidden = !ascii;
   elements.stage.classList.toggle("is-ascii", ascii);
   elements.stage.dataset.viewMode = viewMode;
@@ -182,6 +183,7 @@ function updateAnimationSettings({ persist = true } = {}) {
   elements.animationRate.textContent = tweensEnabled
     ? "Steps 100 ms · Slides 40 ms/tile · Rooms 250 ms" : "Instant moves";
   session?.setFrameDelay(animationDelayMs);
+  renderer?.setGemMotionEnabled(viewMode === "3d" && tweensEnabled);
   if (!tweensEnabled) renderer?.finishRoomTransition();
   if (!persist) return;
   try { localStorage.setItem("mazebench.motionTweens", tweensEnabled ? "on" : "off"); } catch { /* Keep the in-memory preference. */ }

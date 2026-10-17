@@ -3,8 +3,52 @@ import { createCommandTimeline, ROOM_TRANSITION_MS, sampleSegments } from "../an
 import { playTimeline } from "../animations/v1/player.mjs";
 import { CAMERA_CENTER_DURATION_MS } from "../render/v1/camera-transitions.mjs";
 import { CommandAnimationScene } from "../animations/v1/scene.mjs";
+import { addAnimatedGem, collectAnimatedGems, updateAnimatedGems } from "../animations/v1/gems.mjs";
 
 export class PlayWorldRenderer extends WorldContextRenderer {
+  constructor(canvas, world, options) {
+    super(canvas, world, options);
+    this.gemMotionPreference = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
+    this.gemMotionPreference?.addEventListener("change", () => this.render());
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) this.render();
+    });
+  }
+
+  addGemAsset(content, record, dimensions) {
+    addAnimatedGem(content, record, dimensions);
+  }
+
+  buildBackground(room) {
+    const entry = super.buildBackground(room);
+    entry.gems = collectAnimatedGems(entry.content);
+    return entry;
+  }
+
+  rebuild() {
+    this.renderSuspended = (this.renderSuspended || 0) + 1;
+    let urls;
+    try {
+      urls = super.rebuild();
+      this.gems = collectAnimatedGems(this.content, this.cutawayContent);
+    } finally { this.renderSuspended--; }
+    this.render();
+    return urls;
+  }
+
+  setGemMotionEnabled(enabled) {
+    this.gemMotionEnabled = enabled;
+    this.render();
+  }
+
+  render() {
+    if (this.renderSuspended) return;
+    super.render();
+    // Reuse the camera's display loop. Command tweens already draw each frame.
+    if (this.gemMotionEnabled && !this.gemMotionPreference?.matches &&
+        !globalThis.document?.hidden && !this.commandAnimation) this.scheduleCameraFrame();
+  }
+
   setWorld(world, options = {}) {
     const changeRoom = options.animateCamera && options.preserveCamera && !options.preserveCameraPosition &&
       this.world?.contextActiveRoom.fileName !== world.contextActiveRoom.fileName &&
@@ -90,6 +134,23 @@ export class PlayWorldRenderer extends WorldContextRenderer {
   }
 
   updateCamera() {
+    const now = performance.now();
+    const enabled = Boolean(this.gemMotionEnabled && !this.gemMotionPreference?.matches);
+    updateAnimatedGems(this.gems, now, enabled);
+    for (const entry of this.roomBackgrounds?.values() || []) {
+      // Ghosts are created lazily when upper-tile visibility first becomes nonzero.
+      const ghost = entry.cutawayContent.children[0];
+      if (entry.gemGhost !== ghost) {
+        entry.gemGhost = ghost;
+        entry.ghostGems = collectAnimatedGems(ghost);
+      }
+      updateAnimatedGems(entry.gems, now, enabled);
+      updateAnimatedGems(entry.ghostGems, now, enabled);
+    }
+    updateAnimatedGems(this.commandAnimation?.gems, now, enabled);
+    if (this.renderer.shadowMap.enabled && (this.gems?.length || this.commandAnimation?.gems.length)) {
+      this.renderer.shadowMap.needsUpdate = true;
+    }
     super.updateCamera();
     this.commandAnimation?.beforeRender();
   }

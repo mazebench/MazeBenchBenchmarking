@@ -5,6 +5,7 @@ import * as THREE from "../render/vendor/three.module.min.js";
 import { createCommandTimeline, sampleTrack, sampleSegments, groupMovingTracks } from "../animations/v1/timeline.mjs";
 import { playTimeline } from "../animations/v1/player.mjs";
 import { CommandAnimationScene } from "../animations/v1/scene.mjs";
+import { addAnimatedGem, collectAnimatedGems, updateAnimatedGems } from "../animations/v1/gems.mjs";
 import { PlayWorldRenderer } from "../ui/play-world-renderer.mjs";
 import { PlaySessionV1 } from "../play/current/play-session.mjs";
 import { ConnectedWorldSessionV1 } from "../play/current/connected-world-session.mjs";
@@ -16,6 +17,38 @@ const blocks = new Map(V2_BLOCK_CATALOG.map(block => [block.id, block]));
 const cell = (blockId, x, y = 0, z = 0, extra = {}) => ({ blockId, x, y, z, ...extra });
 const room = (objects, columnIndex = 0) => ({ fileName: `${columnIndex}.json`, columnIndex, rowIndex: 0, width: 8, height: 4, objects });
 const state = objects => ({ width: 8, height: 4, objects });
+
+test("idle gems spin and bob without rebuilding geometry, including frozen backgrounds and ghost copies", () => {
+  const root = new THREE.Group();
+  const record = { x: 2, z: 3, source: {}, definition: { bottom: 1 } };
+  const dimensions = { totalWidth: 8, totalHeight: 4 };
+  addAnimatedGem(root, record, dimensions);
+  const gem = collectAnimatedGems(root)[0], ghost = gem.clone(true);
+  const original = { ...gem.userData.gemMotion };
+  const geometry = gem.children.map(child => child.geometry);
+  gem.matrixAutoUpdate = false;
+  for (const time of [0, 800, 1600, 3200, 6000, 12000]) {
+    updateAnimatedGems([gem, ghost], time);
+    assert(Math.abs(gem.position.y - original.height) <= .06);
+    assert.deepEqual(gem.position.toArray(), ghost.position.toArray());
+    assert(gem.quaternion.angleTo(ghost.quaternion) < 1e-7);
+    assert.equal(gem.matrix.elements[13], gem.position.y, "frozen background transforms update");
+    assert.deepEqual(gem.children.map(child => child.geometry), geometry);
+    assert.deepEqual(gem.userData.gemMotion, original);
+    if (time === 6000) assert(Math.abs(gem.rotation.y - original.yaw - Math.PI) < 1e-10);
+    if (time === 12000) assert.equal(gem.rotation.y, original.yaw);
+  }
+  updateAnimatedGems([gem], 1234);
+  const replacement = new THREE.Group();
+  addAnimatedGem(replacement, record, dimensions);
+  updateAnimatedGems(collectAnimatedGems(replacement), 1234);
+  assert.deepEqual(replacement.children[0].position.toArray(), gem.position.toArray(), "rebuilds retain the bob phase");
+  assert.deepEqual(replacement.children[0].quaternion.toArray(), gem.quaternion.toArray(), "rebuilds retain the rotation phase");
+  updateAnimatedGems([gem], 1234, false);
+  assert.equal(gem.position.y, original.height);
+  assert.equal(gem.rotation.y, original.yaw);
+});
+
 function timeline(objects, frames, options = {}) {
   return createCommandTimeline({ state: state(objects), room: room(objects), definitions: blocks,
     simulation: { frames: frames.map(state), final: state(frames.at(-1)), direction: "right" }, ...options });
@@ -252,7 +285,7 @@ test("declining 3D animation preserves cancellable discrete ASCII ticks", async 
 });
 
 test("animation scene morphs real mechanism geometry without rebuilding or reallocating it per frame", () => {
-  const initial = [cell("player", 0), cell("gate", 2), cell("lift", 3), cell("puncher", 4, 0, 0, { orientation: "right" }),
+  const initial = [cell("player", 0), cell("gem", 1), cell("gate", 2), cell("lift", 3), cell("puncher", 4, 0, 0, { orientation: "right" }),
     cell("lift", 5, 0, 0, { orientation: "east" }), cell("orange-wall", 6)];
   const final = initial.map(object => ({ ...object, stateId: 1,
     x: object.blockId === "player" ? 1 : object.x, z: object.blockId === "orange-wall" ? -1 : object.z }));
@@ -270,7 +303,12 @@ test("animation scene morphs real mechanism geometry without rebuilding or reall
   const gate = animation.actors.find(actor => actor.tracks[0].object.blockId === "gate");
   const bounds = () => { gate.root.children[0].geometry.computeBoundingBox(); return gate.root.children[0].geometry.boundingBox.getSize(new THREE.Vector3()).y; };
   const low = bounds();
+  updateAnimatedGems(animation.gems, 1500);
   animation.update(50); animation.beforeRender();
+  assert.equal(animation.gems.length, 1);
+  const upperGem = collectAnimatedGems(animation.upper)[0];
+  assert.deepEqual(upperGem.position.toArray(), animation.gems[0].position.toArray(), "command and Truncate copies bob together");
+  assert.deepEqual(upperGem.quaternion.toArray(), animation.gems[0].quaternion.toArray());
   const middle = bounds();
   const lift = animation.actors.find(actor => actor.tracks[0].object.blockId === "lift");
   const marker = lift.root.children.at(-1);

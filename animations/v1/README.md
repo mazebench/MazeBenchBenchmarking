@@ -14,6 +14,10 @@ simulate moves or change saved, benchmark, or undo states.
   punchers, top/side lifts, gates, and moving orange walls. Truncate uses GPU
   clipping during movement; the settled renderer restores its precise cut faces.
 - `player.mjs` runs the timeline on a cancellable display-clock loop.
+- `gems.mjs` slowly spins gems once per 12 seconds and bobs them by 0.06 tiles
+  over a 3.2-second cycle. Active rooms, cached rooms, and command scenes share
+  the same clock; only gem transforms change. Motion follows the Tweens toggle
+  and reduced-motion preference and stops drawing while ASCII or the tab is hidden.
 
 `PlayWorldRenderer.animateCommand` opts in from `ui/play-main.mjs` only. The
 connected adapter's optional `presentation` trace retains stable source indices

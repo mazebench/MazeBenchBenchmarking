@@ -91,6 +91,10 @@ export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
     records?.forEach(record => addGenericNumberFaces(this.content, record, dimensions));
   }
 
+  addGemAsset(content, record, dimensions) {
+    addGemAsset(content, record, dimensions);
+  }
+
   rebuild() {
     if (this.world.storageFormat !== V2_WORLD_FORMAT) return super.rebuild();
     disposeGeneratedChildren(this.content);
@@ -116,7 +120,7 @@ export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
       this.addFloorGroups(data.floorGroups);
       this.addJoinedCubes(data, this.content);
       data.terrainAssets.forEach((record) => addPiece(this.content, record, addTerrainAsset));
-      data.gems.forEach((record) => addPiece(this.content, record, addGemAsset));
+      data.gems.forEach((record) => addPiece(this.content, record, this.addGemAsset.bind(this)));
       data.specialPieces.filter(record => record.definition.kind !== "slope").forEach((record) => addPiece(this.content, record, addSpecialPiece));
     }
     if (this.pickVoxels) {
@@ -132,7 +136,7 @@ export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
         this.addFloorGroups(upper.floorGroups, this.cutawayContent);
         this.addJoinedCubes(upper, this.cutawayContent, height);
         upper.terrainAssets.forEach((record) => addPiece(this.cutawayContent, record, addTerrainAsset));
-        upper.gems.forEach((record) => addPiece(this.cutawayContent, record, addGemAsset));
+        upper.gems.forEach((record) => addPiece(this.cutawayContent, record, this.addGemAsset.bind(this)));
         upper.specialPieces.filter(record => record.definition.kind !== "slope").forEach((record) => addPiece(this.cutawayContent, record, addSpecialPiece));
         applyCutawayMaterials(this.cutawayContent, { height, upper: true, opacity: this.cutaway.opacity, clip: false });
         upper.modelUrls.forEach((url) => data.modelUrls.add(url));

@@ -241,46 +241,44 @@ test("browser polling handles late connection, text focus, blur, disconnect, and
   assert.equal(f.moves.length, movesBeforeEditing + 1);
 });
 
-test("45-degree holds alternate both directions in every quadrant, at the existing repeat cadence", () => {
+test("45-degree holds keep one direction in every quadrant, at the existing repeat cadence", () => {
   for (const x of [-1, 1]) for (const y of [-1, 1]) {
     const f = fixture(), input = new PlayGamepadInput(f.callbacks);
     const held = pad([x * .8, y * .8]);
-    const vertical = y < 0 ? "up" : "down", horizontal = x < 0 ? "left" : "right";
+    const vertical = y < 0 ? "up" : "down";
     input.update(held, 0);
     for (let now = 1; now < 130; now++) input.update(held, now);
-    assert.deepEqual(f.moves, [vertical], "polling cannot advance the diagonal or bypass the repeat delay");
+    assert.deepEqual(f.moves, [vertical], "polling cannot bypass the repeat delay");
     for (let now = 130; now <= 650; now += 130) input.update(held, now);
-    assert.deepEqual(f.moves, [vertical, horizontal, vertical, horizontal, vertical, horizontal]);
-    assert.equal(f.feedback.at(-1).move, horizontal);
+    assert.deepEqual(f.moves, Array(6).fill(vertical));
+    assert.equal(f.feedback.at(-1).move, vertical);
   }
 });
 
 const anglePad = degrees => pad([Math.cos(degrees * Math.PI / 180), Math.sin(degrees * Math.PI / 180)]);
 
-test("the 15-degree snap cones include both boundaries of all four cardinal directions", () => {
+test("off-centre joystick holds choose the stronger axis at every angle", () => {
   for (const [angle, direction] of [[0, "right"], [90, "down"], [180, "left"], [270, "up"]]) {
-    for (const offset of [-15, -14.9, 0, 14.9, 15]) {
+    for (const offset of [-40, -30, -15, 0, 15, 30, 40]) {
       const f = fixture(), input = new PlayGamepadInput(f.callbacks), held = anglePad(angle + offset);
       for (let now = 0; now < 2000; now += 300) input.update(held, now);
       assert(f.moves.every(move => move === direction), `${angle + offset} degrees snaps to ${direction}`);
     }
-    for (const offset of [-15.01, 15.01]) {
-      const { moveVector } = readPlayGamepad(anglePad(angle + offset));
-      assert(moveVector.x && moveVector.y, `${angle + offset} degrees allows diagonal movement`);
-    }
   }
 });
 
-test("off-centre diagonals proportion steps to the stick angle without resetting on each poll", () => {
-  const f = fixture(), input = new PlayGamepadInput(f.callbacks), held = anglePad(-30);
-  for (let i = 0; i < 100; i++) input.update(held, i * 300);
-  const horizontal = f.moves.filter(move => move === "right").length;
-  const expected = 100 * Math.abs(held.axes[0]) / (Math.abs(held.axes[0]) + Math.abs(held.axes[1]));
-  assert(Math.abs(horizontal - expected) <= .5);
-  assert(f.moves.every(move => move === "right" || move === "up"));
+test("joystick direction remains stable near diagonals and switches when the other axis is clearly stronger", () => {
+  const f = fixture(), input = new PlayGamepadInput(f.callbacks);
+  input.update(pad([1, -.8]), 0);
+  input.update(pad([.8, -.85]), 130);
+  input.update(pad([.8, -.8]), 260);
+  assert.deepEqual(f.moves, ["right", "right", "right"]);
+  input.update(pad([.8, -1]), 390);
+  input.update(pad([.85, -.8]), 520);
+  assert.deepEqual(f.moves, ["right", "right", "right", "up", "up"]);
 });
 
-test("diagonal alternation waits for playback, works in ASCII, and resets on release or disconnect", () => {
+test("joystick movement waits for playback, works in ASCII, and resets on release or disconnect", () => {
   const f = fixture(), input = new PlayGamepadInput(f.callbacks), held = pad([.8, -.8]);
   f.setAscii(true);
   input.update(held, 0);
@@ -290,7 +288,7 @@ test("diagonal alternation waits for playback, works in ASCII, and resets on rel
   f.setBusy(false);
   input.update(held, 2000);
   input.update(held, 2130);
-  assert.deepEqual(f.moves, ["up", "right", "up"]);
+  assert.deepEqual(f.moves, ["up", "up", "up"]);
   input.update(pad(), 2200);
   input.update(held, 2201);
   assert.equal(f.moves.at(-1), "up");
@@ -300,5 +298,5 @@ test("diagonal alternation waits for playback, works in ASCII, and resets on rel
   input.update(pad([.8, -.8], [0]), 2700);
   const count = f.moves.length;
   input.update(pad([.8, -.8], [0]), 3000);
-  assert.equal(f.moves.length, count, "Undo suppresses both directions of a diagonal");
+  assert.equal(f.moves.length, count, "Undo suppresses a held joystick");
 });

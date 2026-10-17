@@ -2,7 +2,8 @@ import { roomBorderEdges, joinRoomBorderEdges } from "../../ui/room-border-edges
 import { isEdge } from "../../ui/thick-edges.mjs";
 import * as THREE from "../../render/vendor/three.module.min.js";
 import { collectVoxelSceneV2 } from "../../render/v1/voxel-scene-v2.mjs";
-import { addTerrainAsset, addGemAsset } from "../../render/v1/asset-renderers.mjs";
+import { addTerrainAsset } from "../../render/v1/asset-renderers.mjs";
+import { collectAnimatedGems } from "./gems.mjs";
 import { addSpecialPiece } from "../../render/v1/special-piece-renderers.mjs";
 import { disposeGeneratedChildren } from "../../render/v1/polycube-mesh.mjs";
 import { groupMovingTracks, sampleTrack, sampleSegments } from "./timeline.mjs";
@@ -38,7 +39,7 @@ function buildContent(renderer, objects, rooms = []) {
     localX: record.x % renderer.world.roomWidth,
     localZ: record.z % renderer.world.roomHeight
   }, dimensions));
-  data.gems.forEach(record => addGemAsset(content, record, dimensions));
+  data.gems.forEach(record => renderer.addGemAsset(content, record, dimensions));
   data.specialPieces.filter(record => record.definition.kind !== "slope")
     .forEach(record => addSpecialPiece(content, record, dimensions));
   const view = Object.create(renderer);
@@ -149,6 +150,7 @@ export class CommandAnimationScene {
     this.rootNodes = []; this.upperNodes = [];
     this.root.traverse(object => this.rootNodes.push(object));
     this.upper.traverse(object => this.upperNodes.push(object));
+    this.gems = collectAnimatedGems(this.root);
     renderer.scene.add(this.root, this.upper);
     this.originalVisibility = [renderer.content.visible, renderer.cutawayContent.visible];
     this.update(0);
