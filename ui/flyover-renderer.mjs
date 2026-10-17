@@ -13,6 +13,11 @@ export class FlyoverRenderer extends JoinedMazeRenderer {
     this.fuzzyOverlay = new MazeFuzzyOverlayV1(canvas);
   }
 
+  assignRenderLayers(root) {
+    super.assignRenderLayers(root);
+    this.thickEdges.uniforms.mazeLineWidth.value = 1;
+  }
+
   installEvents() {
     this.disposeFlyoverControls = installFlyoverControls(this);
   }

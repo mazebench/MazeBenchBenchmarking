@@ -347,13 +347,16 @@ remain unchanged for signed benchmark observations.
 Flyover uses ui/flyover-renderer.mjs for continuous drag and A/D rotation, with
 the same grain overlay and visual-effects stylesheet as Edit and Play. Its free
 yaw must not change the cardinal camera used for camera-relative Play moves.
+Flyover uses a thin one-pixel outline at the reference room-view distance;
+Play and the editor use three pixels there. All outlines scale inversely with
+each endpoint's view depth, with subpixel coverage to avoid distant flicker.
 
 Browser Play and the editor render all 256 rooms, with the active room at full
 brightness and the rest dimmed. `ui/world-context-renderer.mjs` caches full
 background meshes and rebuilds only the active room during engine frames or
 edits. Room brightness uses a shared small GPU texture; transitions must not
-rebuild meshes. Active and background outlines use the same opaque black,
-three-pixel screen-space outline style, drawn in one pass so the full world
+rebuild meshes. Active and background outlines use the same black,
+depth-scaled outline style, drawn in one pass so the full world
 does not need five outline passes. Matching cube/slope borders use the same
 shared surface kernel in cached rooms and temporary tween scenes; never reveal
 a room perimeter just because a command is animating. Truncate updates shared GPU clipping planes and cached cut surfaces;

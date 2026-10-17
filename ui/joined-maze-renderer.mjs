@@ -17,14 +17,6 @@ import { ThickEdges } from "./thick-edges.mjs";
 import { preparedWorldSurfaces } from "./prepared-world-surfaces.mjs";
 
 export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
-  constructor(canvas, world, options) {
-    super(canvas, world, options);
-    const scanlines = document.createElement("div");
-    scanlines.className = "maze-crt-overlay";
-    scanlines.setAttribute("aria-hidden", "true");
-    canvas.insertAdjacentElement("afterend", scanlines);
-  }
-
   setWorld(world, options) {
     this.renderSuspended = (this.renderSuspended || 0) + 1;
     try { super.setWorld(world, options); }

@@ -26,17 +26,3 @@
   .maze-fuzzy-overlay { display: none; }
   .maze-render-canvas { filter: contrast(1.025) saturate(.96); }
 }
-
-/* Fine, low-contrast CRT texture, confined to human 3D views. */
-.maze-crt-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  opacity: .2;
-  mix-blend-mode: multiply;
-  background:
-    repeating-linear-gradient(to bottom, rgba(22,24,22,.16) 0 1px, transparent 1px 3px),
-    repeating-linear-gradient(to right, rgba(255,255,255,.025) 0 .5px, transparent .5px 1.5px);
-}
-.is-ascii .maze-crt-overlay { display: none; }

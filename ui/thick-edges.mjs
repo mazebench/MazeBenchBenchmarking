@@ -1,11 +1,12 @@
 import * as THREE from "../render/vendor/three.module.min.js";
 
-export const OUTLINE_WIDTH_PX = 3; // Original centre stamp plus its ±1px stamps.
+export const OUTLINE_WIDTH_PX = 3; // Width at the reference room-view depth.
+export const OUTLINE_REFERENCE_DEPTH = 48; // Default room view, in world tiles.
 export const isOutline = object => object.isLineSegments && (object.material?.userData.mazeOutline || object.material?.color?.getHex() === 0x111820);
 export const isEdge = object => object.isLineSegments || object.userData.mazeWideOutline;
 
-// Expand in screen space in one draw, instead of redrawing the whole world
-// five times. Endpoints stay in world space for clipping and mechanism morphs.
+// Expand in one draw, attenuating width with each endpoint's camera depth.
+// Endpoints stay in world space for clipping and mechanism morphs.
 export function thickEdgeGeometry(source) {
   const points = source.attributes.position;
   const position = [], other = [], side = [];
@@ -34,6 +35,7 @@ export class ThickEdges {
     this.uniforms = {
       mazeLineViewport: { value: new THREE.Vector2(1, 1) },
       mazeLineWidth: { value: OUTLINE_WIDTH_PX },
+      mazeLineReferenceDepth: { value: OUTLINE_REFERENCE_DEPTH },
       mazeLineNear: { value: .05 }
     };
   }
@@ -42,13 +44,14 @@ export class ThickEdges {
     const material = new THREE.MeshBasicMaterial({
       color: 0x000000, side: THREE.DoubleSide, depthTest: true, depthWrite: false,
       opacity: source.userData.mazeOutline ? source.opacity : 1,
-      transparent: source.userData.mazeOutline && source.transparent,
+      // Subpixel strokes use coverage instead of vanishing between samples.
+      transparent: true, forceSinglePass: true,
       clippingPlanes: source.clippingPlanes
     });
     material.userData.mazeOutline = material.userData.mazeWideOutline = true;
     material.onBeforeCompile = shader => {
       Object.assign(shader.uniforms, this.uniforms);
-      shader.vertexShader = `attribute vec3 lineOther;\nattribute float lineSide;\nuniform vec2 mazeLineViewport;\nuniform float mazeLineWidth;\nuniform float mazeLineNear;\n${shader.vertexShader}`
+      shader.vertexShader = `attribute vec3 lineOther;\nattribute float lineSide;\nuniform vec2 mazeLineViewport;\nuniform float mazeLineWidth;\nuniform float mazeLineReferenceDepth;\nuniform float mazeLineNear;\nvarying float mazeLineCoverage;\n${shader.vertexShader}`
         .replace("#include <project_vertex>", `
           vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
           vec4 otherView = modelViewMatrix * vec4(lineOther, 1.0);
@@ -69,12 +72,21 @@ export class ThickEdges {
           vec2 direction = (otherClip.xy / otherClip.w - gl_Position.xy / gl_Position.w) * mazeLineViewport;
           direction /= max(length(direction), .0001);
           vec2 normal = vec2(-direction.y, direction.x);
-          gl_Position.xy += (normal * lineSide - direction) * mazeLineWidth / mazeLineViewport * gl_Position.w;
+          float depth = max(-unbiasedPosition.z, mazeLineNear);
+          float width = mazeLineWidth * mazeLineReferenceDepth / depth;
+          mazeLineCoverage = min(width, 1.0);
+          float rasterWidth = max(width, 1.0);
+          gl_Position.xy += (normal * lineSide - direction) * rasterWidth / mazeLineViewport * gl_Position.w;
           if (unbiasedPosition.z > nearZ && otherView.z > nearZ) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           mvPosition = unbiasedPosition;
         `);
+      shader.fragmentShader = `varying float mazeLineCoverage;\n${shader.fragmentShader}`
+        .replace("#include <opaque_fragment>", `
+          diffuseColor.a *= mazeLineCoverage;
+          #include <opaque_fragment>
+        `);
     };
-    material.customProgramCacheKey = () => "maze-thick-outline-v1";
+    material.customProgramCacheKey = () => "maze-depth-outline-v2";
     return material;
   }
 
