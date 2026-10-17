@@ -2,6 +2,7 @@ import { clonePlayState as cloneState } from "./presentation-identity.mjs";
 import { countActiveRoleV1, engineStatesEqualV1 } from "../../engine/current/adapter.mjs";
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const MOVE_LETTERS = { up: "U", down: "D", left: "L", right: "R" };
 
 export const DEFAULT_PLAY_FRAME_DELAY_MS = 20;
 
@@ -22,6 +23,7 @@ export class PlaySessionV1 {
     this.state = null;
     this.initialState = null;
     this.moves = 0;
+    this.roomMoves = "";
     this.history = [];
     this.queue = [];
     this.running = false;
@@ -36,6 +38,7 @@ export class PlaySessionV1 {
     this.initialState = this.engine.createState(room);
     this.state = cloneState(this.initialState);
     this.moves = 0;
+    this.roomMoves = "";
     this.history.length = 0;
     this.queue.length = 0;
     this.running = false;
@@ -52,6 +55,7 @@ export class PlaySessionV1 {
     const generation = ++this.generation;
     this.state = cloneState(this.initialState);
     this.moves = 0;
+    this.roomMoves = "";
     this.history.length = 0;
     this.queue.length = 0;
     this.running = Boolean(this.animateReset && this.frameDelay > 0);
@@ -88,6 +92,7 @@ export class PlaySessionV1 {
     this.state = cloneState(previous.state);
     this.initialState = cloneState(previous.initialState);
     this.moves = previous.moves;
+    this.roomMoves = previous.roomMoves;
     this.queue.length = 0;
     this.running = false;
     if (previous.room !== this.room) {
@@ -127,6 +132,7 @@ export class PlaySessionV1 {
       busy: this.running,
       gems: this.gemCount,
       moves: this.moves,
+      roomMoves: this.roomMoves,
       playerActive: this.playerCount > 0,
       queued: this.queue.length,
       canUndo: Boolean(this.pendingMove) || this.history.length > 0,
@@ -146,6 +152,7 @@ export class PlaySessionV1 {
           state: cloneState(this.state),
           initialState: cloneState(this.initialState),
           moves: this.moves,
+          roomMoves: this.roomMoves,
           room: this.room
         };
         this.publish();
@@ -163,12 +170,21 @@ export class PlaySessionV1 {
           this.pendingMove = previous;
           this.publish();
         }
+        const presentFrame = frame => {
+          if (runGeneration !== this.generation) return;
+          if (frame.room !== this.room) {
+            this.room = frame.room;
+            this.onRoomChange(this.room);
+          }
+          this.state = frame.state;
+          this.onFrame(this.state, this.room);
+        };
         let animated = false;
         if (!instant && this.animateCommand) {
           this.animationController = new AbortController();
           animated = await this.animateCommand({
             state: previous.state, room: commandRoom, simulation,
-            stepMs: this.frameDelay, signal: this.animationController.signal
+            stepMs: this.frameDelay, signal: this.animationController.signal, presentFrame
           });
           if (runGeneration !== this.generation) return;
           this.animationController = null;
@@ -181,12 +197,7 @@ export class PlaySessionV1 {
               .map((state) => ({ state, room: commandRoom }));
         for (const frame of animated ? [] : frames) {
           if (runGeneration !== this.generation) return;
-          if (frame.room !== this.room) {
-            this.room = frame.room;
-            this.onRoomChange(this.room);
-          }
-          this.state = frame.state;
-          this.onFrame(this.state, this.room);
+          presentFrame(frame);
           if (!instant) await wait(this.frameDelay);
         }
         if (runGeneration !== this.generation) return;
@@ -207,6 +218,9 @@ export class PlaySessionV1 {
           this.history.push(previous);
           if (this.history.length > 256) this.history.shift();
           this.moves += 1;
+          // A crossing establishes a new visit's starting state. Its command
+          // belongs to the room we left, not the new room's replayable sequence.
+          this.roomMoves = finalRoom === commandRoom ? previous.roomMoves + MOVE_LETTERS[direction] : "";
         }
         this.publish({ cycle: simulation.cycle });
         if (this.playerCount < 1) this.queue.length = 0;

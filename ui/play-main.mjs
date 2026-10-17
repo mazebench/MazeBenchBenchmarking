@@ -10,6 +10,7 @@ import { cameraRelativeMoveDirection } from "../play/v1/camera-relative-input.mj
 import { ConnectedWorldSessionV1 } from "../play/current/connected-world-session.mjs";
 import { PlaySessionV1 } from "../play/current/play-session.mjs";
 import { DEFAULT_STEP_MS } from "../animations/v1/timeline.mjs";
+import { animateAsciiCommand } from "../animations/v1/ascii-playback.mjs";
 import { installRoomControlsV1 } from "../play/v1/room-controls.mjs";
 import { MoveSequencePlayer, parseMoveSequence } from "./move-sequence.mjs";
 import { installPlayGamepadControls } from "./play-gamepad.mjs";
@@ -36,6 +37,9 @@ const elements = {
   sequenceRun: document.getElementById("run-sequence"),
   sequenceStop: document.getElementById("stop-sequence"),
   sequenceStatus: document.getElementById("sequence-status"),
+  roomMoves: document.getElementById("room-moves"),
+  roomMovesCopy: document.getElementById("copy-room-moves"),
+  roomMovesStatus: document.getElementById("room-moves-status"),
   reset: document.getElementById("reset"),
   undo: document.getElementById("undo"),
   viewToggle: document.getElementById("view-toggle"),
@@ -97,9 +101,9 @@ function isEditableTarget(target) {
 
 function showFrame(state, room, { preserveCameraPosition = false } = {}) {
   const renderedRoom = engine.roomFromState(state, room);
-  renderer.setWorld(roomWorld(room, renderedRoom), {
+  if (viewMode === "3d") renderer.setWorld(roomWorld(room, renderedRoom), {
     preserveCamera: true, preserveCameraPosition,
-    animateCamera: viewMode === "3d" && animationDelayMs > 0
+    animateCamera: animationDelayMs > 0
   });
   asciiRenderer.setRoom(renderedRoom);
 }
@@ -124,6 +128,7 @@ function moveFromCamera(direction) {
 function setViewMode(mode) {
   cancelCameraButtons.forEach((cancel) => cancel());
   renderer?.cancelCameraMotion();
+  const previousMode = viewMode;
   viewMode = mode === "ascii" ? "ascii" : "3d";
   const ascii = viewMode === "ascii";
   renderer?.setGemMotionEnabled(!ascii && tweensEnabled);
@@ -133,6 +138,7 @@ function setViewMode(mode) {
   elements.viewLabel.textContent = ascii ? "3D" : "ASCII";
   elements.viewToggle.setAttribute("aria-pressed", String(ascii));
   elements.zoomControls.hidden = ascii;
+  if (!ascii && previousMode === "ascii" && session?.state) showFrame(session.state, session.room);
   if (ascii) {
     asciiRenderer.setYaw(renderer.heading);
     asciiRenderer.setPitch(asciiPitch);
@@ -164,6 +170,12 @@ function updateSeedOptions({ persist = true } = {}) {
 
 function updateSession(summary) {
   elements.gemCount.textContent = String(summary.gems);
+  if (elements.roomMoves.value !== summary.roomMoves) {
+    elements.roomMoves.value = summary.roomMoves;
+    elements.roomMoves.scrollTop = elements.roomMoves.scrollHeight;
+    elements.roomMovesStatus.textContent = "";
+  }
+  elements.roomMovesCopy.disabled = !summary.roomMoves;
   elements.directionButtons.forEach((button) => {
     button.disabled = !summary.playerActive;
   });
@@ -293,6 +305,18 @@ elements.sequenceRun.addEventListener("click", async () => {
   catch (error) { elements.sequenceStatus.textContent = error.message; }
 });
 elements.sequenceStop.addEventListener("click", () => sequencePlayer.stop());
+elements.roomMovesCopy.addEventListener("click", async () => {
+  const text = elements.roomMoves.value;
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    if (elements.roomMoves.value === text) elements.roomMovesStatus.textContent = "Copied";
+  } catch {
+    elements.roomMoves.focus();
+    elements.roomMoves.select();
+    elements.roomMovesStatus.textContent = "Select and copy the moves above.";
+  }
+});
 elements.seededGlyphs.addEventListener("change", updateSeedOptions);
 elements.asciiSeed.addEventListener("change", updateSeedOptions);
 elements.motionTweens.checked = tweensEnabled;
@@ -388,7 +412,8 @@ try {
       : false,
     animateCommand: command => viewMode === "3d"
       ? renderer.animateCommand(command, { finish: () => viewMode !== "3d" || session.frameDelay === 0 || document.hidden })
-      : false,
+      : animateAsciiCommand(command, { definitions: world.blockDefinitions,
+        finish: () => viewMode !== "ascii" || session.frameDelay === 0 || document.hidden }),
     resolveCommand: (state, room, direction) =>
       connectedWorld.simulateCommand(state, room, direction),
     frameDelay: animationDelayMs

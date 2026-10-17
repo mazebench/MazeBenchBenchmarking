@@ -82,7 +82,10 @@ this device. Single steps take 100 ms, slides take 40 ms per tile, and room came
 and brightness transitions take 250 ms. Consecutive room transitions retarget
 from the displayed state without stopping the actor at each seam. Turning tweens
 off renders only the final state. Reduced-motion preferences also bypass 3D
-tweens. ASCII retains discrete engine-tick frames.
+tweens. Human ASCII retains discrete engine-tick frames on the same presentation
+clock as 3D (including slides and room transitions), so controller pacing is
+identical. Skip unchanged ticks and hidden 3D geometry rebuilds; synchronize the
+3D scene when switching back. Signed benchmark ASCII observations stay unchanged.
 Human Play gems gently bob and rotate continuously on the same display clock,
 including cached rooms and command scenes. Update only gem transforms, keep their
 phase across rebuilds, and honor the Tweens/reduced-motion settings. Do not run
@@ -101,6 +104,11 @@ must never import or enable the human animation layer.
 Play history records only commands that change the canonical engine state or
 move the player to another room. A blocked or otherwise ineffective command
 must not create an undo snapshot or increment the move counter.
+The Play sidebar's Room moves panel records those commands as world-direction
+UDLR for the current visit, independently of the capped undo history. Reset and
+room selection clear it; entering another room starts a fresh sequence at that
+entry state. Undo restores the sequence alongside the room/state snapshot,
+including across room crossings. A slide or punch remains one input character.
 
 Play controller input lives in ui/play-gamepad.mjs and uses the browser's standard
 gamepad mapping. Left stick/D-pad moves are camera-relative and repeat only when

@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="../../render-ascii/v1/styles.css">
     <link rel="stylesheet" href="./styles.css">
     <link rel="stylesheet" href="../../ui/play-gamepad.css">
+    <link rel="stylesheet" href="../../ui/play-room-moves.css">
     <link rel="stylesheet" href="../../render/v1/cutaway-controls.css">
   </head>
   <body>
@@ -92,6 +93,18 @@
           </div>
           <output id="sequence-status" role="status" aria-live="polite"></output>
         </section>
+
+        <details class="panel room-moves-panel" open>
+          <summary>Room moves</summary>
+          <div class="room-moves-content">
+            <label class="visually-hidden" for="room-moves">Current room UDLR history</label>
+            <textarea id="room-moves" rows="3" readonly placeholder="Your moves in this room" spellcheck="false"></textarea>
+            <div class="sequence-actions">
+              <button id="copy-room-moves" type="button" disabled>Copy UDLR</button>
+            </div>
+            <output id="room-moves-status" role="status" aria-live="polite"></output>
+          </div>
+        </details>
 
         <details class="panel playback-panel">
           <summary>Playback settings</summary>
