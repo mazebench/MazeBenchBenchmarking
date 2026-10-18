@@ -76,6 +76,12 @@ geometry interpolates between the canonical closed/open shapes; room changes
 tween the camera. Build geometry once per command, then update transforms and
 small mechanism buffers at display cadence. Never rebuild the world per tween
 frame, mutate physics snapshots, or send fractional coordinates to the engine.
+Orange-wall outlines include their exposed intersections with floors and solid
+supports, even when the wall continues underneath. Use the shared surface
+intersection kernel at rest and during tweens, updating retained outline buffers.
+Object fades use one screen-space coverage mask shared by surfaces and outlines,
+keeping opaque surfaces depth-writing so rear faces and internal edges cannot
+show through. Do not turn solid actors into alpha-blended shells during fades.
 
 Play's default-on Tweens toggle lives under Playback settings and persists on
 this device. Single steps take 100 ms, slides take 40 ms per tile, and room camera
@@ -163,6 +169,10 @@ Orange buttons control only the orange walls in their own room, including every
 intermediate tick of a crossing. Combining room geometry must never combine its
 control circuits. Settling a destination after projection is insufficient: a
 neighboring button must not lower its walls even for one animation frame.
+Orange walls and their slope variants are anchored terrain: raising/lowering
+changes only mechanism depth. Their fully raised X/Y/Z anchors must never
+translate with pushed, sliding, or carried bodies, even while compressed and
+overlapping a body's coordinates.
 
 Clone directional input belongs to the room where the command began. Every
 attached destination room suppresses clone input for that whole command,

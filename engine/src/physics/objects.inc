@@ -64,6 +64,8 @@ void BuildObjects(Voxel* voxels, int32_t count) {
       continue;
     }
     if (IsOrangeWallRole(voxels[index].role)) {
+      // Walls are anchored terrain, even when fully compressed beneath a
+      // movable body. Only their mechanism depth changes, never their anchor.
       ActiveWorkspace().scene_has_orange_mechanisms = true;
       continue;
     }

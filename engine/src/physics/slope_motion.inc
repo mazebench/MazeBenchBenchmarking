@@ -482,8 +482,6 @@ bool TranslateSlopeMomentumObjects(
   }
 
   bool moved = punched_player_direction >= 0;
-  TranslateHiddenOrangeWallsWithProposals(
-      voxels, count, false, 0, 0, 0, false);
   for (int32_t object = 0; object < g_object_count; ++object) {
     if (g_mandatory_objects[object] == 0) continue;
     moved = true;

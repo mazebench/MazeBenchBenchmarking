@@ -1901,7 +1901,7 @@ function TestSuiteWorkspace({
 }
 
 export default function VoxelBench() {
-  const [activeWorkspace, setActiveWorkspace] = useState<"tests" | "suite" | "search">("tests");
+  const [activeWorkspace, setActiveWorkspace] = useState<"tests" | "suite" | "search">("suite");
   const [roles, setRoles] = useState<PhysicsRoleDefinition[]>(DEFAULT_ROLES);
   const [blocks, setBlocks] = useState<BlockDefinition[]>(DEFAULT_BLOCKS);
   const [folders, setFolders] = useState<TestFolder[]>(() => normalizeFolders(DEFAULT_FOLDERS));

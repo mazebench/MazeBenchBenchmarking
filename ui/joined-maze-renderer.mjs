@@ -15,6 +15,7 @@ import { perspectiveNearForDistance } from "./joined-voxel-surface.mjs";
 import { prepareBrowserModels } from "./browser-world.mjs";
 import { ThickEdges } from "./thick-edges.mjs";
 import { preparedWorldSurfaces } from "./prepared-world-surfaces.mjs";
+import { addOrangeWallContacts } from "./orange-wall-contacts.mjs";
 
 export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
   setWorld(world, options) {
@@ -115,6 +116,7 @@ export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
       data.gems.forEach((record) => addPiece(this.content, record, this.addGemAsset.bind(this)));
       data.specialPieces.filter(record => record.definition.kind !== "slope").forEach((record) => addPiece(this.content, record, addSpecialPiece));
     }
+    addOrangeWallContacts(this.content, this.world, dimensions, height);
     if (this.pickVoxels) {
       this.addNumberLabels(data.genericLabels, dimensions);
     }

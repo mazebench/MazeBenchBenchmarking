@@ -7,6 +7,8 @@ import { collectAnimatedGems } from "./gems.mjs";
 import { addSpecialPiece } from "../../render/v1/special-piece-renderers.mjs";
 import { disposeGeneratedChildren } from "../../render/v1/polycube-mesh.mjs";
 import { groupMovingTracks, sampleTrack, sampleSegments } from "./timeline.mjs";
+import { applySolidFade } from "./solid-fade.mjs";
+import { AnimatedWallContacts, contactShape } from "../../ui/orange-wall-contacts.mjs";
 
 const markerAxis = new THREE.Vector3(0, 0, 1);
 
@@ -134,6 +136,23 @@ export class CommandAnimationScene {
       this.root.add(root);
       return { tracks, root, morph };
     });
+    this.contactRecords = timeline.tracks.flatMap(track => {
+      const shape = contactShape(initialObject(track), track.block);
+      if (!shape) return [];
+      const mechanism = ["lift", "gate"].includes(track.block.visual?.kind) &&
+        (!track.object.orientation || track.object.orientation === "top");
+      return [{ track, shape, baseHeight: shape.position[1], visible: track.initialOpacity > 0,
+        low: mechanism ? contactShape(initialObject(track, 0), track.block) : null,
+        high: mechanism ? contactShape(initialObject(track, 1), track.block) : null }];
+    });
+    const supports = this.contactRecords.filter(record => record.track.block.roleId !== "orange-wall");
+    this.wallContacts = [];
+    for (const root of this.root.children) {
+      const actor = this.actors.find(actor => actor.root === root);
+      const walls = this.contactRecords.filter(record => record.track.block.roleId === "orange-wall" &&
+        (actor ? actor.tracks.includes(record.track) : !record.track.changed && record.track.initialOpacity));
+      if (walls.length) this.wallContacts.push(new AnimatedWallContacts(renderer, root, walls, supports));
+    }
     const ownedMaterials = new Set();
     this.root.traverse(object => {
       if (object.userData.transientMaterial) ownedMaterials.add(object.material);
@@ -141,11 +160,14 @@ export class CommandAnimationScene {
     // The upper copy shares geometry (including mechanism morph buffers), but
     // owns clipped ghost materials. No geometry is cut again while moving.
     for (const child of this.root.children) this.upper.add(child.clone(true));
-    this.parts = this.root.children.map((root, index) => ({
-      root, upper: this.upper.children[index],
-      lowerMaterials: this.prepareMaterials(root, this.lowerPlane),
-      upperMaterials: this.prepareMaterials(this.upper.children[index], this.upperPlane, true)
-    }));
+    this.parts = this.root.children.map((root, index) => {
+      const coverage = { value: 1 };
+      return {
+        root, upper: this.upper.children[index], coverage,
+        lowerMaterials: this.prepareMaterials(root, this.lowerPlane, coverage),
+        upperMaterials: this.prepareMaterials(this.upper.children[index], this.upperPlane, coverage, true)
+      };
+    });
     ownedMaterials.forEach(material => material.dispose());
     this.rootNodes = []; this.upperNodes = [];
     this.root.traverse(object => this.rootNodes.push(object));
@@ -156,7 +178,7 @@ export class CommandAnimationScene {
     this.update(0);
   }
 
-  prepareMaterials(root, plane, upper = false) {
+  prepareMaterials(root, plane, coverage, upper = false) {
     const copies = new Map();
     const copy = source => {
       if (!copies.has(source)) {
@@ -165,6 +187,7 @@ export class CommandAnimationScene {
         material.customProgramCacheKey = source.customProgramCacheKey;
         material.clippingPlanes = [plane];
         material.clipShadows = true;
+        applySolidFade(material, coverage);
         copies.set(source, material);
         this.materials.add(material);
       }
@@ -202,6 +225,20 @@ export class CommandAnimationScene {
       actor.opacity = value.opacity;
       actor.morph?.update(value.phase);
     }
+    for (const record of this.contactRecords) {
+      if (!record.track.changed) continue;
+      const value = sampleTrack(record.track, time);
+      const initial = record.track.positions[0];
+      record.shape.position = [value.x, record.baseHeight + value.z - initial[2], value.y];
+      record.visible = value.opacity > 0;
+      // Keep the support face on the same interpolated plate as lift/gate geometry.
+      if (record.low && record.high) {
+        const { low, high } = record;
+        record.shape.position[1] = low.position[1] + (high.position[1] - low.position[1]) * value.phase + value.z - initial[2];
+        record.shape.size[1] = low.size[1] + (high.size[1] - low.size[1]) * value.phase;
+      }
+    }
+    this.wallContacts.forEach(contacts => contacts.update());
     const offset = sampleSegments(this.timeline.camera, [0, 0], time, { alwaysEase: true });
     renderer.target.x += offset[0] - this.offset[0];
     renderer.target.z += offset[1] - this.offset[1];
@@ -241,8 +278,10 @@ export class CommandAnimationScene {
       upper.visible = object.visible && !isEdge(upper);
     }
     this.parts.forEach((part, index) => {
-      const opacity = index ? this.actors[index - 1].opacity : 1;
-      for (const [materials, multiplier] of [[part.lowerMaterials, opacity], [part.upperMaterials, opacity * renderer.cutaway.opacity]]) {
+      part.coverage.value = index ? this.actors[index - 1].opacity : 1;
+      // Truncate ghosts retain their requested transparency. Object fades use
+      // one shared coverage mask for the solid surface, its edges and ghosts.
+      for (const [materials, multiplier] of [[part.lowerMaterials, 1], [part.upperMaterials, renderer.cutaway.opacity]]) {
         for (const { source, material } of materials) {
           const transparent = source.transparent || multiplier < 1;
           if (material.transparent !== transparent) { material.transparent = transparent; material.needsUpdate = true; }

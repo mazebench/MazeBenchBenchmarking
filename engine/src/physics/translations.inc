@@ -258,8 +258,6 @@ bool TranslateMovingObjects(
         player_moves_horizontally);
   }
 
-  TranslateHiddenOrangeWallsWithProposals(
-      voxels, count, true, dx, dy, dz, carry_from_player);
   for (int32_t object = 0; object < g_object_count; ++object) {
     if (g_moving_objects[object] == 0) continue;
     for (int32_t member = g_object_head[object]; member >= 0;

@@ -4214,7 +4214,7 @@ void TestMovingPolycubeCarriesButtonsMountedOnEveryFace() {
         "buttons mounted on every face should translate with their host");
 }
 
-void TestReleasedOrangeColumnRaisesEveryVoxelAfterJoining() {
+void TestReleasedOrangeWallsStayAnchoredUnderCarriedBody() {
   voxelbench::Voxel voxels[46]{};
   int32_t count = 0;
   int32_t upper_wall = -1;
@@ -4244,11 +4244,62 @@ void TestReleasedOrangeColumnRaisesEveryVoxelAfterJoining() {
   static voxelbench::PhysicsWorkspace workspace;
   voxelbench::reset_workspace(&workspace);
   Check(voxelbench::simulate_turn(&workspace, voxels, count, 6, 6, 0) == 0,
-        "releasing a carried orange-wall assembly should run");
+        "carrying a body off orange buttons should run");
   Check(voxels[upper_wall].generic_id == 0 &&
             voxels[lower_wall].generic_id == 0 &&
-            voxels[upper_wall].y == 2 && voxels[lower_wall].y == 2,
-        "every voxel in the newly joined orange column should fully raise");
+            voxels[upper_wall].x == 1 && voxels[upper_wall].y == 2 &&
+            voxels[upper_wall].z == 2 && voxels[lower_wall].x == 1 &&
+            voxels[lower_wall].y == 3 && voxels[lower_wall].z == 1,
+        "released walls should raise in their original columns without following the carried body");
+}
+
+void TestPushedBodiesCannotDragCompressedOrangeWallAnchors() {
+  static voxelbench::PhysicsWorkspace workspace;
+  static voxelbench::MotionState state;
+  for (const char* body_role : {"pushable", "weightless-pushable"}) {
+    for (const char* wall_role : {"orange-wall", "orange-wall-slope-up",
+             "orange-wall-slope-right", "orange-wall-slope-down", "orange-wall-slope-left"}) {
+      for (int32_t direction = 0; direction < 4; ++direction) {
+        std::vector<voxelbench::Voxel> voxels = {
+            {1, 3, 1, Role("player"), -1},
+            {1, 2, 1, Role(body_role), 0},
+            {1, 2, 1, Role(wall_role), 2},
+            {4, 1, 1, Role("orange-button"), 0},
+            {5, 1, 1, Role("orange-button"), 0},
+            {4, 1, 1, Role("weightless-pushable"), 1},
+            {5, 1, 1, Role("weightless-pushable"), 2},
+        };
+        for (int32_t x = 0; x < 6; ++x) {
+          for (int32_t y = 0; y < 6; ++y) voxels.push_back({x, y, 0, Role("floor"), -1});
+        }
+        for (int32_t turn = 0; turn < direction; ++turn) {
+          for (auto& voxel : voxels) {
+            const int32_t x = voxel.x;
+            voxel.x = 5 - voxel.y;
+            voxel.y = x;
+          }
+        }
+        const auto anchor = voxels[2];
+        const auto body = voxels[1];
+        voxelbench::reset_workspace(&workspace);
+        voxelbench::reset_motion_state(&state);
+        bool complete = false;
+        for (int32_t tick = 0; tick < 10; ++tick) {
+          const auto result = voxelbench::step_tick(&workspace, &state,
+              voxels.data(), static_cast<int32_t>(voxels.size()), 6, 6, direction);
+          Check(voxels[2].x == anchor.x && voxels[2].y == anchor.y && voxels[2].z == anchor.z,
+                "pushing a body must never translate a compressed wall or slope anchor in any tick");
+          if (result != voxelbench::TickResult::kMore) {
+            complete = result == voxelbench::TickResult::kComplete;
+            break;
+          }
+        }
+        Check(complete && (voxels[1].x != body.x || voxels[1].y != body.y),
+              "the pushed body should remain free to leave the anchored wall");
+        Check(voxels[2].generic_id == 2, "held buttons should keep the wall compressed");
+      }
+    }
+  }
 }
 
 void TestHeldButtonsPreserveOrangeWallAnchors() {
@@ -5408,7 +5459,8 @@ int main() {
   Run(TestOrangeWallDeliversPlayerOntoMountedLift, "TestOrangeWallDeliversPlayerOntoMountedLift");
   Run(TestOrangeButtonRidesTopLiftAndChangesVisibility, "TestOrangeButtonRidesTopLiftAndChangesVisibility");
   Run(TestMovingPolycubeCarriesButtonsMountedOnEveryFace, "TestMovingPolycubeCarriesButtonsMountedOnEveryFace");
-  Run(TestReleasedOrangeColumnRaisesEveryVoxelAfterJoining, "TestReleasedOrangeColumnRaisesEveryVoxelAfterJoining");
+  Run(TestReleasedOrangeWallsStayAnchoredUnderCarriedBody, "TestReleasedOrangeWallsStayAnchoredUnderCarriedBody");
+  Run(TestPushedBodiesCannotDragCompressedOrangeWallAnchors, "TestPushedBodiesCannotDragCompressedOrangeWallAnchors");
   Run(TestHeldButtonsPreserveOrangeWallAnchors, "TestHeldButtonsPreserveOrangeWallAnchors");
   Run(TestTallOrangeWallCarriesWideStackAcrossWorkspaceResume, "TestTallOrangeWallCarriesWideStackAcrossWorkspaceResume");
   Run(TestOrangeWallChecksPlayerHeadroomAboveCarriedBody, "TestOrangeWallChecksPlayerHeadroomAboveCarriedBody");

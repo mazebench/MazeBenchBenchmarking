@@ -190,6 +190,70 @@ export function joinedEdgePositions(faces, halfWidth = 0, halfHeight = 0) {
   return positions;
 }
 
+// Cross sections where a moving solid enters another surface are not edges
+// of either original mesh. Find those intersections in tile coordinates so
+// the settled renderer and fractional human tweens use identical outlines.
+export function surfaceContactEdges(shapes, supports, halfWidth = 0, halfHeight = 0) {
+  if (!shapes.length || !supports.length) return [];
+  const columns = new Map(), supportFaces = new Map();
+  for (const shape of supports) {
+    const size = shape.size || [1, 1, 1];
+    for (let x = Math.floor(shape.position[0]); x <= Math.floor(shape.position[0] + size[0] + EPS); x++) {
+      for (let z = Math.floor(shape.position[2]); z <= Math.floor(shape.position[2] + size[2] + EPS); z++) {
+        const key = `${x},${z}`;
+        if (!columns.has(key)) columns.set(key, new Set());
+        columns.get(key).add(shape);
+      }
+    }
+  }
+  const positions = [], seen = new Set();
+  for (const { corners } of joinedSurfaceFaces(shapes)) {
+    const center = corners[0].map((_, axis) => corners.reduce((sum, p) => sum + p[axis], 0) / corners.length);
+    for (const shape of columns.get(`${Math.floor(center[0])},${Math.floor(center[2])}`) || []) {
+      if (!supportFaces.has(shape)) supportFaces.set(shape, localFaces(shape.direction).map(face => {
+        const points = face.points.map(p => p.map((v, i) => shape.position[i] + v * (shape.size?.[i] ?? 1)));
+        const normal = normalOf(points);
+        return { normal, constant: dot(normal, points[0]) };
+      }));
+      const faces = supportFaces.get(shape);
+      for (const plane of faces) {
+        const distances = corners.map(p => dot(plane.normal, p) - plane.constant);
+        // Coplanar faces already have their normal mesh outline.
+        if (distances.every(d => Math.abs(d) < EPS)) continue;
+        const points = [];
+        for (let i = 0; i < corners.length; i++) {
+          const a = corners[i], b = corners[(i + 1) % corners.length];
+          const da = distances[i], db = distances[(i + 1) % corners.length];
+          if (Math.abs(da) < EPS) points.push(a);
+          if (da * db < -EPS * EPS) points.push(a.map((v, axis) => v + (b[axis] - v) * da / (da - db)));
+        }
+        if (points.length < 2) continue;
+        const a = points[0], b = points.reduce((farthest, p) =>
+          dot(sub(p, a), sub(p, a)) > dot(sub(farthest, a), sub(farthest, a)) ? p : farthest, a);
+        const direction = sub(b, a);
+        if (Math.hypot(...direction) < EPS) continue;
+        let low = 0, high = 1;
+        for (const boundary of faces) {
+          const distance = dot(boundary.normal, a) - boundary.constant;
+          const speed = dot(boundary.normal, direction);
+          if (Math.abs(speed) < EPS) {
+            if (distance > EPS) { high = -1; break; }
+          } else if (speed > 0) high = Math.min(high, -distance / speed);
+          else low = Math.max(low, -distance / speed);
+        }
+        if (high - low < EPS) continue;
+        const from = a.map((v, axis) => v + direction[axis] * low);
+        const to = a.map((v, axis) => v + direction[axis] * high);
+        const key = [cellKey(from), cellKey(to)].sort().join(":");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        for (const p of [from, to]) positions.push(p[0] - halfWidth, p[1], p[2] - halfHeight);
+      }
+    }
+  }
+  return positions;
+}
+
 const FACE_NORMALS = {
   top: [0, 0, 1], bottom: [0, 0, -1],
   north: [0, -1, 0], east: [1, 0, 0], south: [0, 1, 0], west: [-1, 0, 0]

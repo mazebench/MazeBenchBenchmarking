@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import * as THREE from "../render/vendor/three.module.min.js";
-import { createCommandTimeline, sampleTrack, sampleSegments, groupMovingTracks } from "../animations/v1/timeline.mjs";
+import { createCommandTimeline, createResetTimeline, sampleTrack, sampleSegments, groupMovingTracks } from "../animations/v1/timeline.mjs";
 import { playTimeline } from "../animations/v1/player.mjs";
 import { CommandAnimationScene } from "../animations/v1/scene.mjs";
 import { addAnimatedGem, collectAnimatedGems, updateAnimatedGems } from "../animations/v1/gems.mjs";
@@ -325,6 +325,45 @@ test("animation scene morphs real mechanism geometry without rebuilding or reall
   assert.ok(disposed > 0);
   assert.equal(renderer.content.visible, true);
   assert.equal(renderer.scene.children.length, 0);
+});
+
+test("fade-out and reset fade-in keep opaque surfaces depth-writing with the same mask on their outlines", () => {
+  const objects = [cell("weightless-box", 2, 2)], active = room(objects);
+  const hidden = state(objects.map(object => ({ ...object, engineHidden: true })));
+  const context = createPlayWorldContext({ storageFormat: V2_WORLD_FORMAT, columns: ["A"], rows: ["A"],
+    roomWidth: 8, roomHeight: 4, blockDefinitions: blocks, rooms: [active] });
+  for (const reset of [false, true]) {
+    const result = reset ? createResetTimeline({ state: hidden, resetState: state(objects), room: active, definitions: blocks })
+      : createCommandTimeline({ state: state(objects), room: active, definitions: blocks, simulation: { frames: [hidden], final: hidden } });
+    const renderer = Object.create(PlayWorldRenderer.prototype);
+    Object.assign(renderer, { world: context(active), totalWidth: 8, totalHeight: 4, mode: "play", canvas: { dataset: {} },
+      target: new THREE.Vector3(), scene: new THREE.Scene(), content: new THREE.Group(), cutawayContent: new THREE.Group(),
+      renderer: { shadowMap: { enabled: true } }, cutaway: { height: 1, opacity: .2, followPlayer: false }, yaw: 0 });
+    const animation = new CommandAnimationScene(renderer, result);
+    animation.update(result.duration / 2); animation.beforeRender();
+    const part = animation.parts[1];
+    assert.equal(part.coverage.value, .5);
+    const faces = part.lowerMaterials.filter(({ source }) => source.depthWrite);
+    assert(faces.length > 0);
+    for (const { source, material } of faces) {
+      assert.equal(material.transparent, false, "fading solid faces must stay in the opaque depth pass");
+      assert.equal(material.depthWrite, true);
+      assert.equal(material.opacity, source.opacity, "surface alpha must not expose rear faces");
+    }
+    const versions = [...part.lowerMaterials, ...part.upperMaterials].map(({ material }) => {
+      const shader = { uniforms: {}, vertexShader: "#include <project_vertex>",
+        fragmentShader: "#include <clipping_planes_fragment>\n#include <opaque_fragment>" };
+      material.onBeforeCompile(shader);
+      assert.equal(shader.uniforms.mazeFadeCoverage, part.coverage, "faces, outlines and ghosts share coverage");
+      return material.version;
+    });
+    animation.update(result.duration * .75); animation.beforeRender();
+    assert.equal(part.coverage.value, reset ? .875 : .125);
+    assert.deepEqual([...part.lowerMaterials, ...part.upperMaterials].map(({ material }) => material.version), versions,
+      "fading changes uniforms without recompiling materials");
+    for (const { source, material } of part.upperMaterials) assert.equal(material.opacity, source.opacity * .2);
+    animation.dispose();
+  }
 });
 
 test("fast multi-room travel retargets camera and lighting without changing an earlier easing curve", () => {

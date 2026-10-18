@@ -8021,6 +8021,39 @@
       addTerrainPolycubeRegions(polycubePieceEntries, now);
       addAnimatedOrangeSolidRegion(animatedOrangeEntries, now);
 
+      // Use the same physical surface intersections as the main Play/editor
+      // renderer, including walls that continue below the visible floor.
+      if (surfaceKernel && edgeOutlinesEnabled()) {
+        const walls = [], supports = [];
+        for (let y = 0; y < pieceDescriptorRows.length; y++) {
+          for (let x = 0; x < pieceDescriptorRows[y].length; x++) {
+            for (const descriptor of pieceDescriptorRows[y][x]) {
+              if (descriptor.layer?.orangeForm === "hidden" || descriptor.isVoid || descriptor.blockHeight <= 0) continue;
+              const shape = {
+                position: [x + renderOffsetX() / unit, descriptor.bottomY / unit, y + renderOffsetZ() / unit],
+                size: [1, descriptor.blockHeight / unit, 1],
+                ...(["ice_slope", "orange_ice_slope"].includes(descriptor.type)
+                  ? { direction: normalizeCardinalDirection(descriptor.layer?.direction) } : {})
+              };
+              if (descriptor.type === "orange_wall" || descriptor.type === "orange_ice_slope") {
+                // The lab batches consecutive authored voxels into columns.
+                // Restore their unit shapes for shared-face cancellation.
+                for (let row = 0; row < shape.size[1] - .0001; row++) {
+                  walls.push({ ...shape, position: [shape.position[0], shape.position[1] + row, shape.position[2]] });
+                }
+              } else supports.push(shape);
+            }
+          }
+        }
+        const positions = surfaceKernel.surfaceContactEdges(walls, supports).map(value => value * unit);
+        if (positions.length) {
+          const geometry = new THREE.BufferGeometry();
+          geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+          geometry.computeBoundingSphere();
+          addEdgeLines(geometry, new THREE.Vector3(), 18, transitionSceneVisibility(), geometry);
+        }
+      }
+
       const visitedPieces = new Set();
       const pieceVisitKey = (x, y, key) => `${x},${y}:${key}`;
 

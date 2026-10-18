@@ -125,59 +125,6 @@ void ArmTranslatedHoveringObjects(Voxel* voxels) {
   }
 }
 
-// A compressed Orange Wall voxel is non-colliding, but its raised anchor can
-// be embedded in a movable polycube (or immediately beneath that polycube's
-// bottom voxel). In that authored arrangement it is a fixture of the rigid
-// body and translates with the body's deliberate proposal. The wall keeps its
-// depth; only its stable raised anchor moves in X/Y/Z.
-void TranslateHiddenOrangeWallsWithProposals(
-    Voxel* voxels,
-    int32_t count,
-    bool uniform,
-    int32_t uniform_dx,
-    int32_t uniform_dy,
-    int32_t uniform_dz,
-    bool include_carried) {
-  if (!ActiveWorkspace().scene_has_orange_mechanisms ||
-      (uniform && uniform_dx == 0 && uniform_dy == 0)) {
-    return;
-  }
-  for (int32_t wall_index = 0; wall_index < count; ++wall_index) {
-    Voxel& wall = voxels[wall_index];
-    if (!IsOrangeWallRole(wall.role) ||
-        !OrangeWallIsHiddenForDepth(
-            voxels, count, wall_index, OrangeWallDepth(wall))) {
-      continue;
-    }
-    for (int32_t object = 0; object < g_object_count; ++object) {
-      if ((g_mandatory_objects[object] == 0 &&
-           (!include_carried || g_carried_objects[object] == 0 ||
-            g_carrier_parent[object] != -2)) ||
-          g_rejected_carriers[object] != 0 ||
-          g_object_kind[object] == kMechanismObject) {
-        continue;
-      }
-      bool attached = false;
-      for (int32_t member = g_object_head[object]; member >= 0;
-           member = g_next_object_voxel[member]) {
-        attached = voxels[member].x == wall.x &&
-            voxels[member].y == wall.y &&
-            (voxels[member].z == wall.z ||
-             (wall.z != INT32_MAX && voxels[member].z == wall.z + 1));
-        if (attached) break;
-      }
-      if (!attached) continue;
-      const int32_t dx = uniform ? uniform_dx : g_object_dx[object];
-      const int32_t dy = uniform ? uniform_dy : g_object_dy[object];
-      if (!VoxelStaysInRoomGrid(wall, wall.x + dx, wall.y + dy)) break;
-      wall.x += dx;
-      wall.y += dy;
-      wall.z += uniform ? uniform_dz : g_object_dz[object];
-      break;
-    }
-  }
-}
-
 bool OrangeButtonSharesCellWith(
     Voxel* voxels,
     const Voxel& voxel) {
@@ -524,8 +471,6 @@ void TranslateObjectsCarriedByPlayerOneStep(
       break;
     }
   }
-  TranslateHiddenOrangeWallsWithProposals(
-      voxels, g_spatial_voxel_count, true, dx, dy, 0, true);
   for (int32_t object = 0; object < g_object_count; ++object) {
     if (g_carried_objects[object] == 0 ||
         g_rejected_carriers[object] != 0) {

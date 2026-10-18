@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench/MazeBenchBenchmarking.git",
-  "sourceTree": "8157eaf9e4613479d33d697d0aa708ee7679f440bf5a680fafaecf1ba77966b3",
+  "sourceTree": "2acf1f31b858dd0403f1ab9b916f4fef493d5e39e1df581b586175dd883eb461",
   "sourceDirectory": "engine",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "path": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "d263f514f02e79c08745471a6c9c4d5de5d079637b58063f65729eb7d2969ae7",
-    "bytes": 553646
+    "sha256": "e8cdf12a726377d4853fe96afa42564dcf748fdb006aeb681a2174a65306d3a6",
+    "bytes": 550876
   },
   "files": [
     {
@@ -57,7 +57,7 @@
     },
     {
       "path": "engine/src/physics/motion_support.inc",
-      "sha256": "65542777ed3fec730470b89f0471458dd44ba3b30733203f6594d0aee77ecdb5"
+      "sha256": "b39ce698377cb065621c75bf3aec8ed618e82aca30b50ae6bb4ec65edcfe84fc"
     },
     {
       "path": "engine/src/physics/movement.inc",
@@ -65,7 +65,7 @@
     },
     {
       "path": "engine/src/physics/objects.inc",
-      "sha256": "a9e86034fa67b35dc7be25ebc605c12357703653608adb2e367081fd9ea4086d"
+      "sha256": "eee4ab231d4e3a20b13e8b96e58f858c8e52c664a53f93310a786d665cfde4ed"
     },
     {
       "path": "engine/src/physics/orange_mechanisms.inc",
@@ -93,7 +93,7 @@
     },
     {
       "path": "engine/src/physics/slope_motion.inc",
-      "sha256": "1940cbd94efefd1a45d3388e7a525da62a45db6dbdbcaf7446e2f9734e4d6213"
+      "sha256": "db3ec1796c7124b7a1145a430a72ab63b0c17036dfb0498c2dab2e7be1477499"
     },
     {
       "path": "engine/src/physics/slope_proposals.inc",
@@ -105,7 +105,7 @@
     },
     {
       "path": "engine/src/physics/translations.inc",
-      "sha256": "5d21b99e45d2a80f372fef9913be5b37b4e729d4c4dcbc6f3434fa7b6fe785ac"
+      "sha256": "6153b20d718074dbd6ca466e7e06a78e997ab30be71cb44ad862f1e4e2d2be65"
     },
     {
       "path": "engine/src/physics/workspace.inc",
