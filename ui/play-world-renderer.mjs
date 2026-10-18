@@ -143,7 +143,7 @@ export class PlayWorldRenderer extends WorldContextRenderer {
   }
 
   updateCamera() {
-    const now = performance.now();
+    const now = this.presentationTime ?? performance.now();
     const enabled = Boolean(this.gemMotionEnabled && !this.gemMotionPreference?.matches);
     updateAnimatedGems(this.gems, now, enabled);
     for (const entry of this.roomBackgrounds?.values() || []) {

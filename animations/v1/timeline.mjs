@@ -63,6 +63,17 @@ export function sampleTrack(track, time) {
   };
 }
 
+// A replay room jump crossfades the departing and arriving player. Camera
+// truncation follows the more visible pose, including when scrubbing backward.
+export function sampleTimelinePlayer(timeline, time) {
+  let player = null;
+  for (const track of timeline.tracks) if (track.block.roleId === "player") {
+    const pose = sampleTrack(track, time);
+    if (!player || pose.opacity >= player.opacity) player = pose;
+  }
+  return player;
+}
+
 export function createCommandTimeline({ state, room, simulation, definitions, stepMs = DEFAULT_STEP_MS, slideMs = stepMs * SLIDE_TILE_MS / DEFAULT_STEP_MS, cameraMs = ROOM_TRANSITION_MS }) {
   const blocks = definitions instanceof Map ? definitions : new Map(definitions.map(block => [block.id, block]));
   const trace = simulation.presentation || {

@@ -133,6 +133,19 @@ input restores it, and a still-held controller must not immediately hide it agai
 Suspend input while editing text or when the page loses focus, and release controller
 input on disconnect. Preserve signed play/v1 JavaScript.
 
+## Replays
+
+Human replay movies live in replays/v1, linked between Solutions and Unit tests.
+Import plain UDLR, text room commands, and Solutions JSON; use its declared
+start or H×I. Compile with the current connected-room engine in a cancellable
+worker, keeping collected gems permanent across room commands. Reuse the human
+animation curves, with shared stationary tracks instead of retaining every
+physics frame. Seeking must sample those curves directly in either direction,
+including fractional moves, mechanisms and room-camera/brightness transitions.
+Paused playback freezes the presentation clock (including gems) while leaving
+camera controls live; seeking must preserve the user's orbit, zoom and pan.
+Never alter Solutions saves or import these effects into signed AI observations.
+
 ## Connected-world Play transitions
 
 World topology and reset-on-leave policy belong to Play Mode, not the vendored

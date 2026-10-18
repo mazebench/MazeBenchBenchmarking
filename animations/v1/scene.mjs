@@ -6,7 +6,7 @@ import { addTerrainAsset } from "../../render/v1/asset-renderers.mjs";
 import { collectAnimatedGems } from "./gems.mjs";
 import { addSpecialPiece } from "../../render/v1/special-piece-renderers.mjs";
 import { disposeGeneratedChildren } from "../../render/v1/polycube-mesh.mjs";
-import { groupMovingTracks, sampleTrack, sampleSegments } from "./timeline.mjs";
+import { groupMovingTracks, sampleTrack, sampleSegments, sampleTimelinePlayer } from "./timeline.mjs";
 import { applySolidFade } from "./solid-fade.mjs";
 import { AnimatedWallContacts, contactShape } from "../../ui/orange-wall-contacts.mjs";
 
@@ -246,8 +246,8 @@ export class CommandAnimationScene {
     if (renderer.renderer.shadowMap.enabled) renderer.renderer.shadowMap.needsUpdate = true;
     renderer.canvas.dataset.motionTime = time.toFixed(1);
     renderer.canvas.dataset.motionDuration = String(this.timeline.duration);
-    const player = this.timeline.tracks.find(track => track.block.roleId === "player");
-    if (player) renderer.canvas.dataset.motionPlayer = JSON.stringify(sampleTrack(player, time));
+    const player = sampleTimelinePlayer(this.timeline, time);
+    if (player) renderer.canvas.dataset.motionPlayer = JSON.stringify(player);
   }
 
   beforeRender() {
@@ -260,8 +260,8 @@ export class CommandAnimationScene {
     }
     let height = renderer.cutawayHeight;
     if (renderer.cutaway.followPlayer) {
-      const player = this.timeline.tracks.find(track => track.block.roleId === "player");
-      if (player) height = Math.max(1, sampleTrack(player, this.time).z + 1);
+      const player = sampleTimelinePlayer(this.timeline, this.time);
+      if (player) height = Math.max(1, player.z + 1);
     }
     this.lowerPlane.constant = height ?? 1e6;
     this.upperPlane.constant = -(height ?? 1e6) - 0.002;
