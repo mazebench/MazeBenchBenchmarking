@@ -55,7 +55,7 @@ export class ThickEdges {
     material.userData.mazeOutline = material.userData.mazeWideOutline = true;
     material.onBeforeCompile = shader => {
       Object.assign(shader.uniforms, this.uniforms);
-      shader.vertexShader = `attribute vec3 lineOther;\nattribute float lineSide;\nattribute float lineEnd;\nuniform vec2 mazeLineViewport;\nuniform float mazeLineWidth;\nuniform float mazeLineReferenceDepth;\nuniform float mazeLineMaxScale;\nuniform float mazeLineNear;\nvarying vec4 mazeLineScreen;\nvarying vec2 mazeLineWidths;\n${shader.vertexShader}`
+      shader.vertexShader = `attribute vec3 lineOther;\nattribute float lineSide;\nattribute float lineEnd;\nuniform vec2 mazeLineViewport;\nuniform float mazeLineWidth;\nuniform float mazeLineReferenceDepth;\nuniform float mazeLineMaxScale;\nuniform float mazeLineNear;\nvarying vec4 mazeLineScreen;\nvarying vec2 mazeLineWidths;\nvarying vec2 mazeLineDepth;\n${shader.vertexShader}`
         .replace("#include <project_vertex>", `
           vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
           vec4 otherView = modelViewMatrix * vec4(lineOther, 1.0);
@@ -87,6 +87,9 @@ export class ThickEdges {
           otherView.xyz *= 1.0 - otherPull / otherDistance;
           gl_Position = projectionMatrix * mvPosition;
           vec4 otherClip = projectionMatrix * otherView;
+          mazeLineDepth = lineEnd < .5
+            ? vec2(gl_Position.z / gl_Position.w, otherClip.z / otherClip.w)
+            : vec2(otherClip.z / otherClip.w, gl_Position.z / gl_Position.w);
           vec2 direction = (otherClip.xy / otherClip.w - gl_Position.xy / gl_Position.w) * mazeLineViewport;
           direction /= max(length(direction), .0001);
           vec2 normal = vec2(-direction.y, direction.x);
@@ -99,13 +102,18 @@ export class ThickEdges {
           if (unbiasedPosition.z > nearZ && unbiasedOther.z > nearZ) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           mvPosition = unbiasedPosition;
         `);
-      shader.fragmentShader = `varying vec4 mazeLineScreen;\nvarying vec2 mazeLineWidths;\n${shader.fragmentShader}`
+      shader.fragmentShader = `varying vec4 mazeLineScreen;\nvarying vec2 mazeLineWidths;\nvarying vec2 mazeLineDepth;\n${shader.fragmentShader}`
         .replace("#include <opaque_fragment>", `
           // Round caps meet cleanly at corners; independently extended square
           // caps create spikes when the outline becomes thick up close.
           vec2 segment = mazeLineScreen.zw - mazeLineScreen.xy;
           float along = clamp(dot(gl_FragCoord.xy - mazeLineScreen.xy, segment) /
             max(dot(segment, segment), .0001), 0.0, 1.0);
+          // Widening and extending the quad changes its rasterized depth
+          // slope. At grazing angles that lets the supporting face cut a
+          // triangular notch into every tile segment. NDC depth is linear
+          // along the projected centreline, independent of the stroke quad.
+          gl_FragDepth = .5 + .5 * mix(mazeLineDepth.x, mazeLineDepth.y, along);
           float width = mix(mazeLineWidths.x, mazeLineWidths.y, along);
           float distanceToLine = length(gl_FragCoord.xy - mix(mazeLineScreen.xy, mazeLineScreen.zw, along));
           float radius = max(width, 1.0) * .5;
@@ -114,7 +122,7 @@ export class ThickEdges {
           #include <opaque_fragment>
         `);
     };
-    material.customProgramCacheKey = () => "maze-depth-outline-v3";
+    material.customProgramCacheKey = () => "maze-depth-outline-v4";
     return material;
   }
 

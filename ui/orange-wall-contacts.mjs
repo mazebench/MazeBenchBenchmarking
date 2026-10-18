@@ -1,5 +1,5 @@
 import * as THREE from "../render/vendor/three.module.min.js";
-import { voxelPieceDefinition } from "../render/v1/voxel-scene-v2.mjs";
+import { voxelPieceDefinition } from "./voxel-scene.mjs";
 import { edgeMaterial } from "../render/v1/polycube-mesh.mjs";
 import { surfaceContactEdges } from "./joined-voxel-surface.mjs";
 

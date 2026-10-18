@@ -1,6 +1,9 @@
 // Canonical cube/wedge surface kernel for the test lab and MazeBench browser UI.
 // Both applications import this file in this repository; no Three.js dependency.
 const EPS = 1e-8;
+// Ground floors support objects at elevation zero. Recessing their surface
+// leaves a visible gap beneath walls, ramps and actors at low camera angles.
+export const floorSlabBounds = thickness => ({ bottom: -thickness, top: 0 });
 const FAMILY = {
   "ice-floor": "ice-block", "ice-slope": "ice-block",
   "wall-slope": "wall", "orange-slope": "orange-wall",

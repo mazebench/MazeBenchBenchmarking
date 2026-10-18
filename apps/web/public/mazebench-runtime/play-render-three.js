@@ -62,7 +62,6 @@
     const elevationUnit = unit;
     const shapeCornerRadius = 0;
     const floorThickness = Math.max(3, Math.round(unit * 0.34));
-    const floorDrop = Math.max(3, Math.round(unit * 0.055));
     const actorVisualLift = 0;
     const edgeDepthBias = Math.max(1.25, unit * 0.024);
     const treeReferenceHeightInModelUnits = 5.516;
@@ -6536,7 +6535,7 @@
         ? visualLayerDescriptor.topY
         : terrainHeight === null
           ? 0
-          : topHeight - (isSunkenFloor ? floorDrop : 0);
+          : isSunkenFloor ? surfaceKernel.floorSlabBounds(floorThickness).top : topHeight;
 
       return {
         blockHeight,
@@ -6763,7 +6762,7 @@
             ? topHeight
           : isRaisedPiece || isStackedFloorCube
             ? topHeight
-            : topHeight - (isSunkenFloor ? floorDrop : 0);
+            : isSunkenFloor ? surfaceKernel.floorSlabBounds(floorThickness).top : topHeight;
       const blockHeight = isRaisedPiece
         ? Math.max(1, topHeight - baseHeight)
         : isLoweredOrangeSurface

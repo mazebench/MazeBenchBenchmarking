@@ -357,6 +357,10 @@ repository. ui/joined-voxel-surface.mjs re-exports those very same functions.
 Both browser renderers use this implementation, with format-specific scene
 adapters and camera controls. npm run test:parity checks module identity and
 live engine adapter equivalence. No renderer file copying is necessary.
+Ground floor slabs meet elevation zero, where walls, slopes and actors rest;
+never recess the surface and expose a strip of the supporting tile beneath them.
+The live ui/voxel-scene.mjs adapter keeps floor geometry, picking, grids, and
+animated contact outlines aligned without changing the signed scene adapter.
 
 Keep the shared distance-aware perspective near plane in both browser renderers.
 A fixed tiny near plane makes lowered gates/lifts fight their supporting surface
@@ -378,7 +382,9 @@ each endpoint's view depth, with subpixel coverage to avoid distant flicker.
 Close-up thickness is capped at twice the reference width (six pixels in Play/
 Edit, two in Flyover). Wide outlines use antialiased round caps and depth clearance matched to their
 world-space radius so close-up faces cannot slice gaps into the strokes. Keep
-near-plane trimming valid and retain a single draw per outline mesh.
+near-plane trimming valid and retain a single draw per outline mesh. Compute
+fragment depth along the projected edge centreline, not the expanded stroke
+triangles; their cap extensions otherwise produce sawtooth gaps at grazing angles.
 
 Browser Play and the editor render all 256 rooms, with the active room at full
 brightness and the rest dimmed. `ui/world-context-renderer.mjs` caches full

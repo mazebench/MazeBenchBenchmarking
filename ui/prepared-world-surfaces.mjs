@@ -1,5 +1,5 @@
 import * as THREE from "../render/vendor/three.module.min.js";
-import { collectVoxelSceneV2 } from "../render/v1/voxel-scene-v2.mjs";
+import { collectVoxelSceneV2 } from "./voxel-scene.mjs";
 import { edgeMaterial, renderMaterial } from "../render/v1/polycube-mesh.mjs";
 import { buildWorldSurfaceBuffers } from "./world-surface-buffers.mjs";
 import { addGemAsset, addTerrainAsset } from "../render/v1/asset-renderers.mjs";

@@ -2,7 +2,7 @@
 // planes, visibility and cached cross sections; active-room picking stays CPU-cut.
 import { isEdge } from "./thick-edges.mjs";
 import * as THREE from "../render/vendor/three.module.min.js";
-import { collectVoxelSceneV2 } from "../render/v1/voxel-scene-v2.mjs";
+import { collectVoxelSceneV2 } from "./voxel-scene.mjs";
 import { edgeGeometryFromFaces, edgeMaterial, geometryFromFaces, renderMaterial, disposeGeneratedChildren } from "../render/v1/polycube-mesh.mjs";
 
 const CUT_EPSILON = 0.0005;

@@ -1,4 +1,4 @@
-import { voxelPieceDefinition } from "../render/v1/voxel-scene-v2.mjs";
+import { voxelPieceDefinition } from "./voxel-scene.mjs";
 
 import { mountedNumberFaces, numberFaceKey } from "./joined-voxel-surface.mjs";
 

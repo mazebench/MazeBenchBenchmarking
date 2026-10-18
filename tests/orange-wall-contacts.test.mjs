@@ -12,8 +12,8 @@ import { decodeVoxelRoom } from "../render/v1/voxel-world-v2.mjs";
 import { createPlayWorldContext } from "../ui/play-world-context.mjs";
 
 const segments = positions => Array.from({ length: positions.length / 6 }, (_, i) => positions.slice(i * 6, i * 6 + 6));
-const floor = (x = 0, z = 0) => ({ position: [x, -.40625, z], size: [1, .34375, 1] });
-const atFloor = positions => segments(positions).filter(p => Math.abs(p[1] + .0625) < 1e-7 && Math.abs(p[4] + .0625) < 1e-7);
+const floor = (x = 0, z = 0) => ({ position: [x, -.34375, z], size: [1, .34375, 1] });
+const atFloor = positions => segments(positions).filter(p => Math.abs(p[1]) < 1e-7 && Math.abs(p[4]) < 1e-7);
 
 test("joined orange walls retain their floor intersection without tile seams at every lowering height", () => {
   for (const height of [-1, -.75, -.5, -.125]) {
@@ -30,7 +30,7 @@ test("orange ramps and elevated support surfaces get their actual cross section"
   for (const direction of ["up", "down", "left", "right"]) {
     const edges = atFloor(surfaceContactEdges([{ position: [0, -.5, 0], direction }], [floor()]));
     assert.equal(edges.length, 4, direction);
-    assert(edges.flat().some(value => Math.abs(value - .4375) < 1e-7 || Math.abs(value - .5625) < 1e-7), "cross section follows the sloped face");
+    assert(edges.flat().some(value => Math.abs(value - .5) < 1e-7), "cross section follows the sloped face");
   }
   const raised = surfaceContactEdges([{ position: [0, 1.5, 0] }], [{ position: [0, 1, 0] }]);
   assert.equal(segments(raised).filter(p => p[1] === 2 && p[4] === 2).length, 4);
@@ -74,7 +74,7 @@ test("L×O LLLD keeps contact outlines on the floor through the tween and at res
       assert(geometry.drawRange.count <= points.count, "preallocated capacity covers all segments");
       for (let i = 0; i < geometry.drawRange.count; i += 6) {
         const y1 = points.getY(i) + contact.root.position.y, y2 = points.getY(i + 1) + contact.root.position.y;
-        if (Math.abs(y1 + .0625) < 1e-5 && Math.abs(y2 + .0625) < 1e-5) floorSegments++;
+        if (Math.abs(y1) < 1e-5 && Math.abs(y2) < 1e-5) floorSegments++;
       }
       assert(contact.mesh.material.clippingPlanes?.length, "Truncate clips contact lines too");
     }

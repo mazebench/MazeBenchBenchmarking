@@ -1,7 +1,7 @@
 import { roomBorderEdges, joinRoomBorderEdges } from "../../ui/room-border-edges.mjs";
 import { isEdge } from "../../ui/thick-edges.mjs";
 import * as THREE from "../../render/vendor/three.module.min.js";
-import { collectVoxelSceneV2 } from "../../render/v1/voxel-scene-v2.mjs";
+import { collectVoxelSceneV2 } from "../../ui/voxel-scene.mjs";
 import { addTerrainAsset } from "../../render/v1/asset-renderers.mjs";
 import { collectAnimatedGems } from "./gems.mjs";
 import { addSpecialPiece } from "../../render/v1/special-piece-renderers.mjs";

@@ -4,7 +4,7 @@ import * as THREE from "../render/vendor/three.module.min.js";
 import { ThreeMazeRendererV1 } from "../render/v1/three-renderer.mjs";
 import { addGemAsset, addTerrainAsset } from "../render/v1/asset-renderers.mjs";
 import { addSpecialPiece } from "../render/v1/special-piece-renderers.mjs";
-import { collectVoxelSceneV2 } from "../render/v1/voxel-scene-v2.mjs";
+import { collectVoxelSceneV2 } from "./voxel-scene.mjs";
 import { applyCutawayMaterials } from "../render/v1/cutaway.mjs";
 import { V2_WORLD_FORMAT } from "../render/v1/voxel-world-v2.mjs";
 import { addGenericNumberFaces } from "../render/v1/generic-labels.mjs";
@@ -27,6 +27,10 @@ export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
 
   render() {
     if (!this.renderSuspended) super.render();
+  }
+
+  collectScene() {
+    return this.world.storageFormat === V2_WORLD_FORMAT ? collectVoxelSceneV2(this) : super.collectScene();
   }
 
   assignRenderLayers(root) {
