@@ -5,6 +5,7 @@ import * as THREE from "../render/vendor/three.module.min.js";
 import { collectVoxelSceneV2 } from "./voxel-scene.mjs";
 import { edgeGeometryFromFaces, edgeMaterial, geometryFromFaces, renderMaterial, disposeGeneratedChildren } from "../render/v1/polycube-mesh.mjs";
 import { ModelTruncateCaps } from "./model-truncate-caps.mjs";
+import { batchStaticRoom } from "./static-room-batches.mjs";
 
 const CUT_EPSILON = 0.0005;
 const OPEN_HEIGHT = 1e6;
@@ -46,6 +47,7 @@ export class BackgroundTruncation {
     entry.capRoot = new THREE.Group();
     entry.root.add(entry.capRoot);
     entry.modelCaps = new ModelTruncateCaps(renderer, entry.content, entry.capRoot);
+    entry.retiredModelSources = batchStaticRoom(entry.content, new Set(entry.modelCaps.entries.map(entry => entry.source)));
     entry.clipObjects = [];
     entry.content.updateWorldMatrix(true, true);
     entry.content.traverse(object => {
@@ -144,6 +146,10 @@ export class BackgroundTruncation {
         this.materials.delete(source);
         source.dispose();
       }
+    }
+    for (const source of entry.retiredModelSources || []) {
+      if (!source.geometry.userData.persistentGeometry) source.geometry.dispose();
+      if (source.userData.transientMaterial) source.material.dispose();
     }
     disposeGeneratedChildren(entry.content);
     disposeGeneratedChildren(entry.capRoot);

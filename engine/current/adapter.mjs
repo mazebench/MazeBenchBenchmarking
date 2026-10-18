@@ -251,13 +251,11 @@ export function readEngineStateV1(template, definitions, buffer, stride) {
     const engineGenericId = block?.roleId === "orange-button" || block?.roleId === "orange-wall"
       ? localOrangeId(rawGenericId) : rawGenericId;
     const filledFloatingFloor = block?.roleId === "floating-floor" && engineGenericId === 1;
-    const next = {
-      ...object,
-      ...(filledFloatingFloor && floorBlockId ? { blockId: floorBlockId } : {}),
-      x: buffer[offset],
-      y: buffer[offset + 1],
-      z: visualZForObject(buffer[offset + 2], block, engineGenericId, filledFloatingFloor)
-    };
+    const next = { ...object };
+    if (filledFloatingFloor && floorBlockId) next.blockId = floorBlockId;
+    next.x = buffer[offset];
+    next.y = buffer[offset + 1];
+    next.z = visualZForObject(buffer[offset + 2], block, engineGenericId, filledFloatingFloor);
     if (block?.roleId === "player-lift") {
       const id = Math.max(0, Math.min(9, engineGenericId));
       next.engineGenericId = id;

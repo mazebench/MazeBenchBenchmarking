@@ -193,9 +193,34 @@ export class CommandAnimationScene {
     this.root.traverse(object => this.rootNodes.push(object));
     this.upper.traverse(object => this.upperNodes.push(object));
     this.gems = collectAnimatedGems(this.root);
-    renderer.scene.add(this.root, this.upper);
-    this.originalVisibility = [renderer.content.visible, renderer.cutawayContent.visible];
+    this.attach();
     this.update(0);
+  }
+
+  // Replay seeking can park a scene without releasing its GPU buffers. Keep
+  // visibility ownership separate from disposal so evicting a parked scene
+  // never exposes another scene's hidden foreground or background rooms.
+  attach() {
+    if (this.attached) return;
+    const renderer = this.renderer;
+    this.originalVisibility = [renderer.content.visible, renderer.cutawayContent.visible];
+    renderer.scene.add(this.root, this.upper);
+    this.attached = true;
+  }
+
+  detach() {
+    if (!this.attached) return;
+    const renderer = this.renderer;
+    renderer.scene.remove(this.root, this.upper);
+    [renderer.content.visible, renderer.cutawayContent.visible] = this.originalVisibility;
+    for (const id of this.roomIds) {
+      const background = renderer.roomBackgrounds?.get(id);
+      if (background) background.root.visible = id !== renderer.world.contextActiveRoom.fileName;
+    }
+    delete renderer.canvas.dataset.motionTime;
+    delete renderer.canvas.dataset.motionDuration;
+    delete renderer.canvas.dataset.motionPlayer;
+    this.attached = false;
   }
 
   prepareMaterials(root, plane, coverage, upper = false) {
@@ -316,7 +341,7 @@ export class CommandAnimationScene {
     for (const object of this.rootNodes) if (object.userData.liftMarker) {
       object.rotation.y = renderer.yaw + (object.userData.animationLiftPhase || 0) * Math.PI;
     }
-    for (let i = 1; i < this.rootNodes.length; i++) {
+    for (let i = 1; this.upper.visible && i < this.rootNodes.length; i++) {
       const object = this.rootNodes[i], upper = this.upperNodes[i];
       upper.position.copy(object.position);
       upper.quaternion.copy(object.quaternion);
@@ -327,6 +352,8 @@ export class CommandAnimationScene {
       part.coverage.value = index ? this.actors[index - 1].opacity : 1;
       // Truncate ghosts retain their requested transparency. Object fades use
       // one shared coverage mask for the solid surface, its edges and ghosts.
+      if (part.materialOpacity === renderer.cutaway.opacity) return;
+      part.materialOpacity = renderer.cutaway.opacity;
       for (const [materials, multiplier] of [[part.lowerMaterials, 1], [part.upperMaterials, renderer.cutaway.opacity]]) {
         for (const { source, material } of materials) {
           const transparent = source.transparent || multiplier < 1;
@@ -340,7 +367,6 @@ export class CommandAnimationScene {
 
   dispose({ restoreCamera = false } = {}) {
     const renderer = this.renderer;
-    renderer.scene.remove(this.root, this.upper);
     if (restoreCamera) {
       if (this.initialLighting && renderer.roomLighting) {
         renderer.roomLighting.transition = null;
@@ -350,17 +376,10 @@ export class CommandAnimationScene {
       renderer.target.x -= this.offset[0];
       renderer.target.z -= this.offset[1];
     }
-    [renderer.content.visible, renderer.cutawayContent.visible] = this.originalVisibility;
-    for (const id of this.roomIds) {
-      const background = renderer.roomBackgrounds?.get(id);
-      if (background) background.root.visible = id !== renderer.world.contextActiveRoom.fileName;
-    }
+    this.detach();
     this.actors.forEach(actor => actor.morph?.dispose());
     disposeGeneratedChildren(this.root);
     this.upper.clear(); // geometry is shared with the lower copy
     this.materials.forEach(material => material.dispose());
-    delete renderer.canvas.dataset.motionTime;
-    delete renderer.canvas.dataset.motionDuration;
-    delete renderer.canvas.dataset.motionPlayer;
   }
 }

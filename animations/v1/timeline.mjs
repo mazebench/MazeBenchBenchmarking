@@ -86,12 +86,29 @@ export function createCommandTimeline({ state, room, simulation, definitions, st
   const states = [trace.initial, ...frames];
   const frameRooms = [room, ...(simulation.animationFrames || frames.map(() => ({ room })))
     .slice(0, frames.length).map(frame => frame.room)];
-  const tracks = [];
+  const tracks = [], moving = [];
   const identities = trace.identities || presentationIdentities(state, room);
   const direction = { up: [0, -1, 0], right: [1, 0, 0], down: [0, 1, 0], left: [-1, 0, 0] }[simulation.direction];
   for (let index = 0; index < trace.initial.objects.length; index++) {
     const object = trace.initial.objects[index];
     if (object.connectedWorldBoundary || !blocks.has(object.blockId)) continue;
+    const block = blocks.get(object.blockId);
+    const mechanism = ["gate", "lift", "puncher"].includes(block.visual?.kind);
+    const active = visible(object, trace.initial);
+    const phase = mechanism && object.stateId === 1 ? 1 : 0;
+    // Most of a room is unchanged terrain. Detect it without allocating a
+    // position/phase/opacity array for every physics tick, or visiting it again
+    // in each timing and curve pass. Keep object metadata on the track as before.
+    if (states.every(snapshot => {
+      const current = snapshot.objects[index];
+      return current && current.x === object.x && current.y === object.y && current.z === object.z &&
+        visible(current, snapshot) === active && (!mechanism || Number(current.stateId === 1) === phase);
+    })) {
+      tracks.push({ index, key: identities[index], object, block,
+        positions: [[object.x + trace.originX, object.y + trace.originY, active ? object.z : Math.max(-1, object.z)]],
+        motion: [], phases: [], fades: [], initialPhase: phase, initialOpacity: active ? 1 : 0, changed: false });
+      continue;
+    }
     const positions = [], phases = [], opacities = [];
     let heading = null;
     for (let tick = 0; tick < states.length; tick++) {
@@ -113,19 +130,20 @@ export function createCommandTimeline({ state, room, simulation, definitions, st
       phases.push([["gate", "lift", "puncher"].includes(blocks.get(object.blockId).visual?.kind) && current?.stateId === 1 ? 1 : 0]);
       opacities.push([active ? 1 : 0]);
     }
-    tracks.push({ index, key: identities[index], object, block: blocks.get(object.blockId), positions, phaseValues: phases, opacityValues: opacities });
+    const track = { index, key: identities[index], object, block, positions, phaseValues: phases, opacityValues: opacities };
+    tracks.push(track); moving.push(track);
   }
 
   // Drop empty physics ticks, but preserve every changed position/mechanism.
   const ticks = [0];
   for (let tick = 1; tick < states.length; tick++) {
     const previous = ticks.at(-1);
-    if (!tracks.some(track => !same(track.positions[previous], track.positions[tick]) ||
+    if (!moving.some(track => !same(track.positions[previous], track.positions[tick]) ||
       !same(track.phaseValues[previous], track.phaseValues[tick]) || !same(track.opacityValues[previous], track.opacityValues[tick]))) continue;
     ticks.push(tick);
   }
   const slideIntervals = new Set();
-  for (const track of tracks) {
+  for (const track of moving) {
     const segments = motionSegments(ticks.map(tick => track.positions[tick]), ticks.map((_, i) => i));
     for (const segment of segments) if (segment.distance >= 2 || segment.linear) {
       for (let i = segment.start + 1; i <= segment.end; i++) slideIntervals.add(i);
@@ -133,10 +151,10 @@ export function createCommandTimeline({ state, room, simulation, definitions, st
   }
   const times = [0];
   for (let i = 1; i < ticks.length; i++) {
-    const distance = Math.max(1, ...tracks.map(track => length(delta(track.positions[ticks[i - 1]], track.positions[ticks[i]]))));
+    const distance = Math.max(1, ...moving.map(track => length(delta(track.positions[ticks[i - 1]], track.positions[ticks[i]]))));
     times.push(times.at(-1) + Math.max(0, slideIntervals.has(i) ? slideMs : stepMs) * distance);
   }
-  for (const track of tracks) {
+  for (const track of moving) {
     track.positions = ticks.map(tick => track.positions[tick]);
     const phases = ticks.map(tick => track.phaseValues[tick]);
     const opacities = ticks.map(tick => track.opacityValues[tick]);

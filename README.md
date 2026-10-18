@@ -55,3 +55,8 @@ After each move agents are always told the current board state. If a move genera
 <img width="352" height="435" alt="orange-box-level-demo" src="https://github.com/user-attachments/assets/6a298e2e-e3ff-4f51-9639-f39a97eab7ed" />
 
 
+
+For a shorter development loop, `npm run test:quick` runs the lab, engine/WASM,
+and site unit checks against the current built engine. `npm run test:integration`
+runs the slower vision/browser integrations. `npm test` still rebuilds and runs
+every native, WASM, app, and integration check.

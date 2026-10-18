@@ -24,8 +24,12 @@ export class RoomLighting {
   index(room) { return room.rowIndex * this.columns + room.columnIndex; }
 
   upload() {
-    for (let i = 0; i < this.values.length; i++) this.pixels[i * 4] = Math.round(this.values[i] * 255);
-    this.texture.needsUpdate = true;
+    let changed = false;
+    for (let i = 0; i < this.values.length; i++) {
+      const value = Math.round(this.values[i] * 255);
+      if (this.pixels[i * 4] !== value) { this.pixels[i * 4] = value; changed = true; }
+    }
+    if (changed) this.texture.needsUpdate = true;
   }
 
   select(room, duration = 0, now = performance.now()) {

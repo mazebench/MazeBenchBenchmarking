@@ -5,9 +5,11 @@ import { installFlyoverControls } from "../../ui/flyover-controls.mjs";
 import { createPlayWorldContext } from "../../ui/play-world-context.mjs";
 import { CommandAnimationScene } from "../../animations/v1/scene.mjs";
 import { easeInOut, sampleSegments } from "../../animations/v1/timeline.mjs";
-import { gemId, locateReplay, replayCamera, unpackTimeline } from "./movie.mjs";
+import { locateReplay, replayCamera, unpackTimeline } from "./movie.mjs";
+import { ReplaySceneCache } from "./scene-cache.mjs";
+import { ReplayGemState } from "./gem-state.mjs";
 
-class ReplayRenderer extends PlayWorldRenderer {
+export class ReplayRenderer extends PlayWorldRenderer {
   installEvents() { this.disposeFlyoverControls = installFlyoverControls(this); }
   setFreeYaw(yaw) { FlyoverRenderer.prototype.setFreeYaw.call(this, yaw); }
   recomputeContinuousDirections() { FlyoverRenderer.prototype.recomputeContinuousDirections.call(this); }
@@ -17,6 +19,14 @@ class ReplayRenderer extends PlayWorldRenderer {
   // may redraw it, but must never advance the timeline or start an idle loop.
   render() { WorldContextRenderer.prototype.render.call(this); }
   centerBoard() { if (this.onReplayCenter) this.onReplayCenter(); else super.centerBoard(); }
+  // The sampled command scene owns all foreground geometry. Room changes only
+  // need the context, lighting and background cache, never a second hidden room.
+  rebuildForeground() {
+    this.canvas.dataset.cutawayHeight = this.cutawayHeight === null ? "full" : String(this.cutawayHeight);
+    this.canvas.dataset.cutawayOpacity = String(this.cutaway.opacity);
+    this.canvas.dataset.cutawayFollowPlayer = String(this.cutaway.followPlayer);
+    return new Set();
+  }
 }
 
 export class ReplayView {
@@ -33,6 +43,10 @@ export class ReplayView {
 
   setMovie(movie) {
     this.scene?.dispose();
+    this.sceneCache?.clear();
+    this.sceneCache = new ReplaySceneCache();
+    this.gemsReset = this.gemState?.reset() || false;
+    this.gemState = new ReplayGemState(this.source, this.world, movie.gems);
     this.renderer.commandAnimation = null;
     this.scene = null;
     this.movie = movie;
@@ -43,16 +57,9 @@ export class ReplayView {
   }
 
   updateGems(time) {
-    const collected = new Set(this.movie.gems.filter(gem => gem.at <= time).map(gem => gem.id));
-    const signature = [...collected].join(",");
-    if (signature === this.gemSignature) return false;
-    this.gemSignature = signature;
-    this.source.rooms.forEach((source, index) => {
-      const objects = source.objects.filter((_, i) => !collected.has(gemId(source, i)));
-      const current = this.world.rooms[index].objects;
-      if (objects.length !== current.length || objects.some((object, i) => object !== current[i])) this.world.rooms[index].objects = objects;
-    });
-    return true;
+    const changed = this.gemState.update(time) || this.gemsReset;
+    this.gemsReset = false;
+    return changed;
   }
 
   show(time) {
@@ -61,11 +68,17 @@ export class ReplayView {
     renderer.renderSuspended = (renderer.renderSuspended || 0) + 1;
     try {
       const changedGems = this.updateGems(location.time);
-      const reused = index !== this.index && !changedGems && this.movie.clips[this.index]?.layout === clip.layout &&
-        this.movie.clips[this.index]?.room === clip.room &&
+      const sceneKey = clip.scene ?? index;
+      let cached = null;
+      const previous = this.movie.clips[this.index];
+      const reused = index !== this.index && !changedGems && previous?.layout === clip.layout && previous?.room === clip.room &&
+        (clip.scene === undefined || (clip.playerOnly && previous.scene === clip.scene)) &&
         this.scene?.retargetPlayer(unpackTimeline(this.movie, clip, this.world));
       if (index !== this.index && !reused) {
-        this.scene?.dispose();
+        // Take the requested entry before parking the current one, otherwise
+        // a full cache could evict the very scene we're about to show.
+        cached = this.sceneCache.take(sceneKey);
+        if (this.scene) this.sceneCache.park(this.sceneKey, this.scene);
         renderer.commandAnimation = null;
         this.scene = null;
       }
@@ -73,9 +86,18 @@ export class ReplayView {
         renderer.setWorld(this.context(this.rooms.get(clip.room)), { preserveCamera: true, preserveCameraPosition: true });
       }
       if (!this.scene) {
-        this.scene = new CommandAnimationScene(renderer, unpackTimeline(this.movie, clip, this.world));
+        // Older in-memory movie objects without interned scene IDs still work.
+        this.scene = cached || this.sceneCache.take(sceneKey);
+        if (this.scene && clip.playerOnly && !this.scene.retargetPlayer(unpackTimeline(this.movie, clip, this.world))) {
+          this.scene.dispose();
+          this.scene = null;
+        }
+        if (this.scene) this.scene.attach();
+        else this.scene = new CommandAnimationScene(renderer, unpackTimeline(this.movie, clip, this.world));
         renderer.commandAnimation = this.scene;
       }
+      this.sceneKey = sceneKey;
+      this.scene.timeline.duration = clip.duration;
       this.scene.update(local);
       this.lastCamera = replayCamera(clip, local);
       renderer.target.x = this.lastCamera[0] + pan[0];

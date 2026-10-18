@@ -3,6 +3,7 @@ import { presentationIdentities, rememberPresentationIdentities } from "../../pl
 import { engineRoleIdForObject } from "../../engine/current/adapter.mjs";
 import { createCommandTimeline, createResetTimeline, sampleSegments, ROOM_TRANSITION_MS, DEFAULT_STEP_MS } from "../../animations/v1/timeline.mjs";
 import { resolveRoom } from "./import.mjs";
+import { TimelinePool } from "./timeline-pool.mjs";
 
 const inside = (o, state) => o.x >= 0 && o.y >= 0 && o.x < state.width && o.y < state.height && o.z > -1e6;
 export const gemId = (room, index) => `${room.fileName}:${index}`;
@@ -26,28 +27,6 @@ class ReplayPhysics extends ConnectedWorldSessionV1 {
     result.gained = simulation.cycle ? [] : [...new Set([...simulation.frames, simulation.final].flatMap(state =>
       state.objects.filter(o => engineRoleIdForObject(o, this.definitionMap) === "goal" && !inside(o, state)).map(o => o.solutionObjectId)))];
     return result;
-  }
-}
-
-// Deduplicate stationary tracks and complete stationary layouts. Long runs keep
-// only small motion curves per command, not every physics frame or room copy.
-class TimelinePool {
-  templates = []; layouts = []; templateKeys = new Map(); layoutKeys = new Map();
-  pack(timeline) {
-    const stationary = [], moving = [];
-    for (const track of timeline.tracks) {
-      const packed = { ...track, block: track.block.id };
-      if (track.changed) { moving.push(packed); continue; }
-      const key = JSON.stringify([track.key, track.object, track.positions[0], track.initialOpacity, track.initialPhase]);
-      let id = this.templateKeys.get(key);
-      if (id === undefined) { id = this.templates.length; this.templates.push(packed); this.templateKeys.set(key, id); }
-      stationary.push(id);
-    }
-    const key = stationary.join(",");
-    let layout = this.layoutKeys.get(key);
-    if (layout === undefined) { layout = this.layouts.length; this.layouts.push(new Uint32Array(stationary)); this.layoutKeys.set(key, layout); }
-    return { layout, moving, rooms: timeline.rooms.map(room => room.fileName),
-      camera: timeline.camera, lighting: timeline.lighting, initialLight: timeline.initialLight };
   }
 }
 

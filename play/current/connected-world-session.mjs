@@ -203,18 +203,24 @@ export class ConnectedWorldSessionV1 {
     const included = object => !object.connectedWorldBoundary &&
       object.x >= offsetX && object.y >= offsetY &&
       object.x < offsetX + this.roomWidth && object.y < offsetY + this.roomHeight;
-    const projected = {
-      width: this.roomWidth,
-      height: this.roomHeight,
-      objects: state.objects
-        .filter(included)
-        .map(({ connectedWorldOrangeScope, connectedWorldBodyGroup,
-          connectedWorldCloneCommandDisabled, connectedWorldRoomWidth,
-          connectedWorldRoomHeight, ...object }) =>
-          ({ ...object, x: object.x - offsetX, y: object.y - offsetY }))
-    };
-    return rememberPresentationIdentities(projected,
-      identities?.filter((_, index) => included(state.objects[index])));
+    const objects = [], projectedIdentities = identities ? [] : undefined;
+    for (let index = 0; index < state.objects.length; index++) {
+      const source = state.objects[index];
+      if (!included(source)) continue;
+      // Copy once, retaining snapshot isolation. Most objects have no temporary
+      // connected-room fields; avoid allocating a rest object and copying again.
+      const object = { ...source };
+      if ("connectedWorldOrangeScope" in object) delete object.connectedWorldOrangeScope;
+      if ("connectedWorldBodyGroup" in object) delete object.connectedWorldBodyGroup;
+      if ("connectedWorldCloneCommandDisabled" in object) delete object.connectedWorldCloneCommandDisabled;
+      if ("connectedWorldRoomWidth" in object) delete object.connectedWorldRoomWidth;
+      if ("connectedWorldRoomHeight" in object) delete object.connectedWorldRoomHeight;
+      object.x -= offsetX;
+      object.y -= offsetY;
+      objects.push(object);
+      projectedIdentities?.push(identities[index]);
+    }
+    return rememberPresentationIdentities({ width: this.roomWidth, height: this.roomHeight, objects }, projectedIdentities);
   }
 
   playerIsOnIce(state, player) {

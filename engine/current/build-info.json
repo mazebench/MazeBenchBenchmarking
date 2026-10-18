@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/mazebench/MazeBenchBenchmarking.git",
-  "sourceTree": "2acf1f31b858dd0403f1ab9b916f4fef493d5e39e1df581b586175dd883eb461",
+  "sourceTree": "dc7c73dfdfc652dff423a2293a0359eb202862ae4428b7f3f02c6122afa80569",
   "sourceDirectory": "engine",
   "abiVersion": 4,
   "voxelStride": 5,
   "wasm": {
     "path": "apps/web/public/physics/voxel_physics.wasm",
-    "sha256": "e8cdf12a726377d4853fe96afa42564dcf748fdb006aeb681a2174a65306d3a6",
-    "bytes": 550876
+    "sha256": "b5f9c9e05739e45128fe161898fd304a62cbc4788c01f2b537bbdf5c2f413861",
+    "bytes": 562638
   },
   "files": [
     {
@@ -65,7 +65,7 @@
     },
     {
       "path": "engine/src/physics/objects.inc",
-      "sha256": "eee4ab231d4e3a20b13e8b96e58f858c8e52c664a53f93310a786d665cfde4ed"
+      "sha256": "f663aebd238e1111007aa4ebf33e28d6e5fc6388bc124108c6fab27979e48ec2"
     },
     {
       "path": "engine/src/physics/orange_mechanisms.inc",
@@ -77,7 +77,7 @@
     },
     {
       "path": "engine/src/physics/public_core.inc",
-      "sha256": "89743108dc7d69ebcd640cdba58c1ed56cebca7bc3856b90c7aed23b42ea8176"
+      "sha256": "8bd4af7aee0106c25009d8b69f6c20c6b1699af5cf2d72db50907f0e1412b0e8"
     },
     {
       "path": "engine/src/physics/punchers.inc",
@@ -109,7 +109,7 @@
     },
     {
       "path": "engine/src/physics/workspace.inc",
-      "sha256": "7d27c93fd7634ac457bfd970b617d493be6db6e8487606a4107b350b5593b8ff"
+      "sha256": "9e172446390eb681210a070630fe0ba15add8064c23d693c7430011549adb15b"
     },
     {
       "path": "engine/src/search.cpp",

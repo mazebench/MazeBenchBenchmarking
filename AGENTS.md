@@ -163,6 +163,10 @@ including fractional moves, mechanisms and room-camera/brightness transitions.
 Paused playback freezes the presentation clock (including gems) while leaving
 camera controls live; seeking must preserve the user's orbit, zoom and pan.
 Never alter Solutions saves or import these effects into signed AI observations.
+Compiled replay caches are disposable and bounded (three movies, 128 MiB estimated
+serialized data). Hash the transitive compiler sources, engine build metadata,
+full world definitions/objects, input and start; cache failure must fall back to
+compilation. Retain bounded scene reuse separately from the persistent movie cache.
 
 ## Connected-world Play transitions
 
@@ -372,7 +376,9 @@ at the user's request; do not extend this contract to punchers until requested.
 The level editor and test lab share ui/editor-shell.css, ui/editor-controls.css,
 and the camera-button definitions in ui/editor-camera-pad.mjs. Update those
 shared sources for common editor appearance; keep test timeline, metadata, and
-project-format behavior in apps/web. Toolbox thumbnails use each editor's
+project-format behavior in apps/web. The full rotated test suite runs in one
+worker using the same runner as individual tests; terminate it on project revision
+changes and discard stale results. Release its WASM memory after each run. Toolbox thumbnails use each editor's
 scene adapter, with one renderer per batch rather than per tile. The lab keeps
 that renderer between palette variants and caches cropped thumbnails in memory;
 camera and tool changes must not reapply unchanged room geometry. Project
@@ -426,7 +432,10 @@ depth-scaled outline style, drawn in one pass so the full world
 does not need five outline passes. Matching cube/slope borders use the same
 shared surface kernel in cached rooms and temporary tween scenes; never reveal
 a room perimeter just because a command is animating. Truncate updates shared GPU clipping planes and cached cut surfaces;
-height and opacity changes must not rebuild the world. Prepare new cut surfaces
+height and opacity changes must not rebuild the world. Batch compatible immutable
+background surfaces and outlines per room and cull room groups before mesh
+traversal. Keep moving gems and camera-facing markers independent; model cross
+sections retain their original local geometry and transforms outside the batches. Prepare new cut surfaces
 immediately for visible rooms; prepare offscreen rooms in
 short idle batches, and finish their caps before a camera move reveals them.
 Initial background rooms load in short batches ordered by distance from the

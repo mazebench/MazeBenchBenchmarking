@@ -458,3 +458,12 @@ test("a tween preserves the settled room-border outlines instead of revealing te
   animation.dispose();
   assert.deepEqual(seamLines(renderer.content), settled);
 });
+
+test("stationary scenery uses one pose without changing slide or mechanism timing", () => {
+  const terrain=Array.from({length:400},(_,i)=>cell("wall",i%8,Math.floor(i/8)%4,2+Math.floor(i/32)));
+  const actor=cell("player",0),frames=[1,2,3].map(x=>[cell("player",x),...terrain.map(o=>({...o}))]);
+  const full=timeline([actor,...terrain],frames),minimal=timeline([actor],frames.map(frame=>[frame[0]]));
+  assert.deepEqual(full.times,minimal.times);assert.deepEqual(full.tracks[0],minimal.tracks[0]);
+  assert(full.tracks.slice(1).every(track=>track.positions.length===1&&!track.changed));
+  for(const time of [0,20,50,80,120]) assert.deepEqual(sampleTrack(full.tracks[0],time),sampleTrack(minimal.tracks[0],time));
+});

@@ -41,6 +41,8 @@ void reset_workspace(PhysicsWorkspace* workspace) {
   data->assume_quiescent_start = false;
   data->motion_voxel_count = -1;
   data->prepared_index_active = false;
+  data->orange_support_voxels = nullptr;
+  data->orange_support_count = 0;
   for (int32_t index = 0; index < kHashCapacity; ++index) {
     data->hash_entries[index].stamp = 0;
     data->static_hash_entries[index].stamp = 0;

@@ -10,7 +10,10 @@ const $ = id => document.getElementById(id);
 const dialog = $("import-dialog");
 let world, view, movie, worker, busy = false, generation = 0, playing = false, time = 0, lastFrame = 0, frameId = 0, noticeTimer;
 const count = value => value.toLocaleString();
-const roomLabel = id => world.rooms.find(room => room.fileName === id)?.position.join("×") || id;
+let roomLabels;
+const roomLabel = id => (roomLabels ||= new Map(world.rooms.map(room => [room.fileName, room.position.join("×")]))).get(id) || id;
+const text = (id, value) => { if ($(id).textContent !== value) $(id).textContent = value; };
+const attribute = (id, key, value) => { if ($(id).getAttribute(key) !== value) $(id).setAttribute(key, value); };
 const formatTime = (value, precise = false) => {
   const seconds = Math.max(0, value) / 1000, whole = Math.floor(seconds);
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}${precise ? `.${String(Math.floor(Math.max(0, value) / 10) % 100).padStart(2, "0")}` : ""}`;
@@ -44,12 +47,12 @@ function updateTransport(location) {
   $("seek").value = String(time);
   $("seek").style.setProperty("--played", `${100 * time / movie.duration}%`);
   $("seek").setAttribute("aria-valuetext", `${formatTime(time, true)} of ${formatTime(movie.duration, true)}, action ${index + 1} of ${movie.clips.length}`);
-  $("timecode").textContent = `${formatTime(time, !playing)} / ${formatTime(movie.duration, movie.duration < 10000)}`;
-  $("progress-summary").textContent = `${count(index + 1)} / ${count(movie.clips.length)} actions · ${movie.gems.filter(gem => gem.at <= time).length} gems`;
-  $("room-name").textContent = roomLabel(local >= clip.settledAt ? clip.to : clip.room);
-  $("action-label").textContent = clip.label;
-  $("toggle-play").setAttribute("aria-label", playing ? "Pause" : time >= movie.duration ? "Replay" : "Play");
-  $("play-icon").setAttribute("d", playing ? "M6 5h4v14H6zM14 5h4v14h-4z" : "m8 5 11 7-11 7z");
+  text("timecode", `${formatTime(time, !playing)} / ${formatTime(movie.duration, movie.duration < 10000)}`);
+  text("progress-summary", `${count(index + 1)} / ${count(movie.clips.length)} actions · ${view.gemState.cursor} gems`);
+  text("room-name", roomLabel(local >= clip.settledAt ? clip.to : clip.room));
+  text("action-label", clip.label);
+  attribute("toggle-play", "aria-label", playing ? "Pause" : time >= movie.duration ? "Replay" : "Play");
+  attribute("play-icon", "d", playing ? "M6 5h4v14H6zM14 5h4v14h-4z" : "m8 5 11 7-11 7z");
   $("previous").disabled = time === 0;
   $("next").disabled = time >= movie.duration;
 }

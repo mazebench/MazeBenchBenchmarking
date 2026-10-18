@@ -88,6 +88,7 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
     this.roomBackgrounds = new Map();
     this.backgroundRoot?.clear();
     this.backgroundMarkers = [];
+    this.seamIndex = null;
   }
 
   rebuild() {
@@ -105,13 +106,15 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
       this.clearBackground();
       this.backgroundSource = world.contextRooms;
     }
+    this.seamRooms = new Map(world.contextRooms.map(room => [room.fileName, room]));
+    this.seamWorld = world;
     this.renderer.localClippingEnabled = true;
     const urls = new Set();
     this.renderSuspended = (this.renderSuspended || 0) + 1;
     const previousPicking = this.pickVoxels;
     try {
       const cutChanged = this.backgroundTruncation.set(height, this.cutaway.opacity);
-      let backgroundChanged = cutChanged;
+      this.updateBackgroundFrustum();
       for (const room of world.contextRooms) {
         let entry = this.roomBackgrounds.get(room.fileName);
         const active = room.fileName === world.contextActiveRoom.fileName;
@@ -121,7 +124,6 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
         if (entry && !active && (entry.room !== room || this.seamSources(room).some((objects, index) => objects !== entry.seamSources[index]))) {
           entry = this.buildBackground(room);
           prepared = true;
-          backgroundChanged = true;
         }
         if (!entry) continue; // Initial background construction is spread across frames.
         entry.root.visible = !active;
@@ -132,18 +134,12 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
         }
         entry.modelUrls.forEach(url => urls.add(url));
       }
-      if (backgroundChanged) {
-        this.backgroundMarkers = [];
-        this.backgroundRoot.traverse(object => {
-          if (object.userData.liftMarker) this.backgroundMarkers.push(object);
-        });
-      }
       this.content = content;
       this.cutawayContent = cutawayContent;
       this.world = { ...world, rooms: world.rooms.filter(room => !room.renderDimmed) };
       this.sceneCutawayHeight = height;
       this.pickVoxels = previousPicking;
-      super.rebuild().forEach(url => urls.add(url));
+      this.rebuildForeground().forEach(url => urls.add(url));
       this.canvas.dataset.cachedRoomCount = String(this.roomBackgrounds.size);
     } finally {
       this.world = world;
@@ -159,10 +155,21 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
     return urls;
   }
 
+  rebuildForeground() { return super.rebuild(); }
+
   seamSources(room) {
-    return this.world.contextRooms.filter(candidate =>
-      Math.abs(candidate.columnIndex - room.columnIndex) + Math.abs(candidate.rowIndex - room.rowIndex) === 1
-    ).map(candidate => candidate.objects);
+    if (!this.seamIndex) {
+      const grid = new Map(this.world.contextRooms.map(candidate => [`${candidate.columnIndex},${candidate.rowIndex}`, candidate.fileName]));
+      this.seamIndex = new Map(this.world.contextRooms.map(candidate => [candidate.fileName,
+        [[0,-1],[-1,0],[1,0],[0,1]].map(([x,y]) => grid.get(`${candidate.columnIndex+x},${candidate.rowIndex+y}`)).filter(Boolean)]));
+    }
+    // The array may keep its identity when individual room snapshots change.
+    this.seamRooms ||= new Map();
+    if (this.seamWorld !== this.world) {
+      this.seamWorld = this.world;
+      this.seamRooms = new Map(this.world.contextRooms.map(candidate => [candidate.fileName, candidate]));
+    }
+    return (this.seamIndex.get(room.fileName) || []).map(id => this.seamRooms.get(id)?.objects);
   }
 
   prepareBackgroundCaps(entry) {
@@ -185,14 +192,17 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
     this.assignRenderLayers(entry.capRoot);
   }
 
-  backgroundRoomVisible(entry) {
-    if (!this.camera) return true;
+  updateBackgroundFrustum() {
+    if (!this.camera) return;
     this.backgroundFrustum ||= new THREE.Frustum();
     this.backgroundProjection ||= new THREE.Matrix4();
     this.camera.updateMatrixWorld();
     this.backgroundFrustum.setFromProjectionMatrix(this.backgroundProjection.multiplyMatrices(
       this.camera.projectionMatrix, this.camera.matrixWorldInverse));
-    return this.backgroundFrustum.intersectsBox(entry.bounds);
+  }
+
+  backgroundRoomVisible(entry) {
+    return !this.backgroundFrustum || this.backgroundFrustum.intersectsBox(entry.bounds);
   }
 
   queueBackgroundCaps() {
@@ -258,6 +268,9 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
       entry.root.visible = room.fileName !== previous.world.contextActiveRoom.fileName;
       this.roomBackgrounds.set(room.fileName, entry);
       this.backgroundRoot.add(entry.root);
+      entry.markers = [];
+      entry.root.traverse(object => { if (object.userData.liftMarker) entry.markers.push(object); });
+      this.backgroundMarkers = [...this.roomBackgrounds.values()].flatMap(entry => entry.markers || []);
       this.queueBackgroundCaps();
     } finally {
       this.buildingBackground = false;
@@ -286,17 +299,20 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
     const step = () => {
       if (this.backgroundJob !== job) return;
       const start = performance.now(), urls = new Set();
+      let addedVisibleRoom = false;
       do {
         const room = job.rooms.shift();
-        if (room) this.buildBackground(room).modelUrls.forEach(url => urls.add(url));
+        if (room) {
+          const entry = this.buildBackground(room);
+          entry.modelUrls.forEach(url => urls.add(url));
+          addedVisibleRoom ||= this.backgroundRoomVisible(entry);
+        }
       } while (job.rooms.length && performance.now() - start < 6);
-      this.backgroundMarkers = [];
-      this.backgroundRoot.traverse(object => {
-        if (object.userData.liftMarker) this.backgroundMarkers.push(object);
-      });
       this.canvas.dataset.cachedRoomCount = String(this.roomBackgrounds.size);
       this.requestModels(urls);
-      this.render();
+      // Progress still advances for every batch. Offscreen room uploads do not
+      // change the displayed image; draw them when the camera first sees them.
+      if (addedVisibleRoom || !job.rooms.length) this.render();
       if (job.rooms.length) schedule(step);
       else {
         this.backgroundJob = null;
@@ -334,8 +350,11 @@ export class WorldContextRenderer extends NumberedMazeRenderer {
   updateCamera() {
     this.roomLighting?.update();
     super.updateCamera();
+    this.updateBackgroundFrustum();
     for (const entry of this.roomBackgrounds?.values() || []) {
-      if (entry.preparedCapHeight !== this.backgroundTruncation.height && this.backgroundRoomVisible(entry)) {
+      const visible = this.backgroundRoomVisible(entry);
+      entry.root.visible = visible && entry.room.fileName !== this.world.contextActiveRoom.fileName;
+      if (entry.preparedCapHeight !== this.backgroundTruncation.height && visible) {
         this.backgroundTruncation.prepareCaps(entry);
         this.prepareBackgroundCaps(entry);
       }

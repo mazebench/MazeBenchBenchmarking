@@ -64,25 +64,19 @@ export class AnimatedWallContacts {
     // Only bodies whose swept horizontal bounds meet a wall can touch it.
     const bounds = track => [0, 1].map(axis => [Math.min(...track.positions.map(p => p[axis])), Math.max(...track.positions.map(p => p[axis])) + 1]);
     const wallBounds = walls.map(({ track }) => bounds(track));
-    let pairCount = 0;
     this.supports = supports.filter(({ track }) => {
+      // Ordinary replay steps retarget the same player mesh across the room.
+      // Keep that single support eligible even beyond its original swept bounds.
+      if (track.block?.roleId === "player") return true;
       const box = bounds(track);
-      const count = wallBounds.filter(wall => box.every(([min, max], axis) => max >= wall[axis][0] && min <= wall[axis][1])).length;
-      pairCount += count;
-      return count > 0;
+      return wallBounds.some(wall => box.every(([min, max], axis) => max >= wall[axis][0] && min <= wall[axis][1]));
     });
     const geometry = new THREE.BufferGeometry();
-    // A cube/wedge pair contributes at most 6×6 intersection segments.
-    const vertices = pairCount * 36 * 6;
+    this.capacity = 0;
     for (const name of ["position", "lineOther"]) geometry.setAttribute(name,
-      new THREE.BufferAttribute(new Float32Array(vertices * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    const sides = new Float32Array(vertices), ends = new Float32Array(vertices);
-    for (let i = 0; i < vertices; i += 6) {
-      sides.set([-1, 1, 1, 1, 1, -1], i);
-      ends.set([0, 1, 0, 0, 1, 1], i);
-    }
-    geometry.setAttribute("lineSide", new THREE.BufferAttribute(sides, 1));
-    geometry.setAttribute("lineEnd", new THREE.BufferAttribute(ends, 1));
+      new THREE.BufferAttribute(new Float32Array(0), 3).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute("lineSide", new THREE.BufferAttribute(new Float32Array(0), 1));
+    geometry.setAttribute("lineEnd", new THREE.BufferAttribute(new Float32Array(0), 1));
     geometry.setDrawRange(0, 0);
     this.mesh = new THREE.Mesh(geometry, renderer.thickEdges.material(edgeMaterial()));
     this.mesh.userData.mazeWideOutline = this.mesh.userData.orangeWallContacts = this.mesh.userData.transientMaterial = true;
@@ -91,15 +85,40 @@ export class AnimatedWallContacts {
     root.add(this.mesh);
   }
 
+  reserve(vertices) {
+    if (vertices <= this.capacity) return;
+    const geometry = this.mesh.geometry;
+    // Retain the geometry shared by the solid/ghost copies. Release old GPU
+    // attributes before replacing them; doubling prevents per-frame resizing.
+    if (this.capacity) geometry.dispose();
+    this.capacity = 6 * 2 ** Math.ceil(Math.log2(Math.max(16, vertices / 6)));
+    for (const name of ["position", "lineOther"]) geometry.setAttribute(name,
+      new THREE.BufferAttribute(new Float32Array(this.capacity * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    const sides = new Float32Array(this.capacity), ends = new Float32Array(this.capacity);
+    for (let i = 0; i < this.capacity; i += 6) {
+      sides.set([-1, 1, 1, 1, 1, -1], i);
+      ends.set([0, 1, 0, 0, 1, 1], i);
+    }
+    geometry.setAttribute("lineSide", new THREE.BufferAttribute(sides, 1));
+    geometry.setAttribute("lineEnd", new THREE.BufferAttribute(ends, 1));
+  }
+
   update(height = null) {
-    const signature = `${height}:` + [...this.walls, ...this.supports].map(({ shape, visible }) =>
-      `${visible}:${shape.position}:${shape.size}`).join(";");
-    if (signature === this.signature) return;
-    this.signature = signature;
     const visible = record => record.visible && (height === null || record.shape.position[1] < height - .0005);
     const walls = this.walls.filter(visible).map(record => record.shape);
-    const supports = this.supports.filter(visible).map(record => record.shape);
+    // A moving actor outside the walls' actual volume cannot change a contact
+    // contour or occlude one. Exclude it from both the work and the dirty key;
+    // otherwise every footstep rebuilds all orange/floor intersections.
+    const overlaps = (a, b) => [0, 1, 2].every(axis =>
+      a.position[axis] <= b.position[axis] + (b.size?.[axis] ?? 1) + 1e-6 &&
+      b.position[axis] <= a.position[axis] + (a.size?.[axis] ?? 1) + 1e-6);
+    const supports = this.supports.filter(record => visible(record) && walls.some(wall => overlaps(wall, record.shape))).map(record => record.shape);
+    const signature = `${height}:${walls.length}:${this.root.position.toArray()}:` + [...walls, ...supports].map(shape =>
+      `${shape.position}:${shape.size}:${shape.direction || ""}`).join(";");
+    if (signature === this.signature) return;
+    this.signature = signature;
     const positions = surfaceContactEdges(walls, supports, this.renderer.totalWidth / 2, this.renderer.totalHeight / 2);
+    this.reserve(positions.length); // six floats and six expanded vertices per segment
     const geometry = this.mesh.geometry, position = geometry.attributes.position, other = geometry.attributes.lineOther;
     let index = 0;
     for (let i = 0; i < positions.length; i += 6) {

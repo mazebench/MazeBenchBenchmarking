@@ -12,8 +12,8 @@ const FAMILY = {
 export const slopeMeshFamily = id => FAMILY[id] || id;
 // Animated rigid bodies can translate the whole integer grid by a fraction.
 const cellKey = p => p.map(v => Math.round(v * 1e6)).join(",");
-const sub = (a, b) => a.map((v, i) => v - b[i]);
-const dot = (a, b) => a.reduce((sum, v, i) => sum + v * b[i], 0);
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
 const normalOf = points => {
   const n = cross(sub(points[1], points[0]), sub(points[2], points[0]));

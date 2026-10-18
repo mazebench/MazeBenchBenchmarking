@@ -15,6 +15,7 @@ void AddVoxelToObject(int32_t voxel, int32_t object) {
 }
 
 void BuildObjects(Voxel* voxels, int32_t count) {
+  ActiveWorkspace().orange_support_voxels = nullptr;
   g_object_count = 0;
   g_weightless_object_count = 0;
   ActiveWorkspace().room_grid_width = 0;

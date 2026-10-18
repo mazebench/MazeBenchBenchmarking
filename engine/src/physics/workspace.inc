@@ -176,43 +176,7 @@ void SetOrangeWallDepth(Voxel* voxel, int32_t depth) {
 // state is the number of active buttons. At anchor-depth they are a cube above
 // support, a zero-thickness face exactly on the support plane, or a hidden,
 // pass-through volume below it.
-int32_t OrangeWallSupportZ(
-    Voxel* voxels,
-    int32_t count,
-    int32_t wall_index) {
-  const Voxel& wall = voxels[wall_index];
-  // Every record in one vertical Orange Wall column is a voxel of the same
-  // fully-raised polycube. Collapse is measured from the terrain beneath the
-  // column's lowest raised anchor. Static geometry among/above those anchors
-  // is an obstruction to later raising, not a new floor that changes the
-  // meaning of already-authored face and hidden states.
-  int32_t lowest_anchor_z = wall.z;
-  for (int32_t index = 0; index < count; ++index) {
-    if (IsOrangeWallRole(voxels[index].role) &&
-        OrangeScope(voxels[index]) == OrangeScope(wall) &&
-        voxels[index].x == wall.x && voxels[index].y == wall.y &&
-        voxels[index].z < lowest_anchor_z) {
-      lowest_anchor_z = voxels[index].z;
-    }
-  }
-  int32_t support_z = INT32_MIN;
-  for (int32_t index = 0; index < count; ++index) {
-    if (index == wall_index || voxels[index].x != wall.x ||
-        voxels[index].y != wall.y || IsOrangeWallRole(voxels[index].role) ||
-        voxels[index].role == kPlayerRole ||
-        voxels[index].role == kPushableRole ||
-        IsWeightlessObjectRole(voxels[index].role) ||
-        voxels[index].role == kPlayerLiftRole ||
-        voxels[index].role == kOrangeButtonRole ||
-        IsPassThroughVoxel(voxels[index]) ||
-        voxels[index].z >= lowest_anchor_z ||
-        voxels[index].z == INT32_MIN) {
-      continue;
-    }
-    if (voxels[index].z > support_z) support_z = voxels[index].z;
-  }
-  return support_z;
-}
+int32_t OrangeWallSupportZ(Voxel* voxels, int32_t count, int32_t wall_index);
 
 int32_t OrangeWallPhysicalZForDepth(
     Voxel* voxels,
@@ -410,6 +374,13 @@ struct WorkspaceData {
   bool assume_quiescent_start;
   int32_t motion_voxel_count;
   bool prepared_index_active;
+  // Raw anchored columns include hidden walls and lowered gates. Movable
+  // supports are kept separately and read live, even between spatial rebuilds.
+  Voxel* orange_support_voxels;
+  int32_t orange_support_count;
+  int32_t orange_column_heads[1024];
+  int32_t next_orange_support[4096];
+  int32_t orange_moving_support_head;
 };
 
 static_assert(sizeof(WorkspaceData) <= kPhysicsWorkspaceBytes);
@@ -428,6 +399,104 @@ thread_local WorkspaceData* g_active_workspace = nullptr;
 
 WorkspaceData& ActiveWorkspace() {
   return *g_active_workspace;
+}
+
+int32_t ScanOrangeWallSupportZ(
+    Voxel* voxels,
+    int32_t count,
+    int32_t wall_index) {
+  const Voxel& wall = voxels[wall_index];
+  // Every record in one vertical Orange Wall column is a voxel of the same
+  // fully-raised polycube. Collapse is measured from the terrain beneath the
+  // column's lowest raised anchor. Static geometry among/above those anchors
+  // is an obstruction to later raising, not a new floor that changes the
+  // meaning of already-authored face and hidden states.
+  int32_t lowest_anchor_z = wall.z;
+  for (int32_t index = 0; index < count; ++index) {
+    if (IsOrangeWallRole(voxels[index].role) &&
+        OrangeScope(voxels[index]) == OrangeScope(wall) &&
+        voxels[index].x == wall.x && voxels[index].y == wall.y &&
+        voxels[index].z < lowest_anchor_z) {
+      lowest_anchor_z = voxels[index].z;
+    }
+  }
+  int32_t support_z = INT32_MIN;
+  for (int32_t index = 0; index < count; ++index) {
+    if (index == wall_index || voxels[index].x != wall.x ||
+        voxels[index].y != wall.y || IsOrangeWallRole(voxels[index].role) ||
+        voxels[index].role == kPlayerRole ||
+        voxels[index].role == kPushableRole ||
+        IsWeightlessObjectRole(voxels[index].role) ||
+        voxels[index].role == kPlayerLiftRole ||
+        voxels[index].role == kOrangeButtonRole ||
+        IsPassThroughVoxel(voxels[index]) ||
+        voxels[index].z >= lowest_anchor_z ||
+        voxels[index].z == INT32_MIN) {
+      continue;
+    }
+    if (voxels[index].z > support_z) support_z = voxels[index].z;
+  }
+  return support_z;
+}
+
+
+uint32_t OrangeColumnBucket(int32_t x, int32_t y) {
+  return ((static_cast<uint32_t>(x) * 73856093u) ^
+      (static_cast<uint32_t>(y) * 19349663u)) & 1023u;
+}
+
+void BuildOrangeSupportIndex(Voxel* voxels, int32_t count) {
+  WorkspaceData& data = ActiveWorkspace();
+  for (int32_t bucket = 0; bucket < 1024; ++bucket) data.orange_column_heads[bucket] = -1;
+  data.orange_moving_support_head = -1;
+  for (int32_t index = 0; index < count; ++index) {
+    const Voxel& voxel = voxels[index];
+    const uint32_t role = voxel.role;
+    if (role == kPlayerRole || role == kPushableRole || IsWeightlessObjectRole(role) ||
+        role == kPlayerLiftRole || role == kOrangeButtonRole ||
+        role == kGoalRole || role == kPuncherRole) continue;
+    int32_t& head = (IsCloneObjectRole(role) || role == kFloatingFloorRole)
+        ? data.orange_moving_support_head
+        : data.orange_column_heads[OrangeColumnBucket(voxel.x, voxel.y)];
+    data.next_orange_support[index] = head;
+    head = index;
+  }
+  data.orange_support_voxels = voxels;
+  data.orange_support_count = count;
+}
+
+int32_t OrangeWallSupportZ(Voxel* voxels, int32_t count, int32_t wall_index) {
+  // Keep the public 8 MiB workspace ABI unchanged. Very large connected
+  // scenes retain the exact scan; ordinary rooms fit this bounded index.
+  if (count > 4096) return ScanOrangeWallSupportZ(voxels, count, wall_index);
+  WorkspaceData& data = ActiveWorkspace();
+  if (data.orange_support_voxels != voxels || data.orange_support_count != count) {
+    BuildOrangeSupportIndex(voxels, count);
+  }
+  const Voxel& wall = voxels[wall_index];
+  const int32_t head = data.orange_column_heads[OrangeColumnBucket(wall.x, wall.y)];
+  // Read anchors and gate state live: mechanism updates may precede a rebuild.
+  int32_t lowest_anchor_z = wall.z;
+  for (int32_t index = head; index >= 0; index = data.next_orange_support[index]) {
+    const Voxel& candidate = voxels[index];
+    if (IsOrangeWallRole(candidate.role) && OrangeScope(candidate) == OrangeScope(wall) &&
+        candidate.x == wall.x && candidate.y == wall.y && candidate.z < lowest_anchor_z) {
+      lowest_anchor_z = candidate.z;
+    }
+  }
+  int32_t support_z = INT32_MIN;
+  for (int32_t pass = 0; pass < 2; ++pass) {
+    for (int32_t index = pass == 0 ? head : data.orange_moving_support_head;
+        index >= 0; index = data.next_orange_support[index]) {
+      const Voxel& candidate = voxels[index];
+      if (candidate.x == wall.x && candidate.y == wall.y &&
+          !IsOrangeWallRole(candidate.role) && !IsPassThroughVoxel(candidate) &&
+          candidate.z < lowest_anchor_z && candidate.z > support_z) {
+        support_z = candidate.z;
+      }
+    }
+  }
+  return support_z;
 }
 
 #define g_hash_entries ActiveWorkspace().hash_entries
@@ -624,6 +693,7 @@ int32_t MotionVoxelCount(int32_t count) {
 
 void BuildSpatialIndex(Voxel* voxels, int32_t count, int32_t width, int32_t height) {
   g_spatial_voxel_count = count;
+  ActiveWorkspace().orange_support_voxels = nullptr;
   if (IsPreparedScene(voxels, count, width, height)) {
     ActiveWorkspace().prepared_index_active = true;
     g_linear_spatial = false;

@@ -35,7 +35,9 @@
     "lint": "cd apps/web && eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "cd apps/web && drizzle-kit generate",
     "typecheck": "tsc --noEmit -p apps/web/tsconfig.json",
-    "check:engine-snapshot": "node scripts/sync-engine-v1.mjs --check"
+    "check:engine-snapshot": "node scripts/sync-engine-v1.mjs --check",
+    "test:quick": "node scripts/test-quick.mjs",
+    "test:integration": "node --test tests/vision-mode.test.mjs tests/vision-wire.test.mjs tests/ice-maze.test.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

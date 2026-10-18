@@ -23,8 +23,6 @@ import {
   applyWorldToTest,
   cropVoxelsToWorld,
   parseWorldDimensionDraft,
-  rotateVoxelsClockwise,
-  rotateWorldClockwise,
 } from "./worldBounds.mjs";
 import {
   moveVoxelGroup,
@@ -55,7 +53,6 @@ import {
   blockCanShareCell,
   blockUsesPolycubeGroup,
   cellObjectSelectionKey,
-  createCellObjectMultisetDiffer,
   eraseOneObjectAtCell,
   normalizeOccupancyProfile,
   objectPaintsInsideClickedBody,
@@ -64,7 +61,6 @@ import {
 import {
   normalizeOrangeWallFrame,
   orangeWallMechanismDepth,
-  orangeWallVisualFrame,
 } from "./orangeWalls.mjs";
 import {
   shouldShowResultComparison,
@@ -94,7 +90,6 @@ import {
 import {
   adjustCycleForDeletedTick,
   clearCycleExpectation,
-  compareCycleExpectation,
   markCycleRepeat,
   markCycleStart,
   normalizeCycleExpectation,
@@ -104,35 +99,11 @@ import {
   decodeProjectPayload,
 } from "./projectFormat.mjs";
 import { createProjectCodec } from "./projectCodec";
+import { compareFrames, runRotationalTest } from "./suiteRunner";
+import { startSuiteWorker } from "./suiteWorker";
+import type { Direction, PhysicsRoleDefinition, BlockDefinition, OccupancyProfile, BlockVisualDefinition, Voxel, Frame, WorldSettings, CycleExpectation, TestCase, TestResult } from "./suiteTypes";
 
-type Direction = "up" | "down" | "left" | "right";
 type FrameKind = "start" | "expected";
-
-type PhysicsRoleDefinition = {
-  id: string;
-  name: string;
-  description: string;
-  generic: boolean;
-};
-
-type BlockDefinition = {
-  id: string;
-  name: string;
-  color: string;
-  roleId: string;
-  occupancy: OccupancyProfile;
-  genericMax?: number;
-  variantMax?: number;
-  visual: BlockVisualDefinition;
-};
-
-type OccupancyProfile = "solid" | "sensor" | "support" | "decoration" | "inactive";
-type BlockVisualDefinition = {
-  buttonForm?: "visible" | "hidden";
-  kind: "button" | "cube" | "floating-floor" | "gate" | "gem" | "lift" | "orange-wall" | "puncher" | "slope";
-  modelUrl?: string;
-  orangeForm?: "visible" | "hidden";
-};
 
 type StoredBlockDefinition = Omit<BlockDefinition, "roleId" | "occupancy" | "visual"> & {
   behavior?: string;
@@ -142,21 +113,6 @@ type StoredBlockDefinition = Omit<BlockDefinition, "roleId" | "occupancy" | "vis
   visual?: Partial<BlockVisualDefinition>;
 };
 
-type Voxel = {
-  x: number;
-  y: number;
-  z: number;
-  blockId: string;
-  genericId?: number;
-  groupId?: number;
-  instanceId?: string;
-  mechanismDepth?: number;
-  orientation?: string;
-  stateId?: number;
-  variantId?: number;
-};
-type Frame = { voxels: Voxel[] };
-type WorldSettings = { width: number; height: number; floorLayer: 0 };
 type TestFolder = {
   collapsed: boolean;
   default?: boolean;
@@ -169,26 +125,7 @@ type StoredTestFolder = Omit<TestFolder, "collapsed" | "locked"> & {
   collapsed?: boolean;
   locked?: boolean;
 };
-type CycleExpectation = {
-  startTick: number;
-  repeatTick: number;
-  onCycle: "rollback-command";
-};
-type TestCase = {
-  cycle?: CycleExpectation;
-  description: string;
-  folderId: string;
-  hidden: boolean;
-  tagIds: string[];
-  id: string;
-  locked: boolean;
-  name: string;
-  input: Direction;
-  intermediate: Frame[];
-  start: Frame;
-  expected: Frame;
-  world: WorldSettings;
-};
+
 type StoredTestCase = Omit<TestCase, "description" | "folderId" | "hidden" | "intermediate" | "locked" | "tagIds" | "world"> & {
   cycle?: Partial<CycleExpectation>;
   description?: string;
@@ -199,34 +136,6 @@ type StoredTestCase = Omit<TestCase, "description" | "folderId" | "hidden" | "in
   locked?: boolean;
   world?: WorldSettings;
 };
-
-type FrameComparison = {
-  actual: Frame;
-  pass: boolean;
-  missing: Voxel[];
-  unexpected: Voxel[];
-};
-type FrameComparisonContext = {
-  blocksById: Map<string, BlockDefinition>;
-  differ: ReturnType<typeof createCellObjectMultisetDiffer>;
-};
-
-type RotationDegrees = 0 | 90 | 180 | 270;
-type RotationCheck = FrameComparison & {
-  cycleDifference: string | null;
-  expected: Frame;
-  firstMismatchFrame: number | null;
-  input: Direction;
-  rotation: RotationDegrees;
-  trace: Array<FrameComparison & {
-    actualPresent: boolean;
-    expected: Frame;
-    expectedPresent: boolean;
-  }>;
-  tick?: number;
-  world: WorldSettings;
-};
-type TestResult = RotationCheck & { checks: RotationCheck[] };
 
 type EditSnapshot = {
   frame: Frame;
@@ -247,16 +156,6 @@ const LOCAL_PROJECT_ENDPOINT = "/api/local-project";
 const DELETE_TOOL_ID = "__erase_top__";
 const GROUP_TOOL_ID = "__select_group__";
 const UNDO_STACK_LIMIT = 80;
-const ROTATION_CASES: Array<{
-  degrees: RotationDegrees;
-  input: Direction;
-  quarterTurns: 0 | 1 | 2 | 3;
-}> = [
-  { degrees: 0, input: "up", quarterTurns: 0 },
-  { degrees: 90, input: "right", quarterTurns: 1 },
-  { degrees: 180, input: "down", quarterTurns: 2 },
-  { degrees: 270, input: "left", quarterTurns: 3 },
-];
 const DEFAULT_ROLES: PhysicsRoleDefinition[] = [
   { id: "solid", name: "Solid", description: "Occupies space and blocks movement.", generic: false },
   { id: "player", name: "Player", description: "The actor moved by the canonical directional input.", generic: false },
@@ -977,129 +876,6 @@ function cropFrameToWorld(frame: Frame, world: WorldSettings): Frame {
 
 function cropTestToWorld(test: TestCase, world: WorldSettings = test.world): TestCase {
   return applyWorldToTest({ ...test, input: "up" }, world) as TestCase;
-}
-
-function createFrameComparisonContext(
-  definitions: BlockDefinition[],
-): FrameComparisonContext {
-  return {
-    blocksById: new Map(definitions.map((definition) => [definition.id, definition])),
-    differ: createCellObjectMultisetDiffer(),
-  };
-}
-
-function compareFrames(
-  expected: Frame,
-  actual: Frame,
-  world: WorldSettings,
-  definitions: BlockDefinition[],
-  context: FrameComparisonContext = createFrameComparisonContext(definitions),
-): FrameComparison {
-  const boundedExpected = cropFrameToWorld(expected, world);
-  const boundedActual = cropFrameToWorld(actual, world);
-  const visibleExpected = orangeWallVisualFrame(
-    boundedExpected, context.blocksById) as Frame;
-  const visibleActual = orangeWallVisualFrame(
-    boundedActual, context.blocksById) as Frame;
-  const { missing, unexpected } = context.differ(
-    visibleExpected.voxels,
-    visibleActual.voxels,
-  ) as { missing: Voxel[]; unexpected: Voxel[] };
-  return { actual: boundedActual, pass: missing.length === 0 && unexpected.length === 0, missing, unexpected };
-}
-
-function rotateFrame(frame: Frame, world: WorldSettings, quarterTurns: number): Frame {
-  return { voxels: rotateVoxelsClockwise(frame.voxels, world, quarterTurns) };
-}
-
-async function runRotationalTest(
-  test: TestCase,
-  definitions: BlockDefinition[],
-  roles: PhysicsRoleDefinition[],
-  comparisonContext = createFrameComparisonContext(definitions),
-  compactPassingResult = false,
-): Promise<TestResult> {
-  const world = test.world;
-  const canonicalTest = cropTestToWorld(test);
-  const checks: RotationCheck[] = [];
-  for (const { degrees, input, quarterTurns } of ROTATION_CASES) {
-    const horizontalWorld = rotateWorldClockwise(world, quarterTurns);
-    const rotatedWorld: WorldSettings = { ...horizontalWorld, floorLayer: 0 };
-    const rotatedTest: TestCase = {
-      ...canonicalTest,
-      input,
-      world: rotatedWorld,
-      start: rotateFrame(canonicalTest.start, world, quarterTurns),
-      expected: rotateFrame(canonicalTest.expected, world, quarterTurns),
-      intermediate: canonicalTest.intermediate.map((frame) =>
-        rotateFrame(frame, world, quarterTurns)),
-    };
-    const simulation = await simulateCommandWithCpp(
-      rotatedTest.start, input, definitions, roles, rotatedWorld);
-    const expectedFrames = [
-      rotatedTest.start,
-      ...rotatedTest.intermediate,
-      rotatedTest.expected,
-    ];
-    const actualFrames = [rotatedTest.start, ...simulation.frames];
-    const trace = Array.from(
-      { length: Math.max(expectedFrames.length, actualFrames.length) },
-      (_, index) => {
-        const expectedPresent = index < expectedFrames.length;
-        const actualPresent = index < actualFrames.length;
-        const expectedFrame = expectedFrames[index] ?? { voxels: [] };
-        const actualFrame = actualFrames[index] ?? { voxels: [] };
-        const comparison = compareFrames(
-          expectedFrame,
-          actualFrame,
-          rotatedWorld,
-          definitions,
-          comparisonContext,
-        );
-        return {
-          ...comparison,
-          actualPresent,
-          expected: expectedFrame,
-          expectedPresent,
-          pass: expectedPresent && actualPresent && comparison.pass,
-        };
-      },
-    );
-    const firstMismatchFrame = trace.findIndex((frame) => !frame.pass);
-    const cycleDifference = compareCycleExpectation(rotatedTest.cycle, simulation.cycle);
-    const selectedFrame = firstMismatchFrame >= 0
-      ? trace[firstMismatchFrame]
-      : trace.at(-1)!;
-    const tick = firstMismatchFrame > 0 ? firstMismatchFrame : undefined;
-    checks.push({
-      ...selectedFrame,
-      cycleDifference,
-      expected: selectedFrame.expected,
-      firstMismatchFrame: firstMismatchFrame >= 0 ? firstMismatchFrame : null,
-      input,
-      pass: firstMismatchFrame < 0 && cycleDifference === null,
-      rotation: degrees,
-      trace,
-      tick,
-      world: rotatedWorld,
-    });
-  }
-  const representative = checks.find((check) => !check.pass) ?? checks[0];
-  const result: TestResult = {
-    ...representative,
-    checks,
-    pass: checks.every((check) => check.pass),
-  };
-  if (!compactPassingResult || !result.pass) return result;
-  const compactChecks = checks.map((check) => ({
-    ...check,
-    actual: { voxels: [] },
-    expected: { voxels: [] },
-    missing: [],
-    trace: [],
-    unexpected: [],
-  }));
-  return { ...compactChecks[0], checks: compactChecks };
 }
 
 function DirectionIcon({ direction }: { direction: Direction }) {
@@ -1933,7 +1709,9 @@ export default function VoxelBench() {
   const [suiteProgress, setSuiteProgress] = useState<number | null>(null);
   const suiteRunningRef = useRef(false);
   const suiteRevisionRef = useRef(0);
-  useEffect(() => { ++suiteRevisionRef.current; }, [tests, blocks, roles]);
+  const suiteJobRef = useRef<ReturnType<typeof startSuiteWorker> | null>(null);
+  useEffect(() => { ++suiteRevisionRef.current; suiteJobRef.current?.cancel(); }, [tests, blocks, roles]);
+  useEffect(() => () => { suiteJobRef.current?.cancel(); }, []);
   const [showResult, setShowResult] = useState(false);
   const [toast, setToast] = useState("");
 
@@ -2236,32 +2014,20 @@ export default function VoxelBench() {
     setSuiteProgress(0);
     setToast(`Running ${runnableTests.length * 4} rotated checks through the C++ engine${hiddenCount ? ` · ignoring ${hiddenCount} hidden` : ""}…`);
     try {
-      const nextResults: Record<string, TestResult> = {};
-      const comparisonContext = createFrameComparisonContext(blocks);
-      for (const [index, test] of runnableTests.entries()) {
-        nextResults[test.id] = await runRotationalTest(
-          test,
-          blocks,
-          roles,
-          comparisonContext,
-          true,
-        );
-        if ((index + 1) % 16 === 0 || index + 1 === runnableTests.length) {
-          setSuiteProgress(index + 1);
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-          if (revision !== suiteRevisionRef.current) {
-            setToast("Tests changed during the run. Run the suite again for current results.");
-            return;
-          }
-        }
-      }
+      const job = startSuiteWorker(runnableTests, blocks, roles, setSuiteProgress);
+      suiteJobRef.current = job;
+      const nextResults = await job.result;
+      if (revision !== suiteRevisionRef.current) return;
       setResults(nextResults);
       const passed = Object.values(nextResults).filter((result) => result.pass).length;
       setShowResult(shouldShowResultComparison(nextResults[activeId]));
       setToast(`${passed} of ${runnableTests.length} active tests passed in C++${hiddenCount ? ` · ${hiddenCount} hidden` : ""}`);
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "The C++ physics engine could not run");
+      setToast(revision !== suiteRevisionRef.current
+        ? "Tests changed during the run. Run the suite again for current results."
+        : error instanceof Error ? error.message : "The C++ physics engine could not run");
     } finally {
+      suiteJobRef.current = null;
       suiteRunningRef.current = false;
       setSuiteProgress(null);
     }

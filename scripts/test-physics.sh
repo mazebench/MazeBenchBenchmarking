@@ -20,3 +20,9 @@ clang++ \
   -o "$build_dir/physics_tests"
 
 "$build_dir/physics_tests"
+
+clang++ -std=c++20 -O3 -Wall -Wextra -Wpedantic \
+  -I"$project_root/engine/include" \
+  "$project_root/engine/tests/orange_support_index_tests.cpp" \
+  -o "$build_dir/orange_support_index_tests"
+"$build_dir/orange_support_index_tests"
