@@ -76,9 +76,27 @@ geometry interpolates between the canonical closed/open shapes; room changes
 tween the camera. Build geometry once per command, then update transforms and
 small mechanism buffers at display cadence. Never rebuild the world per tween
 frame, mutate physics snapshots, or send fractional coordinates to the engine.
+Ordinary level player moves reuse the current scenery and a separate player
+group; settling and undo must not rebuild an unchanged room. Rebuild when other
+objects, room context, or the cut height changes.
+Room crossings reuse unchanged cached destination scenery and tween camera and
+brightness without rebuilding that scenery. Keep separately moving players out
+of stationary room-border contours so entry tiles never retain their outlines.
+Do not draw the hidden ASCII board during 3D moves; synchronize it when switching
+views. Truncated command scenes retain filled cross-section buffers and joined
+contours. Clip original
+edges below the cut plane so hidden upper-layer bottoms cannot flicker through.
+Truncated authored 3D models have filled top sections in each model part's own
+surface color. Reuse cached local-space sections across identical models and
+fixed layers; fractional tween cuts update retained buffers. Keep model caps
+out of upper-layer ghosts and preserve the original model geometry.
 Orange-wall outlines include their exposed intersections with floors and solid
 supports, even when the wall continues underneath. Use the shared surface
 intersection kernel at rest and during tweens, updating retained outline buffers.
+Treat supporting tiles as a joined volume when finding those intersections:
+internal floor sides must not draw a grid across a flush lowered orange surface.
+Keep its outer contact contour and partial ledges. Joined orange surfaces use
+the lab's small polygon depth offset to avoid fighting a coplanar floor.
 Object fades use one screen-space coverage mask shared by surfaces and outlines,
 keeping opaque surfaces depth-writing so rear faces and internal edges cannot
 show through. Do not turn solid actors into alpha-blended shells during fades.
@@ -408,8 +426,11 @@ depth-scaled outline style, drawn in one pass so the full world
 does not need five outline passes. Matching cube/slope borders use the same
 shared surface kernel in cached rooms and temporary tween scenes; never reveal
 a room perimeter just because a command is animating. Truncate updates shared GPU clipping planes and cached cut surfaces;
-height and opacity changes must not rebuild the world. Initial background rooms
-load in short batches ordered by distance from the active room; preserve live
+height and opacity changes must not rebuild the world. Prepare new cut surfaces
+immediately for visible rooms; prepare offscreen rooms in
+short idle batches, and finish their caps before a camera move reveals them.
+Initial background rooms load in short batches ordered by distance from the
+active room; preserve live
 picking, transforms, and Truncate settings between batches. Invalidate changed authored room snapshots and their immediate shared-border
 neighbors, or replace the cache when new models finish loading. Keep
 precise cut geometry, picking, numbered labels, and shadows in the active room.

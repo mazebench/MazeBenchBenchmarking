@@ -1,10 +1,11 @@
+import { supportsAnyLanguage } from "../coding-mode.mjs";
 import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs";
 import { RunListView, providerName, runCompany, selectRuns } from "./run-library.mjs";
 import { modelLabel } from "./model-label.mjs";
 import { setupPromptPreview } from "./prompt-preview.mjs";
 const elements = Object.fromEntries([
   "world", "world-description", "world-objective", "connection-status", "launch-form", "provider", "model", "effort", "action-limit", "run-options-summary",
-  "tools-enabled", "tools-label", "launch-note", "sequence-option", "sequence-enabled", "observation-option", "observation-mode", "vision-preview", "vision-preview-image", "vision-preview-status", "vision-room", "vision-left", "vision-right", "vision-tilt", "launch-single", "launch-pair",
+  "coding-mode", "launch-note", "sequence-option", "sequence-enabled", "observation-option", "observation-mode", "vision-preview", "vision-preview-image", "vision-preview-status", "vision-room", "vision-left", "vision-right", "vision-tilt", "launch-single", "launch-pair",
   "launch-status", "refresh", "run-list", "record-count", "codex-version", "codex-update-status", "check-codex", "runtime-details", "agent-readiness", "run-pagination", "run-page", "previous-runs", "next-runs", "run-company", "run-model", "run-sort"
 ].map((id) => [id, document.getElementById(id)]));
 
@@ -21,11 +22,15 @@ function providerCompatible(provider) {
 function updateReadiness() {
   const provider = elements.provider.value;
   const status = installationStatus[provider];
+  const any = elements["coding-mode"].value === "any";
+  const codeReady = !any || (supportsAnyLanguage(launchPayload()) && status?.code_sandbox?.available);
   const needsAuth = ["claude-code", "grok-build", "antigravity", "muse-code", "prime-agent"].includes(provider);
-  codexReady = Boolean(status?.available && status?.tested && (!needsAuth || status.authenticated) && providerCompatible(provider) && models.some(model => model.id === elements.model.value && (model.provider || "codex") === provider));
+  codexReady = Boolean(codeReady && status?.available && status?.tested && (!needsAuth || status.authenticated) && providerCompatible(provider) && models.some(model => model.id === elements.model.value && (model.provider || "codex") === provider));
   elements["codex-version"].textContent = status?.version ? `${providerName(provider)} ${status.version.replace(/^codex-cli /, "")}` : "Checking agent…";
   const labels = { "up-to-date": "Up to date", "update-available": `Update available: ${status?.latest_version}. Run codex update, then restart the server.`, "newer-than-release": "Newer than the current stable release", unknown: "Latest release check unavailable" };
-  elements["codex-update-status"].textContent = !providerCompatible(provider)
+  elements["codex-update-status"].textContent = any && !codeReady
+    ? (supportsAnyLanguage(launchPayload()) ? status?.code_sandbox?.error || "Checking any-language sandbox…" : "Any language supports Codex and Claude Code with ASCII observations.")
+    : !providerCompatible(provider)
     ? `${providerName(provider)} currently supports Main World with ASCII observations.`
     : !status ? "Checking installation and sign-in…" : status.error || (needsAuth
     ? `${status?.authenticated ? "Signed in" : "Not signed in"} · ${status?.tested ? "Benchmark tool boundary verified" : "Version needs validation"}`
@@ -99,18 +104,15 @@ function updateEfforts() {
   }
 }
 
-let standardPythonEnabled = false;
+let standardCodingMode = "off";
 function updateModels() {
   const prime = elements.provider.value === "prime-agent";
-  if (prime && !elements["tools-enabled"].disabled) standardPythonEnabled = elements["tools-enabled"].checked;
-  if (!prime && elements["tools-enabled"].disabled) elements["tools-enabled"].checked = standardPythonEnabled;
-  elements["tools-enabled"].disabled = prime;
-  if (prime) elements["tools-enabled"].checked = true;
-  elements["tools-label"].textContent = prime ? "Native" : elements["tools-enabled"].checked ? "On" : "Off";
+  if (prime && !elements["coding-mode"].disabled) standardCodingMode = elements["coding-mode"].value;
+  if (!prime && elements["coding-mode"].disabled) elements["coding-mode"].value = standardCodingMode;
+  elements["coding-mode"].disabled = prime;
+  if (prime) elements["coding-mode"].value = "python";
   elements["launch-pair"].hidden = prime;
-  elements["launch-note"].textContent = prime
-    ? "Prime Agent uses its own Python workspace in a remote sandbox, billed to your Prime account. Pausing keeps the sandbox alive; stopping or restarting the server ends the session."
-    : "A matched pair starts two runs: one with Python off and one with Python on.";
+  updateCodingOptions();
   const providerModels = models.filter(model => (model.provider || "codex") === elements.provider.value);
   elements.model.replaceChildren();
   for (const model of providerModels) {
@@ -131,14 +133,16 @@ async function loadModels() {
   updateModels();
 }
 
-function launchPayload(toolsEnabled = elements["tools-enabled"].checked) {
+function launchPayload() {
+  const mode = elements["coding-mode"].value;
   return {
     world: elements.world.value,
     ...(elements.world.value === "main-world" ? { observation_mode: elements["observation-mode"].value } : {}),
     provider: elements.provider.value,
     model: elements.model.value,
     effort: elements.effort.value,
-    tools_enabled: toolsEnabled,
+    coding_mode: mode,
+    tools_enabled: mode !== "off",
     ...(elements.world.value === "slotski" ? { sequence_enabled: elements["sequence-enabled"].value === "true" } : {}),
     action_limit: elements["action-limit"].value === "unlimited"
       ? null
@@ -170,11 +174,11 @@ async function launchSingle(event) {
 }
 
 async function launchPair() {
-  setLaunching(true, "Preflighting Python isolation, then starting both conditions…");
+  setLaunching(true, "Checking isolation, then starting both coding conditions…");
   try {
     await api("/api/benchmark/v1/pairs", {
       method: "POST",
-      body: JSON.stringify(launchPayload(false))
+      body: JSON.stringify(launchPayload())
     });
     await refreshRuns();
     setLaunching(false, "Matched pair launched. Open either record to watch its model report.");
@@ -271,6 +275,7 @@ function updateWorld() {
   elements["sequence-option"].hidden = !slotski;
   elements["observation-option"].hidden = ice || slotski;
   if (ice || slotski) elements["observation-mode"].value = "ascii";
+  updateCodingOptions();
   updateObservation();
   updateReadiness();
   elements["world-objective"].textContent = slotski ? "Move A to the exit" : ice ? "Solve 30 levels" : "Collect 100 gems";
@@ -279,6 +284,7 @@ function updateWorld() {
 }
 let previewYaw = 0, previewPitch = 2, previewGeneration = 0;
 async function updateObservation() {
+  updateCodingOptions();
   updateReadiness();
   const enabled = elements.world.value === "main-world" && elements["observation-mode"].value === "vision";
   elements["vision-preview"].hidden = !enabled;
@@ -315,9 +321,19 @@ elements["action-limit"].addEventListener("change", updateRunOptionsSummary);
 elements["sequence-enabled"].addEventListener("change", updateRunOptionsSummary);
 elements.model.addEventListener("change", updateEfforts);
 elements.provider.addEventListener("change", updateModels);
-elements["tools-enabled"].addEventListener("change", () => {
-  elements["tools-label"].textContent = elements["tools-enabled"].checked ? "On" : "Off";
-});
+function updateCodingOptions() {
+  const supported = supportsAnyLanguage(launchPayload());
+  elements["coding-mode"].querySelector('option[value="any"]').disabled = !supported;
+  // Preserve a selected unsupported condition and explain it; never silently
+  // launch a different tier when the provider or observation mode changes.
+  const prime = elements.provider.value === "prime-agent";
+  elements["launch-note"].textContent = prime
+    ? "Prime Agent uses its native Python workspace in a remote sandbox, billed to your Prime account."
+    : elements["coding-mode"].value === "any"
+      ? "A matched pair compares coding off with Any language. The isolated toolchain supports Python, JavaScript, C/C++, Rust, Go, Java, Ruby, Perl and Lua."
+      : "A matched pair compares coding off with Python only. Any language is available for Codex and Claude Code with ASCII observations.";
+}
+elements["coding-mode"].addEventListener("change", () => { updateCodingOptions(); updateReadiness(); });
 
 try {
   setLaunching(false, elements["launch-status"].textContent);

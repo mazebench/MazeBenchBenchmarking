@@ -16,7 +16,9 @@ self.onmessage = async ({ data: { world, text, start, name } }) => {
       imported = parseReplay(JSON.stringify(full), { name });
       if (result.warnings.length) imported.notice = `${result.warnings.length} saved routes could not be reproduced. Playing the verified solution.`;
     }
-    const movie = await compileReplay(engine, world, imported, { onProgress: (done, total) => self.postMessage({ type: "progress", done, total, phase: "Preparing replay" }) });
+    const progress = (done, total) => self.postMessage({ type: "progress", done, total, phase: "Preparing replay" });
+    progress(0, imported.commands.length);
+    const movie = await compileReplay(engine, world, imported, { onProgress: progress });
     self.postMessage({ type: "ready", movie }, movie.layouts.map(layout => layout.buffer));
   } catch (error) { self.postMessage({ type: "error", message: error.message || "Could not prepare this replay." }); }
 };

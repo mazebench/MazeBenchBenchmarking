@@ -2,13 +2,15 @@ import { roomBorderEdges, joinRoomBorderEdges } from "../../ui/room-border-edges
 import { isEdge } from "../../ui/thick-edges.mjs";
 import * as THREE from "../../render/vendor/three.module.min.js";
 import { collectVoxelSceneV2 } from "../../ui/voxel-scene.mjs";
-import { addTerrainAsset } from "../../render/v1/asset-renderers.mjs";
+import { addTerrainAsset } from "../../ui/asset-renderers.mjs";
 import { collectAnimatedGems } from "./gems.mjs";
 import { addSpecialPiece } from "../../render/v1/special-piece-renderers.mjs";
 import { disposeGeneratedChildren } from "../../render/v1/polycube-mesh.mjs";
 import { groupMovingTracks, sampleTrack, sampleSegments, sampleTimelinePlayer } from "./timeline.mjs";
 import { applySolidFade } from "./solid-fade.mjs";
 import { AnimatedWallContacts, contactShape } from "../../ui/orange-wall-contacts.mjs";
+import { TruncateCaps } from "./truncate-caps.mjs";
+import { ModelTruncateCaps } from "../../ui/model-truncate-caps.mjs";
 
 const markerAxis = new THREE.Vector3(0, 0, 1);
 
@@ -34,6 +36,7 @@ function buildContent(renderer, objects, rooms = []) {
     const world = { ...renderer.world, contextRooms: renderer.world.contextRooms.map(room => byName.get(room.fileName) || room) };
     const borders = snapshots.flatMap(room => roomBorderEdges(world, room));
     joinRoomBorderEdges(content.children.slice(firstJoined), borders, content);
+    content.cutawayBorders = height => snapshots.flatMap(room => roomBorderEdges(world, room, { maxHeight: height }));
   }
   data.terrainAssets.forEach(record => addTerrainAsset(content, {
     ...record,
@@ -68,7 +71,9 @@ function mechanismMorph(renderer, track) {
     const marker = track.block.visual.kind === "lift" && index === low.children.length - 1;
     if (!marker && from && to && from.count === to.count) {
       geometry = object.geometry.clone();
-      geometry.userData.persistentGeometry = false;
+      // BufferGeometry.clone shares userData. Own the flag too, or disposing
+      // this tween also invalidates the cached plate/cube used by other rooms.
+      geometry.userData = { ...geometry.userData, persistentGeometry: false };
       object.geometry = geometry;
       object.frustumCulled = false;
     }
@@ -105,7 +110,7 @@ function mechanismMorph(renderer, track) {
 }
 
 export class CommandAnimationScene {
-  constructor(renderer, timeline) {
+  constructor(renderer, timeline, { reuseBackgrounds = false } = {}) {
     this.renderer = renderer;
     this.timeline = timeline;
     this.initialLighting = renderer.roomLighting && Array.from(renderer.roomLighting.values);
@@ -119,40 +124,55 @@ export class CommandAnimationScene {
       }
     }
     this.offset = [0, 0];
-    this.roomIds = new Set(timeline.rooms.map(room => room.fileName));
+    const player = timeline.tracks.find(track => track.block.roleId === "player");
+    const level = player?.positions.every(position => position[2] === player.positions[0][2]);
+    const inside = (position, room) => Math.floor(position[0] / renderer.world.roomWidth) === room.columnIndex &&
+      Math.floor(position[1] / renderer.world.roomHeight) === room.rowIndex;
+    const cachedRooms = reuseBackgrounds && level ? timeline.rooms.filter(room =>
+      room.fileName !== renderer.world.contextActiveRoom.fileName && renderer.roomBackgrounds?.has(room.fileName) &&
+      !timeline.tracks.some(track => track.block.roleId !== "player" && track.changed && inside(track.positions[0], room))) : [];
+    this.roomIds = new Set(timeline.rooms.filter(room => !cachedRooms.includes(room)).map(room => room.fileName));
     this.root = new THREE.Group();
     this.upper = new THREE.Group();
     this.materials = new Set();
     this.lowerPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e6);
+    this.edgePlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e6);
     this.upperPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1e6);
-    const staticObjects = timeline.tracks.filter(track => !track.changed && track.initialOpacity)
+    const staticObjects = timeline.tracks.filter(track => !track.changed && track.initialOpacity &&
+      !cachedRooms.some(room => inside(track.positions[0], room)))
       .map(track => initialObject(track));
-    this.root.add(buildContent(renderer, staticObjects, timeline.rooms));
+    this.root.add(buildContent(renderer, staticObjects, timeline.rooms.filter(room => this.roomIds.has(room.fileName))));
     this.actors = groupMovingTracks(timeline.tracks).map(tracks => {
       const track = tracks[0];
       const mechanism = ["gate", "lift", "puncher"].includes(track.block.visual?.kind);
       const morph = mechanism ? mechanismMorph(renderer, track) : null;
       const root = morph?.root || buildContent(renderer, tracks.map(track => initialObject(track)));
       this.root.add(root);
-      return { tracks, root, morph };
+      return { tracks, root, morph, origin: track.positions[0] };
     });
     this.contactRecords = timeline.tracks.flatMap(track => {
+      if (!track.changed && cachedRooms.some(room => inside(track.positions[0], room))) return [];
       const shape = contactShape(initialObject(track), track.block);
       if (!shape) return [];
-      const mechanism = ["lift", "gate"].includes(track.block.visual?.kind) &&
-        (!track.object.orientation || track.object.orientation === "top");
+      const mechanism = ["lift", "gate"].includes(track.block.visual?.kind);
       return [{ track, shape, baseHeight: shape.position[1], visible: track.initialOpacity > 0,
         low: mechanism ? contactShape(initialObject(track, 0), track.block) : null,
         high: mechanism ? contactShape(initialObject(track, 1), track.block) : null }];
     });
     const supports = this.contactRecords.filter(record => record.track.block.roleId !== "orange-wall");
     this.wallContacts = [];
+    this.caps = [];
     for (const root of this.root.children) {
       const actor = this.actors.find(actor => actor.root === root);
       const walls = this.contactRecords.filter(record => record.track.block.roleId === "orange-wall" &&
         (actor ? actor.tracks.includes(record.track) : !record.track.changed && record.track.initialOpacity));
       if (walls.length) this.wallContacts.push(new AnimatedWallContacts(renderer, root, walls, supports));
+      const records = this.contactRecords.filter(record => actor ? actor.tracks.includes(record.track)
+        : !record.track.changed && record.track.initialOpacity);
+      if (records.length) this.caps.push(new TruncateCaps(renderer, root, records));
     }
+    this.modelCaps = this.root.children.map(root => new ModelTruncateCaps(renderer, root, root, { dynamic: true }));
+    renderer.assignRenderLayers(this.root);
     const ownedMaterials = new Set();
     this.root.traverse(object => {
       if (object.userData.transientMaterial) ownedMaterials.add(object.material);
@@ -180,32 +200,50 @@ export class CommandAnimationScene {
 
   prepareMaterials(root, plane, coverage, upper = false) {
     const copies = new Map();
-    const copy = source => {
-      if (!copies.has(source)) {
+    const copy = (source, cap, edge) => {
+      const key = `${source.uuid}:${cap}:${edge}`;
+      if (!copies.has(key)) {
         const material = source.clone();
         material.onBeforeCompile = source.onBeforeCompile;
         material.customProgramCacheKey = source.customProgramCacheKey;
-        material.clippingPlanes = [plane];
+        material.clippingPlanes = cap ? [] : [!upper && edge ? this.edgePlane : plane];
         material.clipShadows = true;
         applySolidFade(material, coverage);
-        copies.set(source, material);
+        copies.set(key, { source, material });
         this.materials.add(material);
       }
-      return copies.get(source);
+      return copies.get(key).material;
     };
     root.traverse(object => {
       if (!object.material) return;
       const original = object.material;
-      object.material = Array.isArray(original) ? original.map(copy) : copy(original);
+      const convert = source => copy(source, object.userData.truncateCap === true, isEdge(object));
+      object.material = Array.isArray(original) ? original.map(convert) : convert(original);
       // These copies are owned by this scene, not the static renderer cache.
       delete object.userData.transientMaterial;
       if (upper) {
         object.castShadow = false;
         object.receiveShadow = false;
-        if (isEdge(object)) object.visible = false;
+        if (isEdge(object) || object.userData.truncateCap) object.visible = false;
       }
     });
-    return [...copies].map(([source, material]) => ({ source, material }));
+    return [...copies.values()];
+  }
+
+  // Replay layouts identify identical stationary scenery. Keep its meshes and
+  // shaders when seeking between ordinary steps, even when seeking backward.
+  retargetPlayer(timeline) {
+    const changed = timeline.tracks.filter(track => track.changed), actor = this.actors[0];
+    if (this.actors.length !== 1 || changed.length !== 1 || !actor ||
+        actor.tracks[0].block.roleId !== "player" || changed[0].block.roleId !== "player" ||
+        actor.tracks[0].fades.length || changed[0].fades.length || changed[0].phases.length ||
+        this.timeline.camera.length || timeline.camera.length || this.timeline.lighting.length || timeline.lighting.length ||
+        !changed[0].positions.every(position => position[2] === actor.origin[2])) return false;
+    const previous = actor.tracks[0];
+    for (const record of this.contactRecords) if (record.track === previous) record.track = changed[0];
+    actor.tracks = changed;
+    this.timeline = timeline;
+    return true;
   }
 
   update(time) {
@@ -219,7 +257,7 @@ export class CommandAnimationScene {
     }
     for (const actor of this.actors) {
       const track = actor.tracks[0], value = sampleTrack(track, time);
-      const [x, y, z] = track.positions[0];
+      const [x, y, z] = actor.origin;
       actor.root.position.set(value.x - x, value.z - z, value.y - y);
       actor.root.visible = value.opacity > 0;
       actor.opacity = value.opacity;
@@ -234,11 +272,13 @@ export class CommandAnimationScene {
       // Keep the support face on the same interpolated plate as lift/gate geometry.
       if (record.low && record.high) {
         const { low, high } = record;
-        record.shape.position[1] = low.position[1] + (high.position[1] - low.position[1]) * value.phase + value.z - initial[2];
-        record.shape.size[1] = low.size[1] + (high.size[1] - low.size[1]) * value.phase;
+        const delta = [value.x - initial[0], value.z - initial[2], value.y - initial[1]];
+        for (let axis = 0; axis < 3; axis++) {
+          record.shape.position[axis] = low.position[axis] + (high.position[axis] - low.position[axis]) * value.phase + delta[axis];
+          record.shape.size[axis] = low.size[axis] + (high.size[axis] - low.size[axis]) * value.phase;
+        }
       }
     }
-    this.wallContacts.forEach(contacts => contacts.update());
     const offset = sampleSegments(this.timeline.camera, [0, 0], time, { alwaysEase: true });
     renderer.target.x += offset[0] - this.offset[0];
     renderer.target.z += offset[1] - this.offset[1];
@@ -263,8 +303,14 @@ export class CommandAnimationScene {
       const player = sampleTimelinePlayer(this.timeline, this.time);
       if (player) height = Math.max(1, player.z + 1);
     }
-    this.lowerPlane.constant = height ?? 1e6;
-    this.upperPlane.constant = -(height ?? 1e6) - 0.002;
+    // Original faces/edges stop below the cut; retained joined caps close it.
+    // This also removes the bottom outlines of boxes on the hidden next layer.
+    this.lowerPlane.constant = height === null ? 1e6 : height - .0005;
+    this.edgePlane.constant = height === null ? 1e6 : height - .002;
+    this.upperPlane.constant = height === null ? -1e6 : -height - .002;
+    this.wallContacts.forEach(contacts => contacts.update(height));
+    this.caps.forEach(caps => caps.update(height));
+    this.modelCaps.forEach(caps => caps.update(height));
     this.upper.visible = height !== null && renderer.cutaway.opacity > 0;
     // Lift symbols face the camera, just like their settled counterparts.
     for (const object of this.rootNodes) if (object.userData.liftMarker) {
@@ -275,7 +321,7 @@ export class CommandAnimationScene {
       upper.position.copy(object.position);
       upper.quaternion.copy(object.quaternion);
       upper.scale.copy(object.scale);
-      upper.visible = object.visible && !isEdge(upper);
+      upper.visible = object.visible && !isEdge(upper) && !upper.userData.truncateCap;
     }
     this.parts.forEach((part, index) => {
       part.coverage.value = index ? this.actors[index - 1].opacity : 1;

@@ -311,7 +311,7 @@ test("animation scene morphs real mechanism geometry without rebuilding or reall
   assert.deepEqual(upperGem.quaternion.toArray(), animation.gems[0].quaternion.toArray());
   const middle = bounds();
   const lift = animation.actors.find(actor => actor.tracks[0].object.blockId === "lift");
-  const marker = lift.root.children.at(-1);
+  const marker = lift.root.children.find(object => object.userData.liftMarker);
   assert.equal(marker.rotation.y, Math.PI / 2, "lift marker rotates intact through the half-open state");
   animation.update(100); animation.beforeRender();
   assert.ok(low < middle && middle < bounds());
@@ -325,6 +325,42 @@ test("animation scene morphs real mechanism geometry without rebuilding or reall
   assert.ok(disposed > 0);
   assert.equal(renderer.content.visible, true);
   assert.equal(renderer.scene.children.length, 0);
+});
+
+test("Truncate retains coplanar block tops while following fractional player heights without rebuilding", () => {
+  const initial = [cell("player", 0, 0, 1), cell("wall", 2, 0, 1), cell("wall", 2, 0, 2)];
+  const final = [cell("player", 0, 0, 2), ...initial.slice(1)];
+  const active = room(initial);
+  const world = createPlayWorldContext({ storageFormat: V2_WORLD_FORMAT, columns: ["A"], rows: ["A"], roomWidth: 8,
+    roomHeight: 4, blockDefinitions: blocks, rooms: [active] })(active);
+  const renderer = Object.create(PlayWorldRenderer.prototype);
+  Object.assign(renderer, { world, totalWidth: 8, totalHeight: 4, mode: "play", canvas: { dataset: {} },
+    target: new THREE.Vector3(), scene: new THREE.Scene(), content: new THREE.Group(), cutawayContent: new THREE.Group(),
+    renderer: { shadowMap: { enabled: false } }, cutaway: { height: 2, opacity: .2, followPlayer: false }, yaw: 0 });
+  const animation = new CommandAnimationScene(renderer, timeline(initial, [final]));
+  const geometry = []; animation.root.traverse(object => { if (object.geometry) geometry.push(object.geometry); });
+  for (const followPlayer of [false, true]) {
+    renderer.cutaway.followPlayer = followPlayer;
+    for (const time of [0, 50, 100, 50, 0]) {
+      animation.update(time); animation.beforeRender();
+      const height = followPlayer ? JSON.parse(renderer.canvas.dataset.motionPlayer).z + 1 : 2;
+      const top = new THREE.Vector3(100, height, -100);
+      assert(animation.lowerPlane.distanceToPoint(top) < 0, "coplanar originals are replaced by closed cut surfaces");
+      assert(animation.upperPlane.distanceToPoint(top) < -.001, "ghost faces cannot overlap the retained top");
+      assert(animation.edgePlane.distanceToPoint(top) < -.001, "bottom edges on the hidden next layer are excluded");
+      assert(animation.caps.some(caps => [...caps.groups.values()].some(group => group.surface.geometry.drawRange.count > 0)),
+        "a filled cross section remains during fractional-height motion");
+      assert(animation.lowerPlane.distanceToPoint(top.clone().add(new THREE.Vector3(0, .003, 0))) < 0,
+        "the clearance must not reveal upper layers");
+      const after = []; animation.root.traverse(object => { if (object.geometry) after.push(object.geometry); });
+      assert.deepEqual(after, geometry, "seeking and changing the clip height retain geometry");
+    }
+  }
+  renderer.cutaway = { height: null, opacity: 0, followPlayer: false };
+  animation.beforeRender();
+  assert.equal(animation.lowerPlane.constant, 1e6);
+  assert.equal(animation.upper.visible, false);
+  animation.dispose();
 });
 
 test("fade-out and reset fade-in keep opaque surfaces depth-writing with the same mask on their outlines", () => {
@@ -402,9 +438,9 @@ test("a tween preserves the settled room-border outlines instead of revealing te
   const seamLines = root => {
     const lines = new Set();
     root.traverse(object => {
-      if (!object.userData.mazeWideOutline) return;
+      if (!object.visible || !object.userData.mazeWideOutline) return;
       const a = object.geometry.attributes.position, b = object.geometry.attributes.lineOther;
-      for (let i = 0; i < a.count; i++) if (Math.abs(a.getX(i)) < 1e-6 && Math.abs(b.getX(i)) < 1e-6) {
+      for (let i = 0; i < Math.min(a.count, object.geometry.drawRange.count); i++) if (Math.abs(a.getX(i)) < 1e-6 && Math.abs(b.getX(i)) < 1e-6) {
         lines.add([[a.getX(i), a.getY(i), a.getZ(i)], [b.getX(i), b.getY(i), b.getZ(i)]].map(p => p.join(",")).sort().join(":"));
       }
     });
@@ -414,9 +450,10 @@ test("a tween preserves the settled room-border outlines instead of revealing te
   assert.deepEqual(settled, [], "matching wall faces have no room-border line");
   const final = initial.map(object => object.blockId === "player" ? { ...object, x: 3 } : object);
   const animation = new CommandAnimationScene(renderer, timeline(initial, [final]));
-  for (const time of [0, 25, 50, 75, 100]) {
+  for (const height of [null, 1]) for (const time of [0, 25, 50, 75, 100]) {
+    renderer.cutaway.height = height;
     animation.update(time); animation.beforeRender();
-    assert.deepEqual(seamLines(animation.root.children[0]), settled, `same outline at ${time} ms`);
+    assert.deepEqual(seamLines(animation.root.children[0]), settled, `same outline at ${time} ms, ceiling ${height}`);
   }
   animation.dispose();
   assert.deepEqual(seamLines(renderer.content), settled);

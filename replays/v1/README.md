@@ -17,11 +17,22 @@ motion curves rather than every engine frame. The viewer samples the same
 `animations/v1` curves as Play, including slides, mechanisms, fades, resets on
 leaving a room, and camera/room lighting. Seeking does not rerun the engine.
 Imports do not write to Solutions storage or change authored rooms.
+During import, a live minutes:seconds estimate tracks the current step using its
+observed throughput. It recalculates between loading, route verification,
+replay preparation and drawing, and stays cancellable throughout.
 
 Space or K plays/pauses. Left/right or J/L seeks five seconds; hold Shift for
 100 ms. Comma/period steps between actions. The focused timeline's native arrow
 keys seek one millisecond. Home/End jumps to either end. Drag to orbit; WASD turns
 the camera, Q/E zooms, and slash recenters. Pausing and seeking preserve camera
 adjustments. Speed controls and fullscreen are available below the timeline.
+
+The folded Truncate panel in the top-right corner shares Play's layer height,
+player-follow and upper-layer visibility controls (0% by default). Timeline
+markers default to None. Choose Gems or New rooms to show clickable timestamp ticks. Gem ticks
+match the collection tween; room ticks mark first settled visits, including the
+starting room at zero. Passing through a room during a slide does not count as
+a visit. Closely spaced ticks open a short timestamp list so each remains
+selectable. Jumping to a marker pauses the movie and preserves camera settings.
 
 Run `node --test tests/replays.test.mjs` plus the repository application checks.

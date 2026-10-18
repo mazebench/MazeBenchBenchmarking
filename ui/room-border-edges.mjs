@@ -10,7 +10,7 @@ const cache = new WeakMap();
 // Only a one-cell strip on either side of a seam is needed. Use the shared
 // cube/slope kernel to cancel coplanar edges and retain real ridges, partial
 // slope contacts, different materials, and numbered-body boundaries.
-export function roomBorderEdges(world, room, { maxHeight, minHeight = -Infinity } = {}) {
+export function roomBorderEdges(world, room, { maxHeight, minHeight = -Infinity, excludePlayer = false } = {}) {
   if (!room?.fileName || !world.contextRooms) return [];
   const borders = [];
   const halfWidth = world.columns.length * world.roomWidth / 2;
@@ -26,11 +26,12 @@ export function roomBorderEdges(world, room, { maxHeight, minHeight = -Infinity 
     const neighbors = cache.get(room.objects);
     if (!neighbors.has(neighbor.objects)) neighbors.set(neighbor.objects, new Map());
     const variants = neighbors.get(neighbor.objects);
-    const key = `${axis}:${boundary}:${step}:${maxHeight}:${minHeight}:${halfWidth}:${halfHeight}`;
+    const key = `${axis}:${boundary}:${step}:${maxHeight}:${minHeight}:${halfWidth}:${halfHeight}:${excludePlayer}`;
     let positions = variants.get(key);
     if (!positions) {
       const strip = (source, edge) => ({ ...source, renderDimmed: false,
-        objects: source.objects.filter(object => object[coordinate] === edge).map(object => {
+        objects: source.objects.filter(object => object[coordinate] === edge &&
+          (!excludePlayer || world.blockDefinitions.get(object.blockId)?.roleId !== "player")).map(object => {
           const block = world.blockDefinitions.get(object.blockId);
           // Dynamic bodies in distinct rooms never become one numbered body.
           return ["weightless-pushable", "clone", "player", "orange-wall"].includes(block?.roleId)

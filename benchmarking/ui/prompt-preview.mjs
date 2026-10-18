@@ -1,3 +1,4 @@
+import { codingLabel } from "../coding-mode.mjs";
 export function setupPromptPreview(container, getSpec) {
   const text = container.querySelector("#prompt-text");
   const status = container.querySelector("#prompt-status");
@@ -25,6 +26,7 @@ export function setupPromptPreview(container, getSpec) {
       observation_mode: spec.observation_mode || "ascii",
       provider: spec.provider,
       tools_enabled: String(spec.tools_enabled),
+      coding_mode: spec.coding_mode || (spec.tools_enabled ? "python" : "off"),
       action_limit: spec.action_limit ?? "unlimited",
       sequence_enabled: String(spec.sequence_enabled ?? true)
     }).toString();
@@ -35,11 +37,11 @@ export function setupPromptPreview(container, getSpec) {
     controller = new AbortController();
     const world = { "main-world": "Main World", "ice-maze": "Ice Maze", slotski: "Slotski" }[spec.world];
     const observation = spec.observation_mode === "vision" ? "Vision" : "ASCII";
-    const python = spec.provider === "prime-agent" ? "Native Python" : `Python ${spec.tools_enabled ? "on" : "off"}`;
+    const python = codingLabel(spec);
     context.textContent = `${world} · ${observation} · ${python}`;
     description.textContent = spec.provider === "prime-agent"
       ? "Updates with the settings above. Prime Agent uses its native Python workspace."
-      : "Updates with the settings above. Switch Python on or off to read either matched-pair prompt.";
+      : "Updates with the settings above. Choose a coding tier to read its exact prompt.";
     container.setAttribute("aria-busy", "true");
     status.textContent = "Loading prompt…";
     text.textContent = "";

@@ -4,6 +4,20 @@ import { playTimeline } from "../animations/v1/player.mjs";
 import { CAMERA_CENTER_DURATION_MS } from "../render/v1/camera-transitions.mjs";
 import { CommandAnimationScene } from "../animations/v1/scene.mjs";
 import { addAnimatedGem, collectAnimatedGems, updateAnimatedGems } from "../animations/v1/gems.mjs";
+import * as THREE from "../render/vendor/three.module.min.js";
+import { JoinedMazeRenderer } from "./joined-maze-renderer.mjs";
+import { collectVoxelSceneV2 } from "./voxel-scene.mjs";
+import { PlayerMotionScene } from "../animations/v1/player-scene.mjs";
+
+function playerSceneState(world) {
+  const room = world.rooms.find(room => !room.renderDimmed);
+  if (!room) return null;
+  const players = room.objects.filter(object => world.blockDefinitions.get(object.blockId)?.roleId === "player");
+  if (players.length !== 1 || players[0].engineHidden || players[0].x < 0 || players[0].y < 0 ||
+      players[0].x >= world.roomWidth || players[0].y >= world.roomHeight) return null;
+  return { room, player: players[0], signature: JSON.stringify([room.fileName,
+    room.objects.filter(object => object !== players[0])]) };
+}
 
 export class PlayWorldRenderer extends WorldContextRenderer {
   constructor(canvas, world, options) {
@@ -29,11 +43,42 @@ export class PlayWorldRenderer extends WorldContextRenderer {
     this.renderSuspended = (this.renderSuspended || 0) + 1;
     let urls;
     try {
+      this.playPlayerRoot = null;
       urls = super.rebuild();
       this.gems = collectAnimatedGems(this.content, this.cutawayContent);
+      this.playerScene = playerSceneState(this.world);
+      if (this.playerScene) {
+        this.playerScene.height = this.cutawayHeight;
+        this.playerScene.context = this.world.contextRooms.slice();
+      }
     } finally { this.renderSuspended--; }
     this.render();
     return urls;
+  }
+
+  addJoinedCubes(data, content, minHeight = -Infinity) {
+    if (this.buildingBackground || this.buildingAnimation || content !== this.content || this.pickVoxels) {
+      return super.addJoinedCubes(data, content, minHeight);
+    }
+    const players = new Map(), terrain = new Map(data.cubeGroups), occupied = new Set(data.occupied), playerCells = new Set();
+    for (const [key, group] of terrain) {
+      if (this.world.blockDefinitions.get(key.split(":")[2])?.roleId !== "player") continue;
+      players.set(key, group); terrain.delete(key);
+      for (const voxel of group.voxels) {
+        const cell = `${voxel.x},${voxel.z},${voxel.y}`;
+        occupied.delete(cell); playerCells.add(cell);
+      }
+    }
+    // A player must not punch a temporary hole in an adjacent static face.
+    this.joiningPlayerSeparately = true;
+    try { super.addJoinedCubes({ ...data, cubeGroups: terrain, occupied }, content, minHeight); }
+    finally { this.joiningPlayerSeparately = false; }
+    if (!players.size) return;
+    const root = new THREE.Group();
+    JoinedMazeRenderer.prototype.addJoinedCubes.call(this,
+      { ...data, cubeGroups: players, specialPieces: [], occupied: playerCells }, root, minHeight);
+    content.add(root);
+    this.playPlayerRoot = root;
   }
 
   setGemMotionEnabled(enabled) {
@@ -50,6 +95,22 @@ export class PlayWorldRenderer extends WorldContextRenderer {
   }
 
   setWorld(world, options = {}) {
+    const previous = this.playerScene, next = previous && playerSceneState(world);
+    const height = this.cutaway?.followPlayer && next ? Math.max(1, Math.round(next.player.z) + 1) : this.cutaway?.height;
+    if (options.preserveCamera && this.playPlayerRoot && next && previous.signature === next.signature &&
+        previous.height === height && previous.player.blockId === next.player.blockId &&
+        this.world.blockDefinitions === world.blockDefinitions &&
+        previous.context.length === world.contextRooms.length &&
+        previous.context.every((room, index) => room === world.contextRooms[index])) {
+      this.world = world;
+      this.playPlayerRoot.position.set(next.player.x - previous.player.x, next.player.z - previous.player.z,
+        next.player.y - previous.player.y);
+      const collector = { world: { ...world, rooms: [next.room] } };
+      collectVoxelSceneV2(collector);
+      this.cellTops = collector.cellTops;
+      this.render();
+      return;
+    }
     const changeRoom = options.animateCamera && options.preserveCamera && !options.preserveCameraPosition &&
       this.world?.contextActiveRoom.fileName !== world.contextActiveRoom.fileName &&
       !globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -118,7 +179,8 @@ export class PlayWorldRenderer extends WorldContextRenderer {
       }
       this.cameraMotion.centerAnimation = null;
     }
-    const scene = new CommandAnimationScene(this, timeline);
+    const scene = PlayerMotionScene.supports(this, timeline)
+      ? new PlayerMotionScene(this, timeline) : new CommandAnimationScene(this, timeline, { reuseBackgrounds: true });
     this.commandAnimation = scene;
     let disposed = false;
     const cleanup = restoreCamera => {

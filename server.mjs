@@ -8,7 +8,7 @@ import { readFile, stat, writeFile, rename, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BenchmarkSupervisor } from "./benchmarking/prime/supervisor.mjs";
+import { BenchmarkSupervisor } from "./benchmarking/code/supervisor.mjs";
 import { withRunnerLiveness } from "./benchmarking/server-lifecycle.mjs";
 import { RunLibrary } from "./benchmarking/run-library.mjs";
 import { RunDashboard } from "./benchmarking/run-dashboard.mjs";

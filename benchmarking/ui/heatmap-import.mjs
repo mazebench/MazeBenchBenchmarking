@@ -1,3 +1,4 @@
+import { codingLabel } from "../coding-mode.mjs";
 // Convert the older leaderboard's exact [worldX, worldY, visits] cells.
 // These are comparison snapshots, never resumable benchmark records.
 export function importLeaderboardHeatmap(payload, { origin, importedAt, sourceKey }) {
@@ -37,5 +38,5 @@ export function importLeaderboardHeatmap(payload, { origin, importedAt, sourceKe
 }
 
 export function comparisonCondition(run) {
-  return run?.source ? `Tools: ${run.source.tool_use}` : run?.tools_enabled ? "Python on" : "Python off";
+  return run?.source ? `Tools: ${run.source.tool_use}` : codingLabel(run);
 }

@@ -2,6 +2,9 @@ import { loadBrowserWorld, paintLoadProgress } from "../../ui/browser-world.mjs"
 import { bindCameraHold } from "../../render/v1/camera-controls.mjs";
 import { locateReplay } from "./movie.mjs";
 import { ReplayView } from "./view.mjs";
+import { installTruncateControls } from "../../ui/truncate-controls.mjs";
+import { ReplayMarkers } from "./markers.mjs";
+import { ImportEstimate } from "./progress.mjs";
 
 const $ = id => document.getElementById(id);
 const dialog = $("import-dialog");
@@ -10,12 +13,19 @@ const count = value => value.toLocaleString();
 const roomLabel = id => world.rooms.find(room => room.fileName === id)?.position.join("×") || id;
 const formatTime = (value, precise = false) => {
   const seconds = Math.max(0, value) / 1000, whole = Math.floor(seconds);
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}${precise ? `.${String(Math.floor(seconds * 100) % 100).padStart(2, "0")}` : ""}`;
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}${precise ? `.${String(Math.floor(Math.max(0, value) / 10) % 100).padStart(2, "0")}` : ""}`;
 };
+const markers = new ReplayMarkers({ seek, pause, roomLabel, formatTime });
+const importEstimate = new ImportEstimate();
+let estimateTimer;
+const updateEstimate = () => { $("import-eta").textContent = importEstimate.label(performance.now()); };
 
 function progress(done, total, phase) {
+  importEstimate.update(done, total, phase, performance.now());
+  updateEstimate();
   $("load-progress").max = total || 1;
   $("load-progress").value = done;
+  $("load-progress").setAttribute("aria-label", phase);
   $("import-phase").textContent = `${phase}${total > 100 ? ` · ${count(done)} / ${count(total)}` : ""}`;
 }
 let worldError;
@@ -35,8 +45,8 @@ function updateTransport(location) {
   $("seek").style.setProperty("--played", `${100 * time / movie.duration}%`);
   $("seek").setAttribute("aria-valuetext", `${formatTime(time, true)} of ${formatTime(movie.duration, true)}, action ${index + 1} of ${movie.clips.length}`);
   $("timecode").textContent = `${formatTime(time, !playing)} / ${formatTime(movie.duration, movie.duration < 10000)}`;
-  $("progress-summary").textContent = `${count(index + 1)} / ${count(movie.clips.length)} actions · ${local >= clip.duration ? clip.gemsAfter : clip.gemsBefore} gems`;
-  $("room-name").textContent = roomLabel(local >= clip.duration ? clip.to : clip.room);
+  $("progress-summary").textContent = `${count(index + 1)} / ${count(movie.clips.length)} actions · ${movie.gems.filter(gem => gem.at <= time).length} gems`;
+  $("room-name").textContent = roomLabel(local >= clip.settledAt ? clip.to : clip.room);
   $("action-label").textContent = clip.label;
   $("toggle-play").setAttribute("aria-label", playing ? "Pause" : time >= movie.duration ? "Replay" : "Play");
   $("play-icon").setAttribute("d", playing ? "M6 5h4v14H6zM14 5h4v14h-4z" : "m8 5 11 7-11 7z");
@@ -88,6 +98,9 @@ function step(direction) {
 
 function setBusy(value) {
   busy = value;
+  clearInterval(estimateTimer);
+  importEstimate.reset();
+  if (value) { updateEstimate(); estimateTimer = setInterval(updateEstimate, 500); }
   for (const id of ["choose-file", "source", "start-room", "build-replay", "close-import"]) $(id).disabled = value;
   $("import-progress").hidden = !value;
 }
@@ -130,6 +143,7 @@ async function buildReplay(text, name = "Pasted sequence") {
     if (job !== generation) return;
     if (!view) {
       view = new ReplayView($("replay-canvas"), world, imported);
+      installTruncateControls($("cutaway-controls"), view.renderer, { ghosts: true });
       new ResizeObserver(() => view.renderer.resize()).observe($("stage"));
       bindCameraHold($("zoom-in"), { getRenderer: () => view.renderer, key: "q", tap: () => view.renderer.zoomBy(.8) });
       bindCameraHold($("zoom-out"), { getRenderer: () => view.renderer, key: "e", tap: () => view.renderer.zoomBy(1.25) });
@@ -148,16 +162,7 @@ async function buildReplay(text, name = "Pasted sequence") {
     $("movie-name").textContent = movie.name;
     $("movie-name").title = movie.name;
     $("seek").max = String(movie.duration);
-    $("chapters").replaceChildren();
-    let previousMarker = -1;
-    for (const chapter of movie.chapters) {
-      const percent = 100 * chapter.at / movie.duration;
-      if (percent - previousMarker < .5) continue;
-      const marker = document.createElement("i");
-      marker.style.left = `${percent}%`;
-      $("chapters").append(marker);
-      previousMarker = percent;
-    }
+    markers.setMovie(movie);
     for (const id of ["scene-info", "camera-tools", "transport", "open-import", "close-import"]) $(id).hidden = false;
     draw(0);
     setBusy(false);
@@ -211,7 +216,6 @@ $("seek").onpointermove = event => {
 };
 $("seek").onpointerleave = () => { $("seek-preview").hidden = true; };
 $("center-camera").onclick = () => view?.center();
-$("truncate-player").onchange = event => view?.renderer.setCutaway({ followPlayer: event.target.checked, height: null, opacity: 0 });
 $("speed").onchange = () => { lastFrame = performance.now(); };
 $("fullscreen").onclick = async () => {
   try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); }
@@ -233,7 +237,7 @@ window.addEventListener("keydown", event => {
   else seek(time + (["j", "arrowleft"].includes(key) ? -1 : 1) * (event.shiftKey ? 100 : 5000));
 }, { capture: true });
 document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); });
-window.addEventListener("pagehide", () => { worker?.terminate(); pause(); });
+window.addEventListener("pagehide", () => { worker?.terminate(); clearInterval(estimateTimer); pause(); });
 let dragDepth = 0;
 document.addEventListener("dragenter", event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); dragDepth++; $("drop-overlay").hidden = dialog.open; } });
 document.addEventListener("dragover", event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } });

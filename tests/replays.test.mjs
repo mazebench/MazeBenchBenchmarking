@@ -8,6 +8,7 @@ import { instantiateMazeBenchEngineV1 } from "../engine/current/engine.mjs";
 import { V2_BLOCK_CATALOG } from "../render/v1/voxel-world-v2.mjs";
 import { SolutionsModel } from "../solutions/v1/model.mjs";
 import { compileFullSolution } from "../solutions/v1/full-solution.mjs";
+import { groupMarkers } from "../replays/v1/markers.mjs";
 
 const cell = (blockId, x, y = 1, z = 0) => ({ blockId, x, y, z });
 const floor = () => Array.from({ length: 32 }, (_, i) => cell("floor", i % 8, Math.floor(i / 8)));
@@ -148,4 +149,34 @@ test("compact replay curves retain the shared lift and passenger interpolation",
     assert.deepEqual(sampleTrack(actual.tracks.find(track => track.object.blockId === blockId), at),
       sampleTrack(expected.tracks.find(track => track.object.blockId === blockId), at));
   }
+});
+
+test("event timestamps follow collection tweens and only first settled room visits", async () => {
+  const middle = room([...floor(), ...Array.from({ length: 8 }, (_, x) => cell("ice-floor", x)), cell("player", 4)], 1);
+  const destination = { ...room([...floor(), cell("ice-floor", 0), cell("player", 4), cell("gem", 1)], 2), position: ["J", "I"] };
+  const source = world([room([...floor(), cell("player", 6), cell("ice-floor", 7)]), middle, destination]);
+  const movie = await compileReplay(engine, source, parseReplay("R room HxI R room IxI room JxI"));
+  const first = movie.clips[0], timeline = unpackTimeline(movie, first, source);
+  const gem = timeline.tracks.find(track => track.block.roleId === "goal");
+  assert.equal(movie.gems.length, 1, "revisiting and resetting a room never recollects its gem");
+  assert.equal(movie.gems[0].at, gem.fades[0].end);
+  assert(movie.gems[0].at < first.duration, "marker does not wait for the trailing room-camera tween");
+  assert.equal(movie.gems[0].room, "2.json");
+  assert(sampleTrack(gem, movie.gems[0].at - 1).opacity > 0);
+  assert.equal(sampleTrack(gem, movie.gems[0].at).opacity, 0);
+  assert.deepEqual(movie.visits, [
+    { room: "0.json", at: 0 },
+    { room: "2.json", at: first.settledAt },
+    { room: "1.json", at: movie.clips[3].start + movie.clips[3].duration }
+  ], "the passed-through middle room only counts when explicitly visited later");
+});
+
+test("dense timeline markers retain every event in chronological, accessible groups", () => {
+  const events = [0, 10, 10, 100, 1000].map(at => ({ at }));
+  const groups = groupMarkers(events, 1000, 1000);
+  assert.deepEqual(groups.map(group => group.events.length), [3, 1, 1]);
+  assert.deepEqual(groups.flatMap(group => group.events), events);
+  assert.equal(groups[2].last, 1000, "final timestamp stays at the end of the seek rail");
+  assert.equal(groupMarkers(events, 1000, 100).length, 2, "narrow view groups crowded hit targets");
+  assert.deepEqual(groupMarkers([], 1000, 100), []);
 });

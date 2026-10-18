@@ -1,3 +1,5 @@
+import { codingMode } from "./coding-mode.mjs";
+import { codePrompt } from "./code/prompt.mjs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { buildBenchmarkPrompt } from "./v1/supervisor.mjs";
@@ -17,12 +19,16 @@ export async function previewBenchmarkPrompt(root, spec = {}) {
   if (!["codex", "claude-code"].includes(provider) && (world !== "main-world" || mode !== "ascii")) {
     throw new Error("This agent supports Main World with ASCII observations only.");
   }
-  const toolsEnabled = provider === "prime-agent" || spec.tools_enabled === true || spec.tools_enabled === "true";
+  const toolsEnabled = provider === "prime-agent" || codingMode(spec) !== "off";
   const sequences = spec.sequence_enabled !== false && spec.sequence_enabled !== "false";
   const actionLimit = spec.action_limit === null || String(spec.action_limit).toLowerCase() === "unlimited"
     ? null : Math.max(1, Math.min(1_000_000, Math.floor(Number(spec.action_limit) || 100)));
   const options = { toolsEnabled, actionLimit, startRoom: "HxI", sequenceEnabled: sequences };
   const folder = world === "slotski" ? "slotski" : world === "ice-maze" ? "worlds" : mode === "vision" ? "vision" : "v1";
+  if (codingMode(spec) === "any") {
+    const { prompt } = await codePrompt(root, spec, options);
+    return { prompt, world, observation_mode: mode, provider, coding_mode: "any", tools_enabled: true, action_limit: actionLimit };
+  }
   const source = `benchmarking/${folder}/EVAL-PROMPT.md`;
   const base = await readFile(path.join(root, source), "utf8");
   let prompt;

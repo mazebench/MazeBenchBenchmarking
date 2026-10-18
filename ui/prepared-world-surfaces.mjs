@@ -1,8 +1,9 @@
 import * as THREE from "../render/vendor/three.module.min.js";
 import { collectVoxelSceneV2 } from "./voxel-scene.mjs";
-import { edgeMaterial, renderMaterial } from "../render/v1/polycube-mesh.mjs";
+import { edgeMaterial } from "../render/v1/polycube-mesh.mjs";
+import { joinedSurfaceMaterial } from "./joined-voxel-mesh.mjs";
 import { buildWorldSurfaceBuffers } from "./world-surface-buffers.mjs";
-import { addGemAsset, addTerrainAsset } from "../render/v1/asset-renderers.mjs";
+import { addGemAsset, addTerrainAsset } from "./asset-renderers.mjs";
 import { addSpecialPiece } from "../render/v1/special-piece-renderers.mjs";
 
 const prepared = new WeakMap();
@@ -61,7 +62,7 @@ export function addPreparedWorldSurfaces(content, buffers) {
     geometry.setAttribute("position", new THREE.BufferAttribute(part.positions, 3));
     geometry.setAttribute("normal", new THREE.BufferAttribute(part.normals, 3));
     geometry.computeBoundingSphere();
-    const mesh = new THREE.Mesh(geometry, renderMaterial(part.color, part.dimmed));
+    const mesh = new THREE.Mesh(geometry, joinedSurfaceMaterial(part));
     mesh.castShadow = !part.floor;
     mesh.receiveShadow = true;
     if (part.joined) mesh.userData.joinedSlopes = true;

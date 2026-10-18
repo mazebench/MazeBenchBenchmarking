@@ -2,20 +2,21 @@
 // module remains byte-identical for historical benchmark runtime manifests.
 import * as THREE from "../render/vendor/three.module.min.js";
 import { ThreeMazeRendererV1 } from "../render/v1/three-renderer.mjs";
-import { addGemAsset, addTerrainAsset } from "../render/v1/asset-renderers.mjs";
+import { addGemAsset, addTerrainAsset } from "./asset-renderers.mjs";
 import { addSpecialPiece } from "../render/v1/special-piece-renderers.mjs";
 import { collectVoxelSceneV2 } from "./voxel-scene.mjs";
 import { applyCutawayMaterials } from "../render/v1/cutaway.mjs";
 import { V2_WORLD_FORMAT } from "../render/v1/voxel-world-v2.mjs";
 import { addGenericNumberFaces } from "../render/v1/generic-labels.mjs";
-import { disposeGeneratedChildren, edgeMaterial, renderMaterial } from "../render/v1/polycube-mesh.mjs";
-import { joinedSceneGroups, joinedSurfaceFaces, joinedGeometry, joinedEdges } from "./joined-voxel-mesh.mjs";
+import { disposeGeneratedChildren, edgeMaterial } from "../render/v1/polycube-mesh.mjs";
+import { joinedSceneGroups, joinedSurfaceFaces, joinedGeometry, joinedEdges, joinedSurfaceMaterial } from "./joined-voxel-mesh.mjs";
 
 import { perspectiveNearForDistance } from "./joined-voxel-surface.mjs";
 import { prepareBrowserModels } from "./browser-world.mjs";
 import { ThickEdges } from "./thick-edges.mjs";
 import { preparedWorldSurfaces } from "./prepared-world-surfaces.mjs";
 import { addOrangeWallContacts } from "./orange-wall-contacts.mjs";
+import { ModelTruncateCaps } from "./model-truncate-caps.mjs";
 
 export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
   setWorld(world, options) {
@@ -49,6 +50,7 @@ export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
 
   updateCamera() {
     super.updateCamera();
+    this.modelCaps?.update(this.cutawayHeight);
     const near = perspectiveNearForDistance(this.distance);
     if (this.camera.near !== near) {
       this.camera.near = near;
@@ -68,7 +70,7 @@ export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
       if (!faces.length) continue;
       const mesh = new THREE.Mesh(
         joinedGeometry(faces, this.totalWidth / 2, this.totalHeight / 2),
-        renderMaterial(group.color, group.dimmed)
+        joinedSurfaceMaterial(group)
       );
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -94,6 +96,7 @@ export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
 
   rebuild() {
     if (this.world.storageFormat !== V2_WORLD_FORMAT) return super.rebuild();
+    this.modelCaps = null;
     disposeGeneratedChildren(this.content);
     disposeGeneratedChildren(this.cutawayContent);
     this.pickMeshes = [];
@@ -128,6 +131,8 @@ export class JoinedMazeRenderer extends ThreeMazeRendererV1 {
     if (data.pickRecords) this.addEditorVoxelPickMesh(data.pickRecords);
     else this.addEditorPickMesh(data.cellMetadata);
     if (isCutaway) {
+      this.modelCaps = new ModelTruncateCaps(this, this.content);
+      this.modelCaps.update(height);
       applyCutawayMaterials(this.content, { height, clip: false });
       if (this.mode === "play" && this.cutaway.opacity > 0) {
         const upper = collectVoxelSceneV2({ world: this.world }, { minHeight: height });

@@ -58,7 +58,8 @@ export async function compileReplay(engine, sourceWorld, imported, { onProgress 
   const physics = new ReplayPhysics(engine, definitions, world.rooms, { presentation: true });
   let room = resolveRoom(world, imported.start), state = engine.createState(room);
   if (!physics.activePlayer(state)) throw new Error(`${room.position.join("×")} has no player start.`);
-  const startRoom = room.fileName, clips = [], chapters = [{ room: startRoom, at: 0 }], gems = [], pool = new TimelinePool();
+  const startRoom = room.fileName, clips = [], visits = [{ room: startRoom, at: 0 }], gems = [], pool = new TimelinePool();
+  const visited = new Set([startRoom]);
   let duration = 0, lastYield = 0;
   for (const [index, command] of imported.commands.entries()) {
     if (cancelled()) throw new Error("Import cancelled.");
@@ -109,20 +110,34 @@ export async function compileReplay(engine, sourceWorld, imported, { onProgress 
       room = finalRoom;
       label = command.direction[0].toUpperCase();
     }
-    const clip = { ...pool.pack(timeline), start: duration, duration: timeline.duration, center,
+    // Camera travel and departed-room resets can outlast the actual command.
+    // Events belong to the physics tween, not the end of that extra animation.
+    const settledAt = command.type === "room" ? timeline.duration : timeline.times.at(-1);
+    for (const gem of gems.slice(gemsBefore)) {
+      const track = timeline.tracks.find(track => track.object.solutionObjectId === gem.id);
+      const fade = track?.fades.find(segment => segment.from[0] > 0 && segment.to[0] === 0);
+      gem.at = duration + (fade?.end ?? settledAt);
+      gem.room = gem.id.slice(0, gem.id.lastIndexOf(":"));
+    }
+    const clip = { ...pool.pack(timeline), start: duration, duration: timeline.duration, settledAt, center,
       room: command.type === "room" ? finalRoom.fileName : from.fileName, from: from.fileName, to: finalRoom.fileName,
       label, type: command.type, gemsBefore, gemsAfter: physics.collected.size };
     clips.push(clip);
     duration += timeline.duration;
-    if (command.type === "room" || finalRoom.fileName !== from.fileName) chapters.push({ room: finalRoom.fileName, at: clip.start });
+    // Match Solutions visitation: only a settled destination counts, never a
+    // room briefly crossed by a slide or punch. Return visits add no new tick.
+    if (!visited.has(finalRoom.fileName)) {
+      visited.add(finalRoom.fileName);
+      visits.push({ room: finalRoom.fileName, at: clip.start + settledAt });
+    }
     if (performance.now() - lastYield > 40 || index === imported.commands.length - 1) {
       onProgress(index + 1, imported.commands.length);
       await new Promise(resolve => setTimeout(resolve, 0));
       lastYield = performance.now();
     }
   }
-  for (const gem of gems) gem.at = clips[gem.command].start + clips[gem.command].duration;
-  return { name: imported.name, notice: imported.notice || "", startRoom, duration, clips, chapters, gems,
+  gems.sort((a, b) => a.at - b.at);
+  return { name: imported.name, notice: imported.notice || "", startRoom, duration, clips, visits, gems,
     templates: pool.templates, layouts: pool.layouts };
 }
 

@@ -1,3 +1,4 @@
+import { codingLabel, codingMode } from "../coding-mode.mjs";
 import { benchmarkFetch } from "./benchmark-api.mjs";
 import { runCompany, selectRuns } from "./run-library.mjs";
 import { displayModelName } from "./heatmap-comparison.mjs";
@@ -19,7 +20,7 @@ export function createGemComparison({ onChange }) {
     <div class="gem-controls">
       <details class="gem-picker"><summary>Choose runs <span class="gem-selection-count">0 selected</span></summary>
         <div class="gem-picker-toolbar"><input type="search" placeholder="Search models or companies" aria-label="Search runs">
-          <select aria-label="Filter runs by Python"><option value="all">All runs</option><option value="off">Python off</option><option value="on">Python on</option></select>
+          <select aria-label="Filter runs by coding"><option value="all">All runs</option><option value="off">Coding off</option><option value="python">Python only</option><option value="any">Any language</option></select>
           <button type="button" class="gem-select-visible">Select visible</button><button type="button" class="gem-clear">Clear</button></div>
         <div class="gem-run-list"></div><p class="gem-picker-note">Choose any number of runs. Imported heatmap-only snapshots have no move history.</p>
       </details>
@@ -59,13 +60,13 @@ export function createGemComparison({ onChange }) {
   }
   const filtered = () => runs.filter(run => {
     const query = $('input[type="search"]').value.toLowerCase();
-    const tools = $('select[aria-label="Filter runs by Python"]').value;
+    const tools = $('select[aria-label="Filter runs by coding"]').value;
     return `${displayModelName(run.model)} ${runCompany(run)} ${run.id}`.toLowerCase().includes(query)
-      && (tools === "all" || Boolean(run.tools_enabled) === (tools === "on"));
+      && (tools === "all" || codingMode(run) === tools);
   });
   const selectedRuns = () => [...selected].map(id => runs.find(run => run.id === id)).filter(Boolean);
   const color = index => colors[index] || `hsl(${(index * 137.508) % 360} 78% 72%)`;
-  const detail = run => `${run.effort || "Default"} · Python ${run.tools_enabled ? "on" : "off"} · ${run.observation_mode === "vision" ? "Vision" : "ASCII"}`;
+  const detail = run => `${run.effort || "Default"} · ${codingLabel(run)} · ${run.observation_mode === "vision" ? "Vision" : "ASCII"}`;
   function syncURL() {
     const url = new URL(location.href);
     url.searchParams.delete("run");
@@ -90,7 +91,7 @@ export function createGemComparison({ onChange }) {
     changed();
   });
   $('input[type="search"]').addEventListener("input", renderPicker);
-  $('select[aria-label="Filter runs by Python"]').addEventListener("change", renderPicker);
+  $('select[aria-label="Filter runs by coding"]').addEventListener("change", renderPicker);
   $(".gem-select-visible").addEventListener("click", () => { for (const run of filtered()) selected.add(run.id); changed(); });
   $(".gem-clear").addEventListener("click", () => { selected.clear(); changed(); });
   $(".gem-range").addEventListener("change", draw);

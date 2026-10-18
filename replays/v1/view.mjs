@@ -61,7 +61,10 @@ export class ReplayView {
     renderer.renderSuspended = (renderer.renderSuspended || 0) + 1;
     try {
       const changedGems = this.updateGems(location.time);
-      if (index !== this.index) {
+      const reused = index !== this.index && !changedGems && this.movie.clips[this.index]?.layout === clip.layout &&
+        this.movie.clips[this.index]?.room === clip.room &&
+        this.scene?.retargetPlayer(unpackTimeline(this.movie, clip, this.world));
+      if (index !== this.index && !reused) {
         this.scene?.dispose();
         renderer.commandAnimation = null;
         this.scene = null;

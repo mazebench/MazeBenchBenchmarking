@@ -35,3 +35,12 @@ test("matching sloped surfaces join across room borders; distinct bodies do not"
   const bodies = fixture([cell("weightless-box", { groupId: 1 })], [cell("weightless-box", { groupId: 1 })]);
   assert(roomBorderEdges(bodies, bodies.rooms[0])[0].positions.length > 0);
 });
+
+test("a separately animated player never leaves its outline in the stationary room seam", () => {
+  const world = fixture([cell("floor"), cell("player")], [cell("floor")]);
+  assert(lines(roomBorderEdges(world, world.rooms[0])[0]).some(topSeam));
+  const scenery = roomBorderEdges(world, world.rooms[0], { excludePlayer: true })[0];
+  assert(!lines(scenery).some(line => line[1] > 0 || line[4] > 0));
+  assert.equal(roomBorderEdges(world, world.rooms[0], { excludePlayer: true })[0].positions, scenery.positions);
+  assert(lines(roomBorderEdges(world, world.rooms[0])[0]).some(topSeam), "editor variants retain ordinary body edges");
+});

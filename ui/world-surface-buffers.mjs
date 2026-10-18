@@ -12,7 +12,7 @@ export function buildWorldSurfaceBuffers(data, dimensions, onProgress = () => {}
   const buffers = [];
   let complete = 0;
   const add = (group, geometry, edges, joined = false, floor = false) => {
-    buffers.push({ color: group.color, dimmed: group.dimmed, joined, floor,
+    buffers.push({ color: group.color, dimmed: group.dimmed, orangeWall: Boolean(group.orangeWall), joined, floor,
       positions: geometry.attributes.position.array,
       normals: geometry.attributes.normal.array,
       edges: edges?.attributes.position.array || null });

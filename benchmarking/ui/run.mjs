@@ -1,3 +1,4 @@
+import { codingLabel, codingMode } from "../coding-mode.mjs";
 import { heatmapVisits } from "./heatmap.mjs";
 import { modelLabel } from "./model-label.mjs";
 import { gemReplayFrames, gemFrameIndex, loadWorldGemLocations, gemCollectionLocations } from "./gem-navigation.mjs";
@@ -515,7 +516,7 @@ function renderWorkspace(run) {
   if (signature === workspaceSignature) return;
   workspaceSignature = signature;
   elements["workspace-files"].replaceChildren();
-  elements["workspace-title"].textContent = run.provider === "prime-agent" ? "Prime workspace" : run.tools_enabled ? "Python workspace" : "Python unavailable";
+  elements["workspace-title"].textContent = codingMode(run) === "any" ? "Any-language workspace" : run.provider === "prime-agent" ? "Prime workspace" : run.tools_enabled ? "Python workspace" : "Python unavailable";
   const isolation = run.isolation || {};
   elements["isolation-status"].textContent = !run.capability_boundary_verified
     ? "legacy · not validated"
@@ -555,7 +556,7 @@ function renderPair(run, allRuns) {
     link.className = `pair-card${peer.tools_enabled ? " tools" : ""}${peer.id === run.id ? " selected" : ""}`;
     link.href = `./run.html?id=${encodeURIComponent(peer.id)}`;
     const label = document.createElement("span");
-    label.textContent = peer.tools_enabled ? "Python on" : "Python off";
+    label.textContent = codingLabel(peer);
     const result = document.createElement("strong");
     result.textContent = `${numberedWorld(peer) ? `${peer.levels_solved || 0} levels solved` : `${peer.gems_collected || 0} gems`} · ${peer.action_count || 0} actions`;
     link.append(label, result);
@@ -747,7 +748,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   document.body.classList.toggle("ice-world", numberedWorld(run));
   document.title = `${modelLabel(run.model)} · MazeBench record`;
   elements["model-monogram"].textContent = modelMonogram(modelLabel(run.model));
-  elements["run-kicker"].textContent = `${worldName(run)} · ${providerName(run.provider)}${run.observation_mode === "vision" ? " · Vision" : ""} · ${run.provider === "prime-agent" ? "Native Python" : `Python ${run.tools_enabled ? "on" : "off"}`}`;
+  elements["run-kicker"].textContent = `${worldName(run)} · ${providerName(run.provider)}${run.observation_mode === "vision" ? " · Vision" : ""} · ${codingLabel(run)}`;
   elements["run-title"].textContent = modelLabel(run.model);
   elements["run-subtitle"].textContent = `${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"}` : ""} · ${run.service_tier === "fast" ? "Fast" : "Standard"} · ${compactDate(run.created_at)}`;
   elements["run-id"].textContent = run.id;

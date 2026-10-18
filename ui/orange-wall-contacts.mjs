@@ -6,6 +6,15 @@ import { surfaceContactEdges } from "./joined-voxel-surface.mjs";
 export function contactShape(object, block) {
   if (!block || object.engineHidden || block.visual?.orangeForm === "hidden") return null;
   const definition = voxelPieceDefinition(object, block);
+  if (definition.kind === "side_lift") {
+    const shape = { position: [object.x, definition.bottom, object.y], size: [1, 1, 1] };
+    if (!definition.raised) {
+      const axis = ["east", "west"].includes(definition.orientation) ? 0 : 2;
+      shape.size[axis] = 4 / 64;
+      if (["north", "west"].includes(definition.orientation)) shape.position[axis] += 1 - 4 / 64;
+    }
+    return shape;
+  }
   if (!["cube", "floor", "slope", "gate", "raised_lift", "lowered_lift", "floating_floor"].includes(definition.kind)) return null;
   return {
     position: [object.x, definition.bottom, object.y],
@@ -14,12 +23,12 @@ export function contactShape(object, block) {
   };
 }
 
-export function worldContactShapes(world) {
+export function worldContactShapes(world, ceiling = Infinity) {
   const walls = [], supports = [];
   for (const room of world.rooms) for (const object of room.objects) {
     const block = world.blockDefinitions.get(object.blockId);
     const shape = contactShape(object, block);
-    if (!shape) continue;
+    if (!shape || shape.position[1] >= ceiling - .0005) continue;
     shape.position[0] += room.columnIndex * world.roomWidth;
     shape.position[2] += room.rowIndex * world.roomHeight;
     (block.roleId === "orange-wall" ? walls : supports).push(shape);
@@ -28,7 +37,7 @@ export function worldContactShapes(world) {
 }
 
 export function addOrangeWallContacts(content, world, dimensions, ceiling = null) {
-  const { walls, supports } = worldContactShapes(world);
+  const { walls, supports } = worldContactShapes(world, ceiling ?? Infinity);
   const positions = surfaceContactEdges(walls, supports, dimensions.totalWidth / 2, dimensions.totalHeight / 2);
   if (!positions.length) return;
   const geometry = new THREE.BufferGeometry();
@@ -37,7 +46,7 @@ export function addOrangeWallContacts(content, world, dimensions, ceiling = null
   const lines = new THREE.LineSegments(geometry, edgeMaterial());
   if (ceiling !== null) {
     lines.material = lines.material.clone();
-    lines.material.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, -1, 0), ceiling)];
+    lines.material.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, -1, 0), ceiling - .002)];
     lines.userData.transientMaterial = true;
   }
   lines.renderOrder = 10;
@@ -82,13 +91,14 @@ export class AnimatedWallContacts {
     root.add(this.mesh);
   }
 
-  update() {
-    const signature = [...this.walls, ...this.supports].map(({ shape, visible }) =>
+  update(height = null) {
+    const signature = `${height}:` + [...this.walls, ...this.supports].map(({ shape, visible }) =>
       `${visible}:${shape.position}:${shape.size}`).join(";");
     if (signature === this.signature) return;
     this.signature = signature;
-    const walls = this.walls.filter(record => record.visible).map(record => record.shape);
-    const supports = this.supports.filter(record => record.visible).map(record => record.shape);
+    const visible = record => record.visible && (height === null || record.shape.position[1] < height - .0005);
+    const walls = this.walls.filter(visible).map(record => record.shape);
+    const supports = this.supports.filter(visible).map(record => record.shape);
     const positions = surfaceContactEdges(walls, supports, this.renderer.totalWidth / 2, this.renderer.totalHeight / 2);
     const geometry = this.mesh.geometry, position = geometry.attributes.position, other = geometry.attributes.lineOther;
     let index = 0;

@@ -41,6 +41,7 @@ function render(world) {
     type: object.type, positions: [...object.geometry.attributes.position.array],
     normals: object.geometry.attributes.normal ? [...object.geometry.attributes.normal.array] : null,
     color: object.material.color.getHex(), shadow: object.castShadow, receive: object.receiveShadow,
+    depthOffset: [object.material.polygonOffset, object.material.polygonOffsetFactor, object.material.polygonOffsetUnits],
     order: object.renderOrder, joined: object.userData.joinedSlopes
   }));
 }
@@ -53,4 +54,19 @@ test("prepared world buffers exactly match ordinary geometry, including slopes c
   assert(progress.length > 1);
   assert.equal(progress.at(-1)[0], progress.at(-1)[1]);
   assert(progress.every(([complete, total], index) => complete <= total && (!index || complete >= progress[index - 1][0])));
+});
+
+test("lowered orange surfaces stay joined and win floor depth ties in ordinary and prepared worlds", async () => {
+  const world = fixture();
+  const orange = { id: "orange-wall", roleId: "orange-wall", color: "#b85f16", visual: { kind: "cube" } };
+  world.blocks.push(orange); world.blockDefinitions.set(orange.id, orange);
+  for (const room of world.rooms) room.objects = [0, 1].flatMap(x => [
+    { blockId: "floor", x, y: 0, z: 0 }, { blockId: "orange-wall", x, y: 0, z: -1 }
+  ]);
+  const original = render(world), meshes = original.filter(object => object.type === "Mesh");
+  assert.equal(meshes.filter(object => object.color === 0xb85f16).length, 1, "one orange surface across the seam");
+  assert.deepEqual(meshes.find(object => object.color === 0xb85f16).depthOffset, [true, -1, -1]);
+  assert.deepEqual(meshes.find(object => object.color === 0xd6bd94).depthOffset, [false, 0, 0]);
+  await prepareWorldSurfaces(world);
+  assert.deepEqual(render(world), original, "worker-prepared surfaces keep the same geometry and depth priority");
 });

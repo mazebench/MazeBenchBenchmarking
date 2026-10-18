@@ -26,6 +26,27 @@ test("joined orange walls retain their floor intersection without tile seams at 
   assert.deepEqual(surfaceContactEdges([{ position: [0, -2, 0] }], [floor()]), [], "fully buried walls add no floor outline");
 });
 
+test("flush lowered walls join across tiled floors without drawing the floors' internal sides", () => {
+  for (const surface of [0, 2]) for (const bottom of [surface - 1, surface - .999, surface - .5, surface]) {
+    const walls = Array.from({ length: 8 }, (_, x) => ({ position: [x, bottom, 0] }));
+    const supports = Array.from({ length: 8 }, (_, x) => ({ position: [x, surface - .34375, 0], size: [1, .34375, 1] }));
+    const edges = segments(surfaceContactEdges(walls, supports)).filter(p =>
+      Math.abs(p[1] - surface) < 1e-7 && Math.abs(p[4] - surface) < 1e-7);
+    assert(edges.every(p => !(p[0] === p[3] && p[0] > 0 && p[0] < 8)), `no internal seams at ${bottom}`);
+    assert.equal(edges.reduce((sum, p) => sum + Math.hypot(p[3] - p[0], p[5] - p[2]), 0), 18,
+      "the complete outer contact outline is preserved");
+  }
+});
+
+test("a partly covered support edge keeps only its exposed ledge", () => {
+  const walls = [0, 1].map(x => ({ position: [x, -1, 0] }));
+  const partialNeighbor = { position: [1, -.34375, 0], size: [1, .34375, .5] };
+  const seam = atFloor(surfaceContactEdges(walls, [floor(), partialNeighbor]))
+    .filter(p => p[0] === 1 && p[3] === 1);
+  assert.equal(seam.reduce((sum, p) => sum + Math.abs(p[5] - p[2]), 0), .5);
+  assert(seam.every(p => Math.min(p[2], p[5]) >= .5), "covered half is hidden, real ledge remains");
+});
+
 test("orange ramps and elevated support surfaces get their actual cross section", () => {
   for (const direction of ["up", "down", "left", "right"]) {
     const edges = atFloor(surfaceContactEdges([{ position: [0, -.5, 0], direction }], [floor()]));

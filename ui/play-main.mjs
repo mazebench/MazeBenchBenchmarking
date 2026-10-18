@@ -105,7 +105,7 @@ function showFrame(state, room, { preserveCameraPosition = false } = {}) {
     preserveCamera: true, preserveCameraPosition,
     animateCamera: animationDelayMs > 0
   });
-  asciiRenderer.setRoom(renderedRoom);
+  if (viewMode === "ascii") asciiRenderer.setRoom(renderedRoom);
 }
 
 function updateAsciiCameraLabel() {
@@ -140,6 +140,7 @@ function setViewMode(mode) {
   elements.zoomControls.hidden = ascii;
   if (!ascii && previousMode === "ascii" && session?.state) showFrame(session.state, session.room);
   if (ascii) {
+    if (previousMode !== "ascii" && session?.state) asciiRenderer.setRoom(engine.roomFromState(session.state, session.room));
     asciiRenderer.setYaw(renderer.heading);
     asciiRenderer.setPitch(asciiPitch);
     updateAsciiCameraLabel();

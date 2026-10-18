@@ -4,6 +4,7 @@ import { isEdge } from "./thick-edges.mjs";
 import * as THREE from "../render/vendor/three.module.min.js";
 import { collectVoxelSceneV2 } from "./voxel-scene.mjs";
 import { edgeGeometryFromFaces, edgeMaterial, geometryFromFaces, renderMaterial, disposeGeneratedChildren } from "../render/v1/polycube-mesh.mjs";
+import { ModelTruncateCaps } from "./model-truncate-caps.mjs";
 
 const CUT_EPSILON = 0.0005;
 const OPEN_HEIGHT = 1e6;
@@ -41,7 +42,10 @@ export class BackgroundTruncation {
     return material;
   }
 
-  prepare(entry, world, dimensions) {
+  prepare(entry, world, dimensions, renderer) {
+    entry.capRoot = new THREE.Group();
+    entry.root.add(entry.capRoot);
+    entry.modelCaps = new ModelTruncateCaps(renderer, entry.content, entry.capRoot);
     entry.clipObjects = [];
     entry.content.updateWorldMatrix(true, true);
     entry.content.traverse(object => {
@@ -57,8 +61,6 @@ export class BackgroundTruncation {
     });
     entry.capFaces = capFacesByHeight(collectVoxelSceneV2({ world }), dimensions);
     entry.caps = new Map();
-    entry.capRoot = new THREE.Group();
-    entry.root.add(entry.capRoot);
   }
 
   set(height, opacity) {
@@ -80,7 +82,7 @@ export class BackgroundTruncation {
     return true;
   }
 
-  update(entry) {
+  update(entry, { prepareCaps = true } = {}) {
     const height = this.height;
     if (this.opacity > 0 && !entry.ghostObjects) {
       entry.ghostObjects = [];
@@ -105,6 +107,15 @@ export class BackgroundTruncation {
       if (ghost) ghost.visible = record.visible && !isEdge(ghost) && this.opacity > 0 && record.max > height + 0.002;
     });
     entry.cutawayContent.visible = this.opacity > 0;
+    entry.capRoot.visible = prepareCaps || entry.preparedCapHeight === height;
+    if (prepareCaps) this.prepareCaps(entry);
+  }
+
+  prepareCaps(entry) {
+    const height = this.height;
+    entry.capRoot.visible = true;
+    entry.preparedCapHeight = height;
+    entry.modelCaps.update(height);
     if (entry.activeCaps) entry.activeCaps.visible = false;
     entry.activeCaps = null;
     if (height === null || !entry.capFaces.has(height)) return;

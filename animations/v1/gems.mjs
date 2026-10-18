@@ -1,4 +1,4 @@
-import { addGemAsset } from "../../render/v1/asset-renderers.mjs";
+import { addGemAsset } from "../../ui/asset-renderers.mjs";
 
 const TURN_MS = 12000;
 const BOB_MS = 3200;

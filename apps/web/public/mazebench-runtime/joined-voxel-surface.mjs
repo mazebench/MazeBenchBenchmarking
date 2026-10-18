@@ -196,9 +196,22 @@ export function joinedEdgePositions(faces, halfWidth = 0, halfHeight = 0) {
 // Cross sections where a moving solid enters another surface are not edges
 // of either original mesh. Find those intersections in tile coordinates so
 // the settled renderer and fractional human tweens use identical outlines.
+function segmentInsidePlanes(origin, direction, planes, low = 0, high = 1) {
+  for (const plane of planes) {
+    const distance = dot(plane.normal, origin) - plane.constant;
+    const speed = dot(plane.normal, direction);
+    if (Math.abs(speed) < EPS) {
+      if (distance > EPS) return null;
+    } else if (speed > 0) high = Math.min(high, -distance / speed);
+    else low = Math.max(low, -distance / speed);
+    if (high - low < EPS) return null;
+  }
+  return [low, high];
+}
+
 export function surfaceContactEdges(shapes, supports, halfWidth = 0, halfHeight = 0) {
   if (!shapes.length || !supports.length) return [];
-  const columns = new Map(), supportFaces = new Map();
+  const columns = new Map(), supportFaces = new Map(), supportNeighbors = new Map();
   for (const shape of supports) {
     const size = shape.size || [1, 1, 1];
     for (let x = Math.floor(shape.position[0]); x <= Math.floor(shape.position[0] + size[0] + EPS); x++) {
@@ -209,16 +222,31 @@ export function surfaceContactEdges(shapes, supports, halfWidth = 0, halfHeight 
       }
     }
   }
+  const planesFor = shape => {
+    if (!supportFaces.has(shape)) supportFaces.set(shape, localFaces(shape.direction).map(face => {
+      const points = face.points.map(p => p.map((v, i) => shape.position[i] + v * (shape.size?.[i] ?? 1)));
+      const normal = normalOf(points);
+      return { normal, constant: dot(normal, points[0]) };
+    }));
+    return supportFaces.get(shape);
+  };
+  const neighborsFor = shape => {
+    if (!supportNeighbors.has(shape)) {
+      const neighbors = new Set(), size = shape.size || [1, 1, 1];
+      for (let x = Math.floor(shape.position[0]); x <= Math.floor(shape.position[0] + size[0] + EPS); x++) {
+        for (let z = Math.floor(shape.position[2]); z <= Math.floor(shape.position[2] + size[2] + EPS); z++) {
+          for (const other of columns.get(`${x},${z}`) || []) if (other !== shape) neighbors.add(other);
+        }
+      }
+      supportNeighbors.set(shape, neighbors);
+    }
+    return supportNeighbors.get(shape);
+  };
   const positions = [], seen = new Set();
   for (const { corners } of joinedSurfaceFaces(shapes)) {
     const center = corners[0].map((_, axis) => corners.reduce((sum, p) => sum + p[axis], 0) / corners.length);
     for (const shape of columns.get(`${Math.floor(center[0])},${Math.floor(center[2])}`) || []) {
-      if (!supportFaces.has(shape)) supportFaces.set(shape, localFaces(shape.direction).map(face => {
-        const points = face.points.map(p => p.map((v, i) => shape.position[i] + v * (shape.size?.[i] ?? 1)));
-        const normal = normalOf(points);
-        return { normal, constant: dot(normal, points[0]) };
-      }));
-      const faces = supportFaces.get(shape);
+      const faces = planesFor(shape);
       for (const plane of faces) {
         const distances = corners.map(p => dot(plane.normal, p) - plane.constant);
         // Coplanar faces already have their normal mesh outline.
@@ -235,22 +263,33 @@ export function surfaceContactEdges(shapes, supports, halfWidth = 0, halfHeight 
           dot(sub(p, a), sub(p, a)) > dot(sub(farthest, a), sub(farthest, a)) ? p : farthest, a);
         const direction = sub(b, a);
         if (Math.hypot(...direction) < EPS) continue;
-        let low = 0, high = 1;
-        for (const boundary of faces) {
-          const distance = dot(boundary.normal, a) - boundary.constant;
-          const speed = dot(boundary.normal, direction);
-          if (Math.abs(speed) < EPS) {
-            if (distance > EPS) { high = -1; break; }
-          } else if (speed > 0) high = Math.min(high, -distance / speed);
-          else low = Math.max(low, -distance / speed);
+        const interval = segmentInsidePlanes(a, direction, faces);
+        if (!interval) continue;
+        let exposed = [interval];
+        // Treat the supports as one surface. A floor tile's side inside the
+        // next tile is not a contact edge, even when a lowered wall's top is
+        // exactly flush with the floor. Keep partially exposed ledges/slopes.
+        const outside = a.map((v, axis) => v + plane.normal[axis] * EPS * 16);
+        for (const other of neighborsFor(shape)) {
+          const covered = segmentInsidePlanes(outside, direction, planesFor(other), ...interval);
+          if (!covered) continue;
+          exposed = exposed.flatMap(([start, end]) => {
+            if (covered[1] <= start || covered[0] >= end) return [[start, end]];
+            const pieces = [];
+            if (covered[0] - start > EPS) pieces.push([start, covered[0]]);
+            if (end - covered[1] > EPS) pieces.push([covered[1], end]);
+            return pieces;
+          });
+          if (!exposed.length) break;
         }
-        if (high - low < EPS) continue;
-        const from = a.map((v, axis) => v + direction[axis] * low);
-        const to = a.map((v, axis) => v + direction[axis] * high);
-        const key = [cellKey(from), cellKey(to)].sort().join(":");
-        if (seen.has(key)) continue;
-        seen.add(key);
-        for (const p of [from, to]) positions.push(p[0] - halfWidth, p[1], p[2] - halfHeight);
+        for (const [low, high] of exposed) {
+          const from = a.map((v, axis) => v + direction[axis] * low);
+          const to = a.map((v, axis) => v + direction[axis] * high);
+          const key = [cellKey(from), cellKey(to)].sort().join(":");
+          if (seen.has(key)) continue;
+          seen.add(key);
+          for (const p of [from, to]) positions.push(p[0] - halfWidth, p[1], p[2] - halfHeight);
+        }
       }
     }
   }

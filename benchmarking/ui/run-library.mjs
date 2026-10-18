@@ -1,3 +1,4 @@
+import { codingLabel, codingMode } from "../coding-mode.mjs";
 import { formatRateLimit } from "../run-errors.mjs";
 import { modelLabel } from "./model-label.mjs";
 const dates = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -56,11 +57,11 @@ export function runCardValues(run) {
     logo: logo ? new URL(`./assets/model-logos/${logo}.svg`, import.meta.url).href : null,
     monochromeLogo: ["openai", "grok"].includes(logo),
     effort: run.effort || "default",
-    tools: run.provider === "prime-agent" || run.tools_enabled ? "(tools on)" : "(tools off)",
+    tools: codingMode(run) === "any" ? "(any language)" : run.provider === "prime-agent" || run.tools_enabled ? "(tools on)" : "(tools off)",
     statusTone: rateLimited || ["queued", "preparing", "pausing"].includes(run.status) ? "yellow"
       : ["running", "continuing"].includes(run.status) ? "green"
       : ["failed", "interrupted"].includes(run.status) ? "red" : "gray",
-    condition: `${run.observation_mode === "vision" ? "Vision · " : ""}${run.provider === "prime-agent" ? "Native Python" : run.tools_enabled ? "Python on" : "Python off"}`,
+    condition: `${run.observation_mode === "vision" ? "Vision · " : ""}${codingLabel(run)}`,
     status: run.rate_limit && run.status === "failed" ? "Rate limited" : String(run.status || "unknown").replaceAll("-", " "),
     rateLimit: run.status === "failed" ? formatRateLimit(run.rate_limit) : null,
     context: `${worldName(run)} · ${run.effort} reasoning`,
