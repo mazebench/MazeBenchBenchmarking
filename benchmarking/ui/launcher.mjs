@@ -1,4 +1,4 @@
-import { supportsAnyLanguage } from "../coding-mode.mjs";
+import { supportsAnyLanguage } from "../all-code/capabilities.mjs";
 import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs";
 import { RunListView, providerName, runCompany, selectRuns } from "./run-library.mjs";
 import { modelLabel } from "./model-label.mjs";
@@ -29,7 +29,7 @@ function updateReadiness() {
   elements["codex-version"].textContent = status?.version ? `${providerName(provider)} ${status.version.replace(/^codex-cli /, "")}` : "Checking agent…";
   const labels = { "up-to-date": "Up to date", "update-available": `Update available: ${status?.latest_version}. Run codex update, then restart the server.`, "newer-than-release": "Newer than the current stable release", unknown: "Latest release check unavailable" };
   elements["codex-update-status"].textContent = any && !codeReady
-    ? (supportsAnyLanguage(launchPayload()) ? status?.code_sandbox?.error || "Checking any-language sandbox…" : "Any language supports Codex and Claude Code with ASCII observations.")
+    ? (supportsAnyLanguage(launchPayload()) ? status?.code_sandbox?.error || "Checking any-language sandbox…" : "Any language requires ASCII observations in a world supported by this harness.")
     : !providerCompatible(provider)
     ? `${providerName(provider)} currently supports Main World with ASCII observations.`
     : !status ? "Checking installation and sign-in…" : status.error || (needsAuth
@@ -104,13 +104,11 @@ function updateEfforts() {
   }
 }
 
-let standardCodingMode = "off";
 function updateModels() {
   const prime = elements.provider.value === "prime-agent";
-  if (prime && !elements["coding-mode"].disabled) standardCodingMode = elements["coding-mode"].value;
-  if (!prime && elements["coding-mode"].disabled) elements["coding-mode"].value = standardCodingMode;
-  elements["coding-mode"].disabled = prime;
-  if (prime) elements["coding-mode"].value = "python";
+  elements["coding-mode"].disabled = false;
+  elements["coding-mode"].querySelector('option[value="off"]').disabled = prime;
+  if (prime && elements["coding-mode"].value === "off") elements["coding-mode"].value = "python";
   elements["launch-pair"].hidden = prime;
   updateCodingOptions();
   const providerModels = models.filter(model => (model.provider || "codex") === elements.provider.value);
@@ -328,10 +326,10 @@ function updateCodingOptions() {
   // launch a different tier when the provider or observation mode changes.
   const prime = elements.provider.value === "prime-agent";
   elements["launch-note"].textContent = prime
-    ? "Prime Agent uses its native Python workspace in a remote sandbox, billed to your Prime account."
+    ? "Prime uses its native Python workspace; Any language also adds the isolated multi-language toolchain. Inference and the remote VM are billed to your Prime account."
     : elements["coding-mode"].value === "any"
       ? "A matched pair compares coding off with Any language. The isolated toolchain supports Python, JavaScript, C/C++, Rust, Go, Java, Ruby, Perl and Lua."
-      : "A matched pair compares coding off with Python only. Any language is available for Codex and Claude Code with ASCII observations.";
+      : "A matched pair compares coding off with Python only. Any language is available for all harnesses with ASCII observations.";
 }
 elements["coding-mode"].addEventListener("change", () => { updateCodingOptions(); updateReadiness(); });
 

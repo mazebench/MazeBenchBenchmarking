@@ -1,4 +1,4 @@
-import { codingLabel } from "../coding-mode.mjs";
+import { codingLabel } from "../all-code/capabilities.mjs";
 // Convert the older leaderboard's exact [worldX, worldY, visits] cells.
 // These are comparison snapshots, never resumable benchmark records.
 export function importLeaderboardHeatmap(payload, { origin, importedAt, sourceKey }) {

@@ -1,3 +1,4 @@
+import { anyPrompt, primePrompt } from "./all-code/policy.mjs";
 import { codingMode } from "./coding-mode.mjs";
 import { codePrompt } from "./code/prompt.mjs";
 import { readFile } from "node:fs/promises";
@@ -26,7 +27,12 @@ export async function previewBenchmarkPrompt(root, spec = {}) {
   const options = { toolsEnabled, actionLimit, startRoom: "HxI", sequenceEnabled: sequences };
   const folder = world === "slotski" ? "slotski" : world === "ice-maze" ? "worlds" : mode === "vision" ? "vision" : "v1";
   if (codingMode(spec) === "any") {
-    const { prompt } = await codePrompt(root, spec, options);
+    let prompt;
+    if (["codex", "claude-code"].includes(provider)) ({ prompt } = await codePrompt(root, spec, options));
+    else {
+      const base = await readFile(path.join(root, "benchmarking/v1/EVAL-PROMPT.md"), "utf8");
+      prompt = (provider === "prime-agent" ? primePrompt : anyPrompt)(base, options);
+    }
     return { prompt, world, observation_mode: mode, provider, coding_mode: "any", tools_enabled: true, action_limit: actionLimit };
   }
   const source = `benchmarking/${folder}/EVAL-PROMPT.md`;

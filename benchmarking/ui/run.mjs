@@ -1,4 +1,4 @@
-import { codingLabel, codingMode } from "../coding-mode.mjs";
+import { codingLabel, codingMode } from "../all-code/capabilities.mjs";
 import { heatmapVisits } from "./heatmap.mjs";
 import { modelLabel } from "./model-label.mjs";
 import { gemReplayFrames, gemFrameIndex, loadWorldGemLocations, gemCollectionLocations } from "./gem-navigation.mjs";

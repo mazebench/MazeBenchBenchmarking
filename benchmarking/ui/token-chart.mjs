@@ -25,14 +25,16 @@ function render(value) {
   const totals = value.totals;
   if (totals) document.dispatchEvent(new CustomEvent("run-tokens", { detail: totals }));
   for (const [id, key] of [["token-total-input", "input_tokens"], ["token-total-cached", "cached_input_tokens"], ["token-total-output", "output_tokens"]]) {
-    document.getElementById(id).textContent = totals ? number.format(totals[key]) : "—";
+    document.getElementById(id).textContent = totals ? number.format(totals[key] || 0) : "—";
   }
   document.getElementById("token-cache-rate").textContent = totals?.input_tokens ? `${Math.round(totals.cached_input_tokens / totals.input_tokens * 100)}% of input cached` : "—";
   const pricing = value.api_estimate;
   document.getElementById("token-api-cost").textContent = pricing?.usd != null ? `≈ $${pricing.usd.toFixed(2)}` : "Unavailable";
+  const source = document.getElementById("token-pricing-source");
+  if (source) { source.hidden = !pricing?.source; if (pricing?.source) source.href = pricing.source; }
   const rates = pricing?.rates_per_million;
   document.getElementById("token-pricing-detail").textContent = rates
-    ? `${pricing.basis} Rates checked ${pricing.pricing_date}: $${rates.input} input, $${rates.cached_input} cached input, $${rates.cache_writes} cache writes, and $${rates.output} output per million tokens. Requests over 272,000 input tokens use 2× input/cache rates and 1.5× output rates. ${pricing.request_count} reported responses counted, with duplicate records removed. Unreported usage and non-token fees are excluded.`
+    ? `${pricing.basis} Rates checked ${pricing.pricing_date}: $${rates.input} input, $${rates.cached_input} cached input, $${rates.cache_writes} cache writes, and $${rates.output} output per million tokens. ${pricing.long_context ? `Requests above ${number.format(pricing.long_context.threshold)} input tokens use ${pricing.long_context.input_multiplier}× input/cache and ${pricing.long_context.output_multiplier}× output rates.` : "No long-context premium."} ${pricing.request_count} reported responses counted, with duplicate records removed. Unreported usage and non-token fees are excluded.`
     : pricing?.basis || "No verified API price or detailed usage is available for this record.";
   if (!value.available || !value.samples.length) {
     current.textContent = value.totals ? "Context not reported" : "Waiting for token data";

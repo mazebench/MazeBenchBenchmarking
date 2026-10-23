@@ -1,3 +1,4 @@
+import { estimateRequests } from "./token-pricing.mjs";
 // Read-only display adapter for Claude Code's stream-json protocol.
 const number = value => Number.isFinite(value) && value >= 0 ? value : 0;
 const keys = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens"];
@@ -5,7 +6,7 @@ const empty = () => Object.fromEntries(keys.map(key => [key, 0]));
 function usage(value = {}) {
   const cached = number(value.cache_read_input_tokens), writes = number(value.cache_creation_input_tokens);
   return { input_tokens: number(value.input_tokens) + cached + writes, cached_input_tokens: cached,
-    cache_write_input_tokens: writes, output_tokens: number(value.output_tokens) };
+    cache_write_input_tokens: writes, cache_write_long_input_tokens: number(value.cache_creation?.ephemeral_1h_input_tokens), output_tokens: number(value.output_tokens) };
 }
 export const createClaudeTimeline = () => ({ requests: new Map(), turns: new Map(), active: new Map(), samples: [], compactions: [], context_window: null });
 
@@ -41,7 +42,7 @@ export function consumeClaudeEvent(timeline, event) {
   }
 }
 
-export function claudeTelemetry(timeline) {
+export function claudeTelemetry(timeline, model) {
   const totals = empty();
   for (const { usage } of timeline.turns.values()) for (const key of keys) totals[key] += usage[key];
   for (const record of timeline.requests.values()) if (!timeline.turns.has(record.turn)) for (const key of keys) totals[key] += record.usage[key];
@@ -52,8 +53,21 @@ export function claudeTelemetry(timeline) {
     total_tokens: totals.total_tokens, current_tokens: latest?.tokens ?? null, updated_at: latest?.timestamp ?? null,
     context_window: timeline.context_window, compaction_threshold: null,
     samples: timeline.samples, compactions: timeline.compactions,
-    api_estimate: { usd: costs.length ? costs.reduce((a, b) => a + b, 0) : null,
-      basis: "Claude Code's reported API-equivalent cost for completed turns. Active-turn cost is pending; this is not a subscription charge. Context tokens update after model responses; Claude's automatic compaction threshold is not reported.",
-      rates_per_million: null, request_count: timeline.requests.size },
+    api_estimate: (() => {
+      // Completed-turn totals/costs include hidden compaction requests. Keep them
+      // authoritative and add only requests from turns still in progress.
+      const active = [...timeline.requests.values()].filter(r => !timeline.turns.has(r.turn));
+      const estimate = estimateRequests(active, model);
+      const complete = [...timeline.turns.values()];
+      if (complete.length && complete.every(t => t.cost !== null) && (!active.length || estimate.usd !== null)) {
+        estimate.usd = complete.reduce((sum, t) => sum + t.cost, 0) + (estimate.usd || 0);
+        estimate.basis = "Reported API-equivalent costs for completed turns plus estimated active responses. Cached input is counted once. This is not a subscription charge.";
+      } else if (complete.length) {
+        estimate.usd = null;
+        estimate.basis += " Completed-turn cost was not reported.";
+      }
+      estimate.request_count = timeline.requests.size;
+      return estimate;
+    })(),
     reason: "Waiting for Claude Code token telemetry." };
 }

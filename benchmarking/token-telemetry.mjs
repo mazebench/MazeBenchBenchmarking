@@ -1,3 +1,4 @@
+import { createPrimeTimeline, consumePrimeEvent, primeTelemetry } from "./prime-telemetry.mjs";
 // Read-only dashboard telemetry. Never imported by the benchmark agent or MCP.
 import { constants } from "node:fs";
 import { open, readdir, lstat } from "node:fs/promises";
@@ -10,25 +11,9 @@ import { createAntigravityTimeline, consumeAntigravityEvent, antigravityTelemetr
 import { findMuseSession, museRunHomes, createMuseTimeline, consumeMuseEvent, museTelemetry } from "./muse-telemetry.mjs";
 
 const finite = value => typeof value === "number" && Number.isFinite(value) && value >= 0;
-const PRICING_SOURCE = "https://developers.openai.com/api/docs/pricing";
-// Standard USD / 1M tokens, verified against the official table on 2026-09-04.
-const PRICES = {
-  "gpt-6-astra": [10, 1, 12.5, 50],
-  "gpt-5.6-sol": [4, 0.4, 5, 20],
-  "gpt-5.6": [4, 0.4, 5, 20],
-  "gpt-5.6-terra": [2, 0.2, 2.5, 12],
-  "gpt-5.6-luna": [0.2, 0.02, 0.25, 1.2]
-};
-
-export function requestApiCost(model, usage) {
-  const rates = PRICES[model];
-  if (!rates || !finite(usage.input_tokens) || !finite(usage.output_tokens)) return null;
-  const cached = Math.min(usage.input_tokens, usage.cached_input_tokens || 0);
-  const writes = Math.min(usage.input_tokens - cached, usage.cache_write_input_tokens || 0);
-  const fresh = usage.input_tokens - cached - writes;
-  const long = usage.input_tokens > 272000;
-  return ((fresh * rates[0] + cached * rates[1] + writes * rates[2]) * (long ? 2 : 1) + usage.output_tokens * rates[3] * (long ? 1.5 : 1)) / 1e6;
-}
+export { requestApiCost } from "./token-pricing.mjs";
+import { estimateRequests } from "./token-pricing.mjs";
+import { kimiRunHomes, findKimiSession, createKimiTimeline, consumeKimiEvent, kimiTelemetry } from "./kimi-telemetry.mjs";
 
 export function modelTokenLimits(model = {}) {
   const window = model.context_window ?? model.max_context_window;
@@ -54,23 +39,12 @@ function recordUsage(timeline, record) {
 
 export function tokenBilling(timeline, model) {
   const totals = { input_tokens: 0, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 0, total_tokens: 0 };
-  let estimate = PRICES[model] ? 0 : null;
   for (const usage of timeline.usage_records.values()) {
-    for (const key of Object.keys(usage)) totals[key] += usage[key];
-    if (estimate !== null) estimate += requestApiCost(model, usage);
+    for (const key of Object.keys(totals)) if (key in usage) totals[key] += usage[key];
   }
   totals.total_tokens = totals.input_tokens + totals.output_tokens;
-  const rates = PRICES[model];
-  return {
-    totals: timeline.usage_records.size ? totals : null,
-    api_estimate: {
-      usd: timeline.usage_records.size ? estimate : null, currency: "USD", model,
-      pricing_date: "2026-09-04", source: PRICING_SOURCE,
-      rates_per_million: rates ? { input: rates[0], cached_input: rates[1], cache_writes: rates[2], output: rates[3] } : null,
-      request_count: timeline.usage_records.size,
-      basis: "Standard API-equivalent token cost, including reported compaction usage and per-request long-context pricing. Not a ChatGPT subscription charge."
-    }
-  };
+  return { totals: timeline.usage_records.size ? totals : null,
+    api_estimate: estimateRequests(timeline.usage_records.values(), model) };
 }
 
 export function consumeTokenEvent(timeline, event) {
@@ -107,9 +81,10 @@ export function consumeTokenEvent(timeline, event) {
 }
 
 export class TokenTelemetry {
-  constructor({ codexHome = path.join(os.homedir(), ".codex"), museHomes = museRunHomes() } = {}) {
+  constructor({ codexHome = path.join(os.homedir(), ".codex"), museHomes = museRunHomes(), kimiHomes = kimiRunHomes() } = {}) {
     this.codexHome = codexHome;
     this.museHomes = museHomes;
+    this.kimiHomes = kimiHomes;
     this.cache = new Map();
     this.pending = new Map();
   }
@@ -146,18 +121,8 @@ export class TokenTelemetry {
 
   async readTimeline(runDirectory) {
     const metadata = JSON.parse(safeReadFile(runDirectory, "run.json"));
-    if (metadata.provider === "kimi-code") {
-      return { available: false, totals: metadata.usage || null, samples: [], compactions: [],
-        current_tokens: null, context_window: null, compaction_threshold: null,
-        reason: metadata.usage ? "Kimi reports cumulative token usage after each turn. Context and compaction charts are not available." : "Waiting for Kimi Code token usage.",
-        api_estimate: { usd: null, basis: "Kimi Code uses your membership quota; check the Kimi Code Console for usage." } };
-    }
-    if (metadata.provider === "prime-agent") {
-      return { available: false, totals: metadata.usage || null, samples: [], compactions: [],
-        current_tokens: null, context_window: null, compaction_threshold: null,
-        reason: metadata.usage ? "Prime reports cumulative token usage. Context size and compaction timing are not reported here." : "Waiting for Prime Agent token usage.",
-        api_estimate: { usd: null, basis: "See your Prime account for inference and sandbox charges." } };
-    }
+    const isPrime = metadata.provider === "prime-agent";
+    const isKimi = metadata.provider === "kimi-code";
     const isAntigravity = metadata.provider === "antigravity";
     const isMuse = metadata.provider === "muse-code";
     const isMessagesProvider = ["claude-code", "grok-build", "antigravity"].includes(metadata.provider);
@@ -169,16 +134,18 @@ export class TokenTelemetry {
     const limits = modelTokenLimits(model);
     let cached = this.cache.get(runDirectory);
     const messagesFile = isAntigravity ? "antigravity-events.jsonl" : metadata.provider === "grok-build" ? "grok-events.jsonl" : "claude-events.jsonl";
-    const file = cached?.file || (isMuse ? await findMuseSession(metadata, this.museHomes) : isMessagesProvider ? path.join(runDirectory, messagesFile) : await this.findRollout(metadata));
+    const file = cached?.file || (isPrime ? path.join(runDirectory, "agent-events.jsonl") : isKimi ? findKimiSession(metadata, runDirectory, this.kimiHomes) : isMuse ? await findMuseSession(metadata, this.museHomes) : isMessagesProvider ? path.join(runDirectory, messagesFile) : await this.findRollout(metadata));
+    if (isKimi && !file) return kimiTelemetry(createKimiTimeline(), metadata);
     if (isMuse && !file) return museTelemetry(createMuseTimeline());
     if (!file) return { available: false, ...limits, samples: [], compactions: [], reason: `Waiting for ${metadata.provider === "grok-build" ? "Grok Build" : "Codex"} token telemetry.` };
     const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(error => { if (error.code === "ENOENT") return null; throw error; });
+    if (!handle && isPrime) return primeTelemetry(createPrimeTimeline(), metadata);
     if (!handle) return { available: false, compaction_threshold: null, samples: [], compactions: [] };
     try {
       const stat = await handle.stat();
       if (!stat.isFile() || stat.nlink !== 1) throw new Error("Invalid token telemetry file.");
       if (!cached || cached.inode !== stat.ino || stat.size < cached.offset) {
-        cached = { file, inode: stat.ino, offset: 0, partial: "", decoder: new StringDecoder("utf8"), timeline: isMuse ? createMuseTimeline() : isAntigravity ? createAntigravityTimeline() : isMessagesProvider ? createClaudeTimeline() : createTokenTimeline() };
+        cached = { file, inode: stat.ino, offset: 0, partial: "", decoder: new StringDecoder("utf8"), timeline: isPrime ? createPrimeTimeline() : isKimi ? createKimiTimeline() : isMuse ? createMuseTimeline() : isAntigravity ? createAntigravityTimeline() : isMessagesProvider ? createClaudeTimeline() : createTokenTimeline() };
         this.cache.set(runDirectory, cached);
         if (this.cache.size > 12) this.cache.delete(this.cache.keys().next().value);
       }
@@ -192,20 +159,18 @@ export class TokenTelemetry {
         const lines = text.split("\n");
         cached.partial = lines.pop();
         for (const line of lines) {
-          try { (isMuse ? consumeMuseEvent : isAntigravity ? consumeAntigravityEvent : isMessagesProvider ? consumeClaudeEvent : consumeTokenEvent)(cached.timeline, JSON.parse(line)); }
+          try { (isPrime ? consumePrimeEvent : isKimi ? consumeKimiEvent : isMuse ? consumeMuseEvent : isAntigravity ? consumeAntigravityEvent : isMessagesProvider ? consumeClaudeEvent : consumeTokenEvent)(cached.timeline, JSON.parse(line)); }
           catch { /* A damaged or unrecognized event is not token evidence. */ }
         }
       }
     } finally { await handle.close(); }
     const timeline = cached.timeline;
-    if (isMuse) return museTelemetry(timeline);
-    if (isAntigravity) return antigravityTelemetry(timeline);
+    if (isPrime) return primeTelemetry(timeline, metadata);
+    if (isKimi) return kimiTelemetry(timeline, metadata);
+    if (isMuse) return museTelemetry(timeline, metadata.model);
+    if (isAntigravity) return antigravityTelemetry(timeline, metadata.model);
     if (isMessagesProvider) {
-      const telemetry = claudeTelemetry(timeline);
-      if (metadata.provider === "grok-build") {
-        telemetry.api_estimate.basis = "Grok Build's reported API-equivalent cost for completed turns. Active-turn cost is pending; this is not a grok.com subscription charge. Context tokens update after model responses; Grok Build's automatic compaction threshold is not reported.";
-        telemetry.reason = "Waiting for Grok Build token telemetry.";
-      }
+      const telemetry = claudeTelemetry(timeline, metadata.model);
       return telemetry;
     }
     const latest = timeline.samples.at(-1);

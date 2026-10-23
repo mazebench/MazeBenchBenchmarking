@@ -14,9 +14,22 @@ Keep the terminal open while using the site. Press **Ctrl+C** to stop the server
 
 Once the server is running, you can go directly to:
 
-- Benchmarks: Run eval with Codex / Claude Code / Grok / Antigravity / [Meta Muse Code](benchmarking/muse/README.md) / [Prime Agent](benchmarking/prime/README.md)
+- Benchmarks: Run eval with Codex / Claude Code / Grok / Antigravity / [Meta Muse Code](benchmarking/muse/README.md) / [Kimi Code](benchmarking/kimi/README.md) / [Prime Agent](benchmarking/prime/README.md)
 - Play: Explore the world for yourself
 - Room editor: Edit and save levels in MazeBench
+
+
+All harnesses offer **Any language** for their supported ASCII worlds. Start Docker
+first; the pinned toolchain is installed with `npm run setup:code-sandbox`. Prime
+keeps its native Python transport and adds the same isolated `code_exec` tool.
+The Analysis tab shows live input, cached input, output and estimated API cost.
+These are API-equivalent token estimates, not subscription charges.
+
+The site also starts a localhost capability service on port 8083. To add the
+updated reporting and new coding modes while the main server owns active runs,
+run `npm run start:capabilities`; refresh the browser without restarting the main
+server. Existing runs keep their original runtime and owner. Do not stop the
+capability service while it owns an active Any language run.
 
 ---
 

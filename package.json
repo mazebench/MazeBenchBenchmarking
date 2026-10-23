@@ -6,6 +6,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "start:capabilities": "node benchmarking/capability-server.mjs",
     "setup:kimi": "python3 scripts/setup-kimi.py",
     "check:kimi": "node scripts/check-kimi.mjs",
     "setup:code-sandbox": "docker build -t mazebench-code:v1 benchmarking/code",

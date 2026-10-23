@@ -112,6 +112,28 @@
         </section>
         <section id="view-analysis" role="tabpanel" aria-labelledby="tab-analysis" data-run-panel="analysis" hidden>
           <p id="analysis-status" class="section-status" role="status">Select Analysis to load charts.</p>
+        <article class="panel token-panel" aria-label="Context token usage">
+          <header class="panel-heading">
+            <div><span>Usage</span><strong>Tokens &amp; estimated API cost</strong></div>
+            <code id="token-current">Waiting for telemetry…</code>
+          </header>
+          <div class="token-totals" aria-label="Cumulative token usage and estimated API cost">
+            <div><span>Input</span><strong id="token-total-input">—</strong><small>Includes cached input</small></div>
+            <div><span>Cached input</span><strong id="token-total-cached">—</strong><small id="token-cache-rate">—</small></div>
+            <div><span>Output</span><strong id="token-total-output">—</strong><small>Includes reasoning tokens</small></div>
+            <div><span>Estimated API cost</span><strong id="token-api-cost">—</strong><small>USD · Standard API equivalent</small></div>
+          </div>
+          <div class="token-chart-wrap">
+            <svg id="token-chart" viewBox="0 0 1100 230" role="img" aria-label="Context tokens over elapsed run time"></svg>
+            <output id="token-tooltip" class="token-tooltip" hidden></output>
+          </div>
+          <footer class="token-footer">
+            <div class="token-legend"><span><i class="token-line"></i>Context tokens</span><span><i class="token-threshold"></i>Compaction trigger</span><span><i class="token-marker"></i>Compacted</span></div>
+            <span id="token-detail">Updates after each model response.</span>
+          </footer>
+          <details class="token-cost-basis"><summary>Pricing and measurement details</summary><p id="token-pricing-detail">Waiting for usage data.</p><p>Context is the last reported token count and updates after model responses. Pending tool output and ongoing generation may bring the next compaction closer.</p><a id="token-pricing-source" target="_blank" rel="noreferrer" hidden>Official pricing source</a></details>
+        </article>
+
           <div class="stat-grid secondary-stats">
           <div><span>Novelty</span><strong id="stat-novelty">—</strong></div>
           <div><span>Blocked</span><strong id="stat-blocked">—</strong></div>
@@ -167,27 +189,7 @@
           <p id="ice-level-timings-note" class="ice-level-timings-note">Wall-clock time from entering each level to its solving action. Level 1 starts at run creation, including startup. Includes thinking, tool calls, and pauses; excludes the wait between solved levels. Actions include blocked moves, undo, and reset; exclude the next-level action. An unfinished level shows time spent so far.</p>
         </article>
 
-        <article class="panel token-panel" aria-label="Context token usage">
-          <header class="panel-heading">
-            <div><span>Context over time</span><strong>Tokens &amp; compaction</strong></div>
-            <code id="token-current">Waiting for telemetry…</code>
-          </header>
-          <div class="token-totals" aria-label="Cumulative token usage and estimated API cost">
-            <div><span>Total input</span><strong id="token-total-input">—</strong><small>Includes cached input</small></div>
-            <div><span>Cached input</span><strong id="token-total-cached">—</strong><small id="token-cache-rate">—</small></div>
-            <div><span>Total output</span><strong id="token-total-output">—</strong><small>Includes reasoning tokens</small></div>
-            <div><span>API cost estimate</span><strong id="token-api-cost">—</strong><small>USD · Standard API equivalent</small></div>
-          </div>
-          <div class="token-chart-wrap">
-            <svg id="token-chart" viewBox="0 0 1100 230" role="img" aria-label="Context tokens over elapsed run time"></svg>
-            <output id="token-tooltip" class="token-tooltip" hidden></output>
-          </div>
-          <footer class="token-footer">
-            <div class="token-legend"><span><i class="token-line"></i>Context tokens</span><span><i class="token-threshold"></i>Compaction trigger</span><span><i class="token-marker"></i>Compacted</span></div>
-            <span id="token-detail">Updates after each model response.</span>
-          </footer>
-          <details class="token-cost-basis"><summary>Pricing and measurement details</summary><p id="token-pricing-detail">Waiting for usage data.</p><p>Context is the last reported token count and updates after model responses. Pending tool output and ongoing generation may bring the next compaction closer.</p><a href="https://developers.openai.com/api/docs/pricing" target="_blank" rel="noreferrer">Official OpenAI API pricing</a></details>
-        </article>
+
 
         </section>
         <section id="view-activity" role="tabpanel" aria-labelledby="tab-activity" data-run-panel="activity" hidden>

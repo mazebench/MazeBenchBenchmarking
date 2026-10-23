@@ -1,3 +1,4 @@
+import { estimateRequests } from "./token-pricing.mjs";
 // Read-only dashboard adapter; never loaded by Muse or its frozen MCP runtime.
 import { lstat } from "node:fs/promises";
 import os from "node:os";
@@ -61,7 +62,7 @@ export function consumeMuseEvent(timeline, event) {
   }
 }
 
-export function museTelemetry(timeline) {
+export function museTelemetry(timeline, model) {
   const totals = Object.fromEntries(usageKeys.map(key => [key, 0]));
   for (const usage of timeline.requests.values()) for (const key of usageKeys) totals[key] += usage[key];
   totals.total_tokens = totals.input_tokens + totals.output_tokens;
@@ -71,7 +72,7 @@ export function museTelemetry(timeline) {
     current_tokens: latest?.tokens ?? null, updated_at: latest?.timestamp ?? null,
     context_window: null, compaction_threshold: timeline.compaction_threshold,
     samples: timeline.samples, compactions: timeline.compactions,
-    api_estimate: { usd: null, rates_per_million: null, request_count: timeline.requests.size,
-      basis: "Muse's reported main-response and compaction token usage. Cached tokens are included in input; reasoning tokens are included in output. Background reminder usage is excluded. These are token counts, not a subscription charge; no dollar estimate is available." },
+    api_estimate: { ...estimateRequests(timeline.requests.values(), model),
+      coverage: "Reported main responses and compaction; background reminder usage is excluded." },
     reason: "Waiting for Muse session token telemetry." };
 }

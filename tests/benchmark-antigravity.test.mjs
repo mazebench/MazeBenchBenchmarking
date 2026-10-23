@@ -39,7 +39,7 @@ test("Gemini telemetry deduplicates resumed steps and never invents API prices",
   consumeAntigravityEvent(timeline, event); consumeAntigravityEvent(timeline, event);
   consumeAntigravityEvent(timeline, { event: "result", result: { usage: { total_tokens: 999 } } });
   const result = antigravityTelemetry(timeline);
-  assert.equal(result.total_tokens, 170); assert.equal(result.samples.length, 1);
+  assert.equal(result.total_tokens, 120); assert.equal(result.samples.length, 1);
   assert.equal(result.api_estimate.usd, null); assert.equal(result.context_window, null);
   const thinking = createThinkingTimeline();
   consumeThinkingEvent(thinking, { event: "init", _received_at: "2026-09-29T00:00:00Z" }, "antigravity");

@@ -121,7 +121,7 @@ test("Claude telemetry counts cache input once and replaces provisional usage wi
   consume({ type: "assistant", message: { id: "one", usage: { input_tokens: 10 } } });
   consume({ type: "stream_event", event: { type: "message_delta", usage: { output_tokens: 15 } } });
   consume({ type: "stream_event", event: { type: "message_stop" } });
-  let telemetry = claudeTelemetry(timeline);
+  let telemetry = claudeTelemetry(timeline, model);
   assert.equal(telemetry.totals.input_tokens, 60); assert.equal(telemetry.totals.output_tokens, 15);
   assert.equal(telemetry.samples.length, 1); assert.equal(telemetry.current_tokens, 75);
   consume({ type: "result", total_cost_usd: .12, usage: { input_tokens: 12, cache_read_input_tokens: 30, cache_creation_input_tokens: 20, output_tokens: 18 }, modelUsage: { [model]: { contextWindow: 1000000 } } });
@@ -129,8 +129,8 @@ test("Claude telemetry counts cache input once and replaces provisional usage wi
   consume({ type: "system", subtype: "compact_boundary", compact_metadata: { pre_tokens: 75 } });
   consume({ _turn_id: "b", type: "stream_event", event: { type: "message_start", message: { id: "two", usage: { input_tokens: 5, output_tokens: 1 } } } });
   consume({ _turn_id: "b", type: "stream_event", event: { type: "message_stop" } });
-  telemetry = claudeTelemetry(timeline);
+  telemetry = claudeTelemetry(timeline, model);
   assert.equal(telemetry.totals.input_tokens, 67); assert.equal(telemetry.totals.output_tokens, 19);
-  assert.equal(telemetry.api_estimate.usd, .12); assert.equal(telemetry.samples.length, 2);
+  assert.equal(telemetry.api_estimate.usd, .12002); assert.equal(telemetry.samples.length, 2);
   assert.equal(telemetry.compactions[0].after_tokens, 6); assert.equal(telemetry.compaction_threshold, null);
 });

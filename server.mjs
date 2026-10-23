@@ -1,3 +1,4 @@
+import { createCapabilityServer } from "./benchmarking/capability-server.mjs";
 import "./benchmarking/codex-releases.mjs";
 import { publishEditorRoom } from "./benchmarking/storage/live-world.mjs";
 import os from "node:os";
@@ -333,3 +334,14 @@ const server = createServer(async (request, response) => {
 server.listen(port, host, () => {
   console.log(`MazeBenchBenchmarking running at http://localhost:${port}`);
 });
+
+// A previously started companion may own active Any-language runs. Never replace
+// it merely because the static/main server restarted.
+if (process.env.MAZEBENCH_DISABLE_CAPABILITIES !== "1" && (Number(port) === 8080 || process.env.MAZEBENCH_CAPABILITY_PORT)) {
+  const capabilityPort = Number(process.env.MAZEBENCH_CAPABILITY_PORT || 8083);
+  const { server: capabilityServer } = createCapabilityServer(root, { port: capabilityPort, mainPort: Number(port) });
+  capabilityServer.on("error", error => {
+    if (error.code !== "EADDRINUSE") console.error("Capability server:", error.message);
+  });
+  capabilityServer.listen(capabilityPort, "127.0.0.1");
+}

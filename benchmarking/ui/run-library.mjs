@@ -1,4 +1,4 @@
-import { codingLabel, codingMode } from "../coding-mode.mjs";
+import { codingLabel, codingMode } from "../all-code/capabilities.mjs";
 import { formatRateLimit } from "../run-errors.mjs";
 import { modelLabel } from "./model-label.mjs";
 const dates = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
