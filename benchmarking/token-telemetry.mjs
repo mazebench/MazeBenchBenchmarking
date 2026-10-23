@@ -146,6 +146,12 @@ export class TokenTelemetry {
 
   async readTimeline(runDirectory) {
     const metadata = JSON.parse(safeReadFile(runDirectory, "run.json"));
+    if (metadata.provider === "kimi-code") {
+      return { available: false, totals: metadata.usage || null, samples: [], compactions: [],
+        current_tokens: null, context_window: null, compaction_threshold: null,
+        reason: metadata.usage ? "Kimi reports cumulative token usage after each turn. Context and compaction charts are not available." : "Waiting for Kimi Code token usage.",
+        api_estimate: { usd: null, basis: "Kimi Code uses your membership quota; check the Kimi Code Console for usage." } };
+    }
     if (metadata.provider === "prime-agent") {
       return { available: false, totals: metadata.usage || null, samples: [], compactions: [],
         current_tokens: null, context_window: null, compaction_threshold: null,

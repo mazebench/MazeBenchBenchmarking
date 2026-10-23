@@ -6,6 +6,8 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "setup:kimi": "python3 scripts/setup-kimi.py",
+    "check:kimi": "node scripts/check-kimi.mjs",
     "setup:code-sandbox": "docker build -t mazebench-code:v1 benchmarking/code",
     "test:code-sandbox": "MAZEBENCH_TEST_CODE_SANDBOX=1 node --test tests/benchmark-code.test.mjs",
     "build:physics": "sh scripts/build-physics.sh",

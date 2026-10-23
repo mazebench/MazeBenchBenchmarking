@@ -16,7 +16,7 @@ let codexReady = false;
 let installationStatus = {};
 
 function providerCompatible(provider) {
-  return !["grok-build", "antigravity", "muse-code", "prime-agent"].includes(provider) || (elements.world.value === "main-world" && elements["observation-mode"].value === "ascii");
+  return !["grok-build", "antigravity", "muse-code", "kimi-code", "prime-agent"].includes(provider) || (elements.world.value === "main-world" && elements["observation-mode"].value === "ascii");
 }
 
 function updateReadiness() {
@@ -24,7 +24,7 @@ function updateReadiness() {
   const status = installationStatus[provider];
   const any = elements["coding-mode"].value === "any";
   const codeReady = !any || (supportsAnyLanguage(launchPayload()) && status?.code_sandbox?.available);
-  const needsAuth = ["claude-code", "grok-build", "antigravity", "muse-code", "prime-agent"].includes(provider);
+  const needsAuth = ["claude-code", "grok-build", "antigravity", "muse-code", "kimi-code", "prime-agent"].includes(provider);
   codexReady = Boolean(codeReady && status?.available && status?.tested && (!needsAuth || status.authenticated) && providerCompatible(provider) && models.some(model => model.id === elements.model.value && (model.provider || "codex") === provider));
   elements["codex-version"].textContent = status?.version ? `${providerName(provider)} ${status.version.replace(/^codex-cli /, "")}` : "Checking agent…";
   const labels = { "up-to-date": "Up to date", "update-available": `Update available: ${status?.latest_version}. Run codex update, then restart the server.`, "newer-than-release": "Newer than the current stable release", unknown: "Latest release check unavailable" };
@@ -47,7 +47,7 @@ async function checkCodex(force = false) {
   elements["check-codex"].disabled = true;
   try {
     installationStatus = await api(`/api/benchmark/v1/providers${force ? "?force=1" : ""}`);
-  } catch (error) { installationStatus = Object.fromEntries(["codex", "claude-code", "grok-build", "antigravity", "muse-code", "prime-agent"].map(provider => [provider, { error: error.message }])); }
+  } catch (error) { installationStatus = Object.fromEntries(["codex", "claude-code", "grok-build", "antigravity", "muse-code", "kimi-code", "prime-agent"].map(provider => [provider, { error: error.message }])); }
   finally { elements["check-codex"].disabled = false; updateReadiness(); }
 }
 
@@ -119,7 +119,7 @@ function updateModels() {
     const option = document.createElement("option");
     option.value = model.id;
     option.textContent = modelLabel(model.id, model.name);
-    const preferred = ({ codex: "gpt-5.6-terra", "claude-code": "claude-sonnet-5-5", "grok-build": "grok-4.7", antigravity: "gemini-3.8-flash-medium", "muse-code": "muse-wonder-1.0", "prime-agent": "openai/gpt-4.1-mini" })[elements.provider.value];
+    const preferred = ({ codex: "gpt-5.6-terra", "claude-code": "claude-sonnet-5-5", "grok-build": "grok-4.7", antigravity: "gemini-3.8-flash-medium", "muse-code": "muse-wonder-1.0", "kimi-code": "k3.1-pro", "prime-agent": "openai/gpt-4.1-mini" })[elements.provider.value];
     option.selected = model.id === preferred;
     elements.model.append(option);
   }

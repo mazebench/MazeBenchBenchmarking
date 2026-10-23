@@ -8,11 +8,11 @@ const text = (element, value) => { if (element.textContent !== String(value)) el
 const companyLogos = new Map([
   ["OpenAI", "openai"], ["Anthropic (Claude)", "claude-color"], ["Google", "gemini-color"],
   ["Meta", "meta-color"], ["xAI", "grok"], ["DeepSeek", "deepseek-color"],
-  ["Alibaba", "alibaba-color"], ["Mistral", "mistral-color"]
+  ["Alibaba", "alibaba-color"], ["Mistral", "mistral-color"], ["Moonshot AI", "kimi-color"]
 ]);
 
 export function providerName(provider) {
-  return ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity", "muse-code": "Meta Muse Code", "prime-agent": "Prime Agent" })[provider] || provider;
+  return ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity", "muse-code": "Meta Muse Code", "kimi-code": "Kimi Code", "prime-agent": "Prime Agent" })[provider] || provider;
 }
 
 export function runCompany(run) {
@@ -26,7 +26,7 @@ export function runCompany(run) {
   if (model.startsWith("muse-")) return "Meta";
   if (model.startsWith("grok")) return "xAI";
   if (/^(gpt-|o\d)/.test(model)) return "OpenAI";
-  return ({ codex: "OpenAI", "claude-code": "Anthropic (Claude)", "grok-build": "xAI", antigravity: "Google", "muse-code": "Meta" })[run.provider || "codex"] || run.provider;
+  return ({ codex: "OpenAI", "claude-code": "Anthropic (Claude)", "grok-build": "xAI", antigravity: "Google", "muse-code": "Meta", "kimi-code": "Moonshot AI" })[run.provider || "codex"] || run.provider;
 }
 
 export function selectRuns(runs, { company = "", model = "", sort = "newest" } = {}) {
