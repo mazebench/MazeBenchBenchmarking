@@ -202,3 +202,6 @@ details[open] > summary::after { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) {
   .record-card, .tool-toggle i, .tool-toggle i::after { transition: none; }
 }
+
+.model-catalog-controls { display: flex; align-items: center; gap: .8rem; margin-top: .8rem; flex-wrap: wrap; font-size: .8rem; color: var(--muted, #999); }
+.model-catalog-controls button { flex-shrink: 0; }

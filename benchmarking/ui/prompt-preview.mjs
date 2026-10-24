@@ -1,4 +1,4 @@
-import { codingLabel } from "../all-code/capabilities.mjs";
+import { codingLabel } from "../capabilities.mjs";
 export function setupPromptPreview(container, getSpec) {
   const text = container.querySelector("#prompt-text");
   const status = container.querySelector("#prompt-status");

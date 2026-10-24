@@ -40,13 +40,15 @@
     "typecheck": "tsc --noEmit -p apps/web/tsconfig.json",
     "check:engine-snapshot": "node scripts/sync-engine-v1.mjs --check",
     "test:quick": "node scripts/test-quick.mjs",
-    "test:integration": "node --test tests/vision-mode.test.mjs tests/vision-wire.test.mjs tests/ice-maze.test.mjs"
+    "test:integration": "node --test tests/vision-mode.test.mjs tests/vision-wire.test.mjs tests/ice-maze.test.mjs",
+    "start:catalogs": "node benchmarking/catalog-server.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "three": "^0.184.0"
+    "three": "^0.184.0",
+    "undici": "6.24.1"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",

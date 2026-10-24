@@ -5,7 +5,9 @@ import { existsSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
-import { BenchmarkSupervisor } from './all-code/supervisor.mjs';
+import { BenchmarkSupervisor } from './prime-direct-v2/supervisor.mjs';
+import { POLICY as DIRECT_POLICY, isDirectSpec } from './prime-direct-v2/policy.mjs';
+import { POLICY as PREVIOUS_DIRECT_POLICY } from './prime-direct/policy.mjs';
 import { POLICY } from './all-code/policy.mjs';
 import { inspectCodeSandbox } from './code/sandbox.mjs';
 import { safeReadFile } from './v1/safe-files.mjs';
@@ -15,10 +17,14 @@ import { RunLibrary } from './run-library.mjs';
 import { RunDashboard } from './run-dashboard.mjs';
 import { previewBenchmarkPrompt } from './prompt-preview.mjs';
 import { resumeExclusively } from './storage/resume-lock.mjs';
+import { installPrimeHttpTransport } from './prime-http-transport.mjs';
+import { PrimeAutoRecovery } from './prime-auto-recovery.mjs';
 
 export function createCapabilityServer(root, options = {}) {
+  installPrimeHttpTransport();
   const port = options.port ?? 8083, mainPort = options.mainPort || 8080;
   const supervisor = options.supervisor || new BenchmarkSupervisor(root, options);
+  const recovery = options.autoRecovery === false ? null : new PrimeAutoRecovery(supervisor, options.recoveryOptions);
   const reports = new ReportReader(), library = new RunLibrary({ markInterrupted: true }), dashboard = new RunDashboard();
   let sandbox, sandboxAt = 0, visionAt = 0, vision = false;
   const getSandbox = async () => {
@@ -26,6 +32,7 @@ export function createCapabilityServer(root, options = {}) {
     return sandbox;
   };
   const upstreamPort = async () => {
+    if (options.upstreamPort) return options.upstreamPort;
     if (Date.now() - visionAt > 15000) {
       try { const r = await fetch('http://127.0.0.1:8082/api/benchmark/vision/status', { signal: AbortSignal.timeout(500) }); vision = r.ok; }
       catch { vision = false; }
@@ -34,10 +41,12 @@ export function createCapabilityServer(root, options = {}) {
     return vision ? 8082 : mainPort;
   };
   function owned(directory) {
+    if (options.ownsRun) return options.ownsRun(directory);
     if (!existsSync(path.join(directory, 'run.json')) || !existsSync(path.join(directory, 'integrity.json'))) return false;
     // Consult the signed configuration as well, so changing metadata cannot
     // downgrade a new execution condition to a legacy resume handler.
-    return JSON.parse(safeReadFile(directory, 'integrity.json')).configuration?.code_policy === POLICY;
+    const configuration = JSON.parse(safeReadFile(directory, 'integrity.json')).configuration;
+    return configuration?.code_policy === POLICY || [DIRECT_POLICY, PREVIOUS_DIRECT_POLICY].includes(configuration?.harness);
   }
   const reply = (res, status, value, type = 'application/json') => {
     res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
@@ -53,7 +62,9 @@ export function createCapabilityServer(root, options = {}) {
     const url = new URL(req.url, 'http://' + req.headers.host), prefix = '/api/benchmark/v1';
     if (!url.pathname.startsWith('/api/benchmark/')) return reply(res, 404, { error: 'Unknown capability route.' });
     try {
-      if (url.pathname === '/api/benchmark/capabilities/status') return reply(res, 200, { available: true, version: 2 });
+      await recovery?.ready;
+      // Additive features retain the existing route protocol version.
+      if (url.pathname === '/api/benchmark/capabilities/status') return reply(res, 200, { available: true, version: 2, prime_auto_recovery: Boolean(recovery), model_catalog: Boolean(options.catalog) });
       let body;
       if (['POST', 'DELETE'].includes(req.method)) {
         let length = 0; const chunks = [];
@@ -66,8 +77,32 @@ export function createCapabilityServer(root, options = {}) {
       if (req.method === 'GET' && url.pathname === prefix + '/providers') {
         const upstream = await forward(); if (!upstream.ok) return reply(res, upstream.status, await upstream.text());
         const values = await upstream.json(), code = await getSandbox();
+        if (options.catalog) {
+          const catalog = await options.catalog.all({ force: url.searchParams.get('force') === '1' });
+          return reply(res, 200, Object.fromEntries(Object.entries(values).map(([name, value]) => {
+            const state = catalog.catalogs[name];
+            return [name, { ...value, catalog: state, models: catalog.models.filter(m => m.provider === name), code_sandbox: code,
+              ...(state && !state.stale && name === 'kimi-code' ? { authenticated: true, launch_ready: value.tested, error: value.tested ? null : value.error } : {}),
+              ...(state && !state.stale && name !== 'kimi-code' && value.tested && value.authenticated ? { launch_ready: true, error: null } : {}) }];
+          })));
+        }
+        const direct = await supervisor.inspectDirect({ force: url.searchParams.get('force') === '1' });
         return reply(res, 200, Object.fromEntries(Object.entries(values).map(([name, value]) => [name, { ...value,
-          coding_modes: name === 'prime-agent' ? ['python', 'any'] : ['off', 'python', 'any'], code_sandbox: code }])));
+          coding_modes: ['off', 'python', 'any'], ...(name === 'prime-agent' ? { direct } : {}), code_sandbox: code }])));
+      }
+      if (req.method === 'GET' && url.pathname === prefix + '/models') {
+        if (options.catalog) return reply(res, 200, await options.catalog.all({ force: url.searchParams.get('force') === '1' }));
+        const upstream = await forward(); if (!upstream.ok) return reply(res, upstream.status, await upstream.text());
+        const value = await upstream.json(), direct = await supervisor.inspectDirect();
+        const catalog = new Map(direct.models.map(model => [model.id, model]));
+        for (const model of value.models || []) if (model.provider === 'prime-agent') {
+          const supported = catalog.get(model.id);
+          Object.assign(model, { direct_efforts: supported?.efforts || [], default_direct_effort: supported?.default_effort });
+          catalog.delete(model.id);
+        }
+        for (const model of catalog.values()) value.models.push({ id: model.id, name: model.name, provider: 'prime-agent',
+          efforts: ['default'], default_effort: 'default', direct_efforts: model.efforts, default_direct_effort: model.default_effort });
+        return reply(res, 200, value);
       }
       if (req.method === 'GET' && url.pathname === prefix + '/runs') {
         const upstream = await forward(); if (!upstream.ok) return reply(res, upstream.status, await upstream.text());
@@ -77,16 +112,39 @@ export function createCapabilityServer(root, options = {}) {
         for (const run of value.runs || []) if (owned(supervisor.runDirectory(run.id))) {
           const metadata = JSON.parse(safeReadFile(supervisor.runDirectory(run.id), 'run.json'));
           run.runner_active = supervisor.active.has(run.id);
-          run.status = metadata.status; run.coding_mode = metadata.coding_mode;
+          run.status = metadata.status; run.coding_mode = metadata.coding_mode; run.harness = metadata.harness;
           if (!run.runner_active && ['preparing', 'queued', 'running', 'continuing', 'pausing'].includes(run.status)) run.status = 'interrupted';
+          if (recovery?.status(run.id)) run.auto_recovery = recovery.status(run.id);
         }
         return reply(res, 200, value);
       }
       if (req.method === 'POST' && [prefix + '/runs', prefix + '/pairs'].includes(url.pathname)) {
         const spec = JSON.parse(body || '{}');
+        if (options.catalog) {
+          await options.catalog.selection(spec, { force: true });
+          if (spec.provider === 'prime-agent' || spec.observation_mode === 'vision') {
+            if (spec.observation_mode === 'vision' && spec.service_tier === 'fast') throw new Error('Fast speed is currently available with ASCII observations.');
+            const upstream = await forward(); return reply(res, upstream.status, await upstream.text());
+          }
+          if (url.pathname.endsWith('/runs')) return reply(res, 202, await supervisor.launch(spec));
+          const pair_id = 'pair-' + randomBytes(8).toString('hex');
+          const mode = spec.coding_mode === 'any' ? 'any' : 'python';
+          const on = { ...spec, pair_id, coding_mode: mode, tools_enabled: true };
+          await supervisor.validateSpec(on);
+          if (mode === 'any') { const code = await getSandbox(); if (!code.available) throw new Error(code.error); }
+          const off = await supervisor.launch({ ...spec, pair_id, coding_mode: 'off', tools_enabled: false });
+          try { return reply(res, 202, { pair_id, runs: [off, await supervisor.launch(on)] }); }
+          catch (error) { await supervisor.stop(off.id); throw error; }
+        }
+        if (isDirectSpec(spec)) {
+          if (url.pathname.endsWith('/pairs')) throw new Error('Prime direct and native are separate harnesses. Start a single run.');
+          const run = await supervisor.launch(spec);
+          if (recovery) await recovery.enroll(run.id);
+          return reply(res, 202, recovery ? recovery.decorate(run) : run);
+        }
         if (spec.coding_mode === 'any' && !['codex', 'claude-code'].includes(spec.provider || 'codex')) {
           if (url.pathname.endsWith('/runs')) return reply(res, 202, await supervisor.launch(spec));
-          if (spec.provider === 'prime-agent') throw new Error('Prime has no coding-off condition. Start a single run.');
+          if (spec.provider === 'prime-agent') throw new Error('Prime direct and native are separate harnesses. Start a single run.');
           const code = await getSandbox(); if (!code.available) throw new Error(code.error);
           await supervisor.validateSpec(spec);
           const pair_id = 'pair-' + randomBytes(8).toString('hex');
@@ -118,15 +176,15 @@ export function createCapabilityServer(root, options = {}) {
               run.compaction_recoverable = run.status === 'failed' && run.capability_boundary_verified && run.provider !== 'prime-agent';
             }
             const tokens = await reports.read(directory, 'tokens').catch(() => null); if (tokens?.totals) run.usage = tokens.totals;
-            return reply(res, 200, run);
+            return reply(res, 200, recovery ? recovery.decorate(run) : run);
           }
-          if (req.method === 'DELETE' && !suffix) return reply(res, 200, await supervisor.delete(id));
-          if (req.method === 'POST' && ['pause', 'stop', 'resume'].includes(suffix)) return reply(res, 200, await (suffix === 'resume' ? resumeExclusively(supervisor, id) : supervisor[suffix](id)));
+          if (req.method === 'DELETE' && !suffix) return reply(res, 200, await (recovery ? recovery.command(id, 'delete') : supervisor.delete(id)));
+          if (req.method === 'POST' && ['pause', 'stop', 'resume'].includes(suffix)) return reply(res, 200, await (recovery ? recovery.command(id, suffix) : suffix === 'resume' ? resumeExclusively(supervisor, id) : supervisor[suffix](id)));
           if (req.method === 'GET' && suffix === 'charts') return reply(res, 200, await reports.read(directory, 'charts', supervisor.active.has(id)));
           if (req.method === 'GET' && suffix === 'interviews') return reply(res, 200, await supervisor.listInterviews(id));
           if (req.method === 'GET' && /^display\/(0|[1-9]\d*)$/.test(suffix)) return reply(res, 200, await dashboard.frame(supervisor, id, suffix.split('/')[1]));
           if (req.method === 'GET' && suffix.startsWith('record/')) return reply(res, 200, await supervisor.record(id, decodeURIComponent(suffix.slice(7))), 'text/plain; charset=utf-8');
-          return reply(res, 404, { error: 'Unsupported Any language operation.' });
+          return reply(res, 404, { error: 'Unsupported harness operation.' });
         }
         if (req.method === 'GET' && !suffix && existsSync(path.join(telemetryDirectory, 'run.json'))) {
           const upstream = await forward(); if (!upstream.ok) return reply(res, upstream.status, await upstream.text());
@@ -139,8 +197,9 @@ export function createCapabilityServer(root, options = {}) {
       reply(res, upstream.status, Buffer.from(await upstream.arrayBuffer()), upstream.headers.get('content-type') || 'application/octet-stream');
     } catch (error) { reply(res, 400, { error: String(error.message || error) }); }
   });
-  server.on('close', () => { void reports.close(); });
-  return { server, supervisor, reports, library };
+  server.on('listening', () => recovery?.start());
+  server.on('close', () => { void recovery?.close(); void reports.close(); });
+  return { server, supervisor, reports, library, recovery };
 }
 if (process.argv[1] === import.meta.filename) {
   const port = Number(process.env.MAZEBENCH_CAPABILITY_PORT || 8083);

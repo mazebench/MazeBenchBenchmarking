@@ -1,10 +1,12 @@
-import { codingLabel, codingMode } from "../all-code/capabilities.mjs";
+import { harnessName } from "./run-library.mjs";
+import { codingLabel, codingMode, isPrimeDirect } from "../capabilities.mjs";
 import { heatmapVisits } from "./heatmap.mjs";
-import { modelLabel } from "./model-label.mjs";
+import { modelLabel, modelSpeed } from "./model-label.mjs";
 import { gemReplayFrames, gemFrameIndex, loadWorldGemLocations, gemCollectionLocations } from "./gem-navigation.mjs";
 import { runTabVisible } from "./run-tabs.mjs";
 import { benchmarkFetch, visionUrl } from "./benchmark-api.mjs";
 import { rateLimitDetails, formatRateLimit } from "../run-errors.mjs";
+import { recoveryPresentation } from "./auto-recovery.mjs";
 const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
 const providerName = provider => ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity", "muse-code": "Meta Muse Code", "kimi-code": "Kimi Code", "prime-agent": "Prime Agent" })[provider || "codex"] || provider;
@@ -80,7 +82,7 @@ function statusLabel(value) {
 }
 
 function isFinished(run) {
-  return ["completed", "failed", "stopped"].includes(run.status);
+  return !run.auto_recovery?.enabled && ["completed", "failed", "stopped"].includes(run.status);
 }
 
 function compactDate(value) {
@@ -516,18 +518,18 @@ function renderWorkspace(run) {
   if (signature === workspaceSignature) return;
   workspaceSignature = signature;
   elements["workspace-files"].replaceChildren();
-  elements["workspace-title"].textContent = codingMode(run) === "any" ? "Any-language workspace" : run.provider === "prime-agent" ? "Prime workspace" : run.tools_enabled ? "Python workspace" : "Python unavailable";
+  elements["workspace-title"].textContent = codingMode(run) === "any" ? "Any-language workspace" : run.provider === "prime-agent" && !isPrimeDirect(run) ? "Prime workspace" : run.tools_enabled ? "Python workspace" : "Python unavailable";
   const isolation = run.isolation || {};
   elements["isolation-status"].textContent = !run.capability_boundary_verified
     ? "legacy · not validated"
-    : run.provider === "prime-agent" ? "Remote VM · framework-only network" : run.tools_enabled
+    : run.provider === "prime-agent" && !isPrimeDirect(run) ? "Remote VM · framework-only network" : run.tools_enabled
       ? isolation.verified ? "OS isolation · checked" : "isolation pending"
       : "maze tools · checked";
   const files = run.workspace_files || [];
   if (!run.tools_enabled || !files.length) {
     const empty = document.createElement("p");
     empty.className = "panel-empty";
-    empty.textContent = run.provider === "prime-agent" ? "Files stay inside the remote Prime sandbox and are not mirrored here. Pausing retains them; stopping ends the sandbox." : run.tools_enabled ? "The model has not written any files." : "This condition has no writable workspace.";
+    empty.textContent = run.provider === "prime-agent" && !isPrimeDirect(run) ? "Files stay inside the remote Prime sandbox and are not mirrored here. Pausing retains them; stopping ends the sandbox." : run.tools_enabled ? "The model has not written any files." : "This condition has no writable workspace.";
     elements["workspace-files"].append(empty);
     return;
   }
@@ -748,26 +750,28 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   document.body.classList.toggle("ice-world", numberedWorld(run));
   document.title = `${modelLabel(run.model)} · MazeBench record`;
   elements["model-monogram"].textContent = modelMonogram(modelLabel(run.model));
-  elements["run-kicker"].textContent = `${worldName(run)} · ${providerName(run.provider)}${run.observation_mode === "vision" ? " · Vision" : ""} · ${codingLabel(run)}`;
+  elements["run-kicker"].textContent = `${worldName(run)} · ${harnessName(run)}${run.observation_mode === "vision" ? " · Vision" : ""} · ${codingLabel(run)}`;
   elements["run-title"].textContent = modelLabel(run.model);
-  elements["run-subtitle"].textContent = `${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"}` : ""} · ${run.service_tier === "fast" ? "Fast" : "Standard"} · ${compactDate(run.created_at)}`;
+  elements["run-subtitle"].textContent = `${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"}` : ""} · ${modelSpeed(run) === "fast" ? "Fast" : "Standard"} · ${compactDate(run.created_at)}${run.auto_recovery?.enabled ? " · Auto-resume on" : ""}`;
   elements["run-id"].textContent = run.id;
   const rateLimit = run.status === "failed" ? run.rate_limit || rateLimitDetails(run.error) : null;
-  elements["run-status"].textContent = rateLimit ? "Rate limited" : statusLabel(run.status);
-  elements["run-status"].className = `status-pill ${run.status}`;
-  elements["run-failure"].hidden = run.status !== "failed";
-  elements["run-failure"].classList.toggle("rate-limited", Boolean(rateLimit));
-  elements["run-failure"].querySelector("strong").textContent = rateLimit ? "Rate limit reached" : "Run failed";
-  elements["run-failure-reason"].textContent = formatRateLimit(rateLimit) || run.error || "The runner stopped before finishing. Inspect the activity record for details.";
+  const recovery = recoveryPresentation(run);
+  elements["run-status"].textContent = recovery.label || (rateLimit ? "Rate limited" : statusLabel(run.status));
+  elements["run-status"].className = `status-pill ${recovery.waiting ? "queued" : run.status}`;
+  elements["run-failure"].hidden = run.status !== "failed" && !recovery.waiting && !recovery.blocked;
+  elements["run-failure"].classList.toggle("rate-limited", Boolean(rateLimit) || recovery.waiting);
+  elements["run-failure"].querySelector("strong").textContent = recovery.label || (rateLimit ? "Rate limit reached" : "Run failed");
+  elements["run-failure-reason"].textContent = recovery.detail || formatRateLimit(rateLimit) || run.error || "The runner stopped before finishing. Inspect the activity record for details.";
+  elements["retry-new-run"].hidden = recovery.waiting;
   const terminalGame = ["won", "action-limit"].includes(run.game_status);
   const activeRun = Boolean(run.runner_active);
-  const resumableBoundary = Boolean(run.capability_boundary_verified) && (run.provider !== "prime-agent" || activeRun);
-  elements["pause-run"].hidden = !activeRun || ["pausing", "paused"].includes(run.status);
-  elements["pause-run"].disabled = !activeRun;
+  const resumableBoundary = Boolean(run.capability_boundary_verified) && (run.provider !== "prime-agent" || isPrimeDirect(run) || activeRun);
+  elements["pause-run"].hidden = (!activeRun && !recovery.waiting) || ["pausing", "paused"].includes(run.status);
+  elements["pause-run"].disabled = !activeRun && !recovery.waiting;
   elements["resume-run"].hidden = terminalGame || !resumableBoundary ||
-    (!["paused", "stopped", "interrupted"].includes(run.status) && !(run.world === "slotski" && run.status === "failed") && !run.compaction_recoverable);
+    recovery.waiting || (!["paused", "stopped", "interrupted"].includes(run.status) && !((run.world === "slotski" || isPrimeDirect(run)) && run.status === "failed") && !run.compaction_recoverable);
   elements["resume-run"].disabled = false;
-  elements["stop-run"].hidden = terminalGame || ["stopped", "failed", "completed"].includes(run.status);
+  elements["stop-run"].hidden = terminalGame || (!recovery.waiting && ["stopped", "failed", "completed"].includes(run.status));
   elements["stop-run"].disabled = false;
   elements["delete-run"].disabled = activeRun;
   elements["delete-run"].title = activeRun ? "Stop or pause this run before deleting it." : "Permanently delete this run record.";
@@ -909,7 +913,7 @@ function scheduleRefresh() {
   clearTimeout(pollTimer);
   if (document.hidden) return;
   const liveInterview = currentInterviewLibrary?.chats?.some(chat => ["forking", "running", "queued"].includes(chat.status));
-  pollTimer = setTimeout(refresh, currentRun?.runner_active || liveInterview || !currentRun ? 3000 : 30000);
+  pollTimer = setTimeout(refresh, currentRun?.runner_active || currentRun?.auto_recovery?.enabled || liveInterview || !currentRun ? 3000 : 30000);
 }
 document.addEventListener("run-tab-change", () => {
   if (!runTabVisible("overview")) stopPlayback();

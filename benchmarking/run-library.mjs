@@ -10,7 +10,7 @@ import { rateLimitDetails } from "./run-errors.mjs";
 
 const RUN_ID = /^run-[0-9TZ-]+-[a-f0-9]{6}$/;
 const TRANSIENT = new Set(["queued", "running", "continuing", "pausing"]);
-const METADATA = ["id", "pair_id", "model", "provider", "world", "observation_mode", "effort", "tools_enabled", "coding_mode",
+const METADATA = ["id", "pair_id", "model", "provider", "world", "observation_mode", "effort", "tools_enabled", "coding_mode", "harness",
   "sequence_enabled", "service_tier", "action_limit", "created_at", "completed_at", "stopped_at", "paused_at", "updated_at", "status"];
 const COUNTERS = ["action_count", "gems_collected", "rooms_visited", "unique_cells", "levels_solved", "levels_total", "level_number"];
 const pick = (value, fields) => Object.fromEntries(fields.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));

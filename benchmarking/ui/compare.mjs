@@ -1,8 +1,8 @@
 import { benchmarkFetch } from "./benchmark-api.mjs";
 import { runCompany, selectRuns } from "./run-library.mjs";
-import { comparisonCondition } from "./heatmap-import.mjs";
+import { comparisonCondition, comparisonConditionKey, comparisonModel } from "./heatmap-import.mjs";
 import { prepareHeatmap, comparisonBounds, croppedBounds, comparisonScale, defaultComparison, drawComparisonMap, displayModelName, tileAt, roomAt } from "./heatmap-comparison.mjs";
-import { modelLabel } from "./model-label.mjs";
+import { modelLabel, modelSpeed } from "./model-label.mjs";
 import { createGemComparison } from "./gem-comparison.mjs";
 import { createHeatmapGifExport } from "./heatmap-gif-export.mjs";
 
@@ -61,7 +61,7 @@ const panels = ["left", "right", "third"].map((side, index) => {
     canvas: element.querySelector("canvas"), message: element.querySelector(".map-message"), data: null, layout: null };
   panel.model.addEventListener("change", () => {
     const previous = runs.find(run => run.id === panel.run.value);
-    const preferred = runs.find(run => run.model === panel.model.value && comparisonCondition(run) === comparisonCondition(previous));
+    const preferred = runs.find(run => comparisonModel(run.model) === panel.model.value && comparisonConditionKey(run) === comparisonConditionKey(previous));
     populateRuns(panel, preferred?.id); loadSelection();
   });
   panel.run.addEventListener("change", loadSelection);
@@ -136,9 +136,10 @@ function populateModels(panel, id) {
   panel.model.replaceChildren(new Option("Choose a model", ""));
   const companies = new Map();
   for (const run of selectRuns(runs, { sort: "company" })) {
-    const company = runCompany(run);
+    const model = comparisonModel(run.model);
+    const company = model === "kimi-k3" ? "Moonshot AI" : runCompany(run);
     if (!companies.has(company)) companies.set(company, new Set());
-    companies.get(company).add(run.model);
+    companies.get(company).add(model);
   }
   for (const [company, models] of companies) {
     const group = document.createElement("optgroup"); group.label = company;
@@ -146,14 +147,14 @@ function populateModels(panel, id) {
     panel.model.append(group);
   }
   panel.model.disabled = !runs.length;
-  panel.model.value = runs.find(run => run.id === id)?.model || "";
+  panel.model.value = comparisonModel(runs.find(run => run.id === id)?.model) || "";
   populateRuns(panel, id);
 }
 
 function populateRuns(panel, id) {
-  const matching = runs.filter(run => run.model === panel.model.value);
+  const matching = runs.filter(run => comparisonModel(run.model) === panel.model.value);
   panel.run.replaceChildren(...matching.map(run => new Option(
-    `${run.source ? "Imported · " : ""}${comparisonCondition(run)} · ${run.observation_mode === "vision" ? "Vision · " : ""}${run.created_at ? dates.format(new Date(run.created_at)) : "Undated"} · ${run.id.slice(-6)}`, run.id)));
+    `${run.source ? "Imported · " : ""}${comparisonCondition(run)} · ${modelSpeed(run) === "fast" ? "Fast · " : ""}${run.effort ? `${run.effort} · ` : ""}${run.observation_mode !== "ascii" ? `${String(run.observation_mode || "").toUpperCase()} · ` : ""}${run.created_at ? dates.format(new Date(run.created_at)) : "Undated"} · ${run.id.slice(-6)}${run.heatmap_available === false ? " · No heatmap" : ""}`, run.id)));
   if (!matching.length) panel.run.append(new Option("Choose a model first", ""));
   panel.run.disabled = !matching.length;
   panel.run.value = matching.find(run => run.id === id)?.id || matching[0]?.id || "";
@@ -180,7 +181,7 @@ function renderPanel(panel) {
   if (run) link.href = run.source?.url || `./run.html?id=${encodeURIComponent(run.id)}`;
   link.textContent = run?.source ? "Source run ↗" : "Open run ↗";
   panel.element.querySelector(".run-description").textContent = run
-    ? `${run.source ? `Imported from ${new URL(run.source.origin).host}` : `${run.effort || "Default"} reasoning`} · ${run.observation_mode === "vision" ? "Vision" : "ASCII"} · ${String(run.status || "unknown").replaceAll("-", " ")}` : "Choose a run";
+    ? `${run.source ? `${run.harness_label || run.harness || run.provider} · ${run.effort || "Unrecorded"} reasoning · Imported` : `${run.effort || "Default"} reasoning`} · ${String(run.observation_mode || "ascii").toUpperCase()} · ${String(run.status || "unknown").replaceAll("-", " ")}` : "Choose a run";
   const stats = { actions: data?.actions, tiles: data?.map.points.length, rooms: data ? run?.rooms_visited : null, gems: data ? run?.gems_collected : null };
   for (const [key, value] of Object.entries(stats)) panel.element.querySelector(`[data-stat="${key}"]`).textContent = value == null ? "—" : number(value);
   panel.element.querySelector(".map-coverage").textContent = data
@@ -257,7 +258,7 @@ function comparisonNote() {
   const notes = [];
   if (selected.length > 1) {
     if (new Set(selected.map(run => run.id)).size < selected.length) notes.push("Some panels show the same run.");
-    if (new Set(selected.map(comparisonCondition)).size > 1) notes.push("These runs use different tool settings.");
+    if (new Set(selected.map(comparisonConditionKey)).size > 1) notes.push("These runs use different tool settings.");
     if (new Set(selected.map(run => run.observation_mode || "ascii")).size > 1) notes.push("These runs use different observation modes.");
     if (new Set(selected.filter(run => run.effort).map(run => run.effort)).size > 1) notes.push("These runs use different reasoning settings.");
   }
@@ -287,7 +288,7 @@ async function loadSelection() {
       if (serial !== generation) return;
       panel.data = data;
       panel.message.hidden = Boolean(data.map.points.length);
-      panel.message.textContent = "No recorded visits in this run yet.";
+      panel.message.textContent = runs.find(run => run.id === id)?.source ? "This historical run has no recoverable player positions." : "No recorded visits in this run yet.";
     } catch (error) {
       if (serial !== generation) return;
       failed = true;

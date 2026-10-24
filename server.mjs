@@ -1,3 +1,4 @@
+import { createCatalogServer } from "./benchmarking/catalog-server.mjs";
 import { createCapabilityServer } from "./benchmarking/capability-server.mjs";
 import "./benchmarking/codex-releases.mjs";
 import { publishEditorRoom } from "./benchmarking/storage/live-world.mjs";
@@ -344,4 +345,11 @@ if (process.env.MAZEBENCH_DISABLE_CAPABILITIES !== "1" && (Number(port) === 8080
     if (error.code !== "EADDRINUSE") console.error("Capability server:", error.message);
   });
   capabilityServer.listen(capabilityPort, "127.0.0.1");
+}
+
+// Keep catalog upgrades independent of the processes owning existing runs.
+if (process.env.MAZEBENCH_DISABLE_CAPABILITIES !== "1" && (Number(port) === 8080 || process.env.MAZEBENCH_CAPABILITY_PORT)) {
+  const { server: catalogServer } = createCatalogServer(root, { port: Number(process.env.MAZEBENCH_CATALOG_PORT || 8084), mainPort: Number(port), upstreamPort: Number(process.env.MAZEBENCH_CAPABILITY_PORT || 8083) });
+  catalogServer.on("error", error => { if (error.code !== "EADDRINUSE") console.error("Model catalog server:", error.message); });
+  catalogServer.listen(Number(process.env.MAZEBENCH_CATALOG_PORT || 8084), "127.0.0.1");
 }

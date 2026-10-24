@@ -1,7 +1,8 @@
-import { supportsAnyLanguage } from "../all-code/capabilities.mjs";
+import { groupModels, sortedEfforts, variantEfforts, resolveSelection } from "../model-catalog/normalize.mjs";
+import { supportsAnyLanguage } from "../capabilities.mjs";
 import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs";
-import { RunListView, providerName, runCompany, selectRuns } from "./run-library.mjs";
-import { modelLabel } from "./model-label.mjs";
+import { RunListView, providerName, runCompany, selectRuns, isActiveRun } from "./run-library.mjs";
+import { modelLabel, modelGroupId } from "./model-label.mjs";
 import { setupPromptPreview } from "./prompt-preview.mjs";
 const elements = Object.fromEntries([
   "world", "world-description", "world-objective", "connection-status", "launch-form", "provider", "model", "effort", "action-limit", "run-options-summary",
@@ -9,7 +10,33 @@ const elements = Object.fromEntries([
   "launch-status", "refresh", "run-list", "record-count", "codex-version", "codex-update-status", "check-codex", "runtime-details", "agent-readiness", "run-pagination", "run-page", "previous-runs", "next-runs", "run-company", "run-model", "run-sort"
 ].map((id) => [id, document.getElementById(id)]));
 
-let models = [];
+// Extend the live UI without modifying the signed historical HTML snapshot.
+elements["run-sort"].append(new Option("Active first", "active"), new Option("Active only", "active-only"));
+try {
+  const saved = localStorage.getItem("mazebench.run-sort");
+  if ([...elements["run-sort"].options].some(option => option.value === saved)) elements["run-sort"].value = saved;
+} catch { /* Sorting still works when browser storage is unavailable. */ }
+
+// New controls belong to the live module; historical HTML stays signed.
+const speedLabel = document.createElement("label");
+speedLabel.innerHTML = '<span>Speed</span><select id="model-speed" aria-label="Model speed"></select>';
+elements.effort.closest("label").after(speedLabel);
+elements.speed = speedLabel.querySelector("select");
+const catalogControls = document.createElement("div");
+catalogControls.className = "model-catalog-controls";
+const refreshModels = document.createElement("button"); refreshModels.type = "button"; refreshModels.textContent = "Refresh models";
+const catalogStatus = document.createElement("span"); catalogStatus.setAttribute("role", "status");
+catalogControls.append(refreshModels, catalogStatus); elements["launch-form"].after(catalogControls);
+let models = [], catalogs = {}, catalogLoading, catalogCheckedAt = 0;
+const selectedGroup = () => models.find(m => m.id === elements.model.value && m.provider === elements.provider.value);
+const selectedVariant = () => resolveSelection(selectedGroup(), { speed: elements.speed.value, effort: elements.effort.value, coding_mode: elements["coding-mode"].value });
+function renderCatalogStatus() {
+  const state = catalogs[elements.provider.value];
+  catalogStatus.textContent = !state ? "Model catalog unavailable. Refresh models." : state.error
+    ? `Model refresh failed: ${state.error}${state.updated_at ? " Showing the last successful list." : ""}`
+    : `${models.filter(m => m.provider === elements.provider.value).length} models · Updated ${new Date(state.updated_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · Refreshes every 5 minutes`;
+}
+
 let polling = false;
 let launching = false;
 let codexReady = false;
@@ -20,12 +47,14 @@ function providerCompatible(provider) {
 }
 
 function updateReadiness() {
+  renderCatalogStatus();
   const provider = elements.provider.value;
-  const status = installationStatus[provider];
+  const direct = provider === "prime-agent" && elements["coding-mode"].value === "off";
+  const status = direct ? installationStatus[provider]?.direct : installationStatus[provider];
   const any = elements["coding-mode"].value === "any";
   const codeReady = !any || (supportsAnyLanguage(launchPayload()) && status?.code_sandbox?.available);
   const needsAuth = ["claude-code", "grok-build", "antigravity", "muse-code", "kimi-code", "prime-agent"].includes(provider);
-  codexReady = Boolean(codeReady && status?.available && status?.tested && (!needsAuth || status.authenticated) && providerCompatible(provider) && models.some(model => model.id === elements.model.value && (model.provider || "codex") === provider));
+  codexReady = Boolean(codeReady && status?.available && status?.tested && (!needsAuth || status.authenticated) && providerCompatible(provider) && selectedVariant() && !catalogs[provider]?.stale);
   elements["codex-version"].textContent = status?.version ? `${providerName(provider)} ${status.version.replace(/^codex-cli /, "")}` : "Checking agent…";
   const labels = { "up-to-date": "Up to date", "update-available": `Update available: ${status?.latest_version}. Run codex update, then restart the server.`, "newer-than-release": "Newer than the current stable release", unknown: "Latest release check unavailable" };
   elements["codex-update-status"].textContent = any && !codeReady
@@ -80,7 +109,7 @@ function renderRuns(runs, page) {
   latestRuns = runs;
   filterOptions(elements["run-company"], runs.map(runCompany), "All companies");
   const company = elements["run-company"].value;
-  filterOptions(elements["run-model"], runs.filter(run => !company || runCompany(run) === company).map(run => run.model), "All models", modelLabel);
+  filterOptions(elements["run-model"], runs.filter(run => !company || runCompany(run) === company).map(run => modelGroupId(run.model)), "All models", modelLabel);
   const visible = selectRuns(runs, { company, model: elements["run-model"].value, sort: elements["run-sort"].value });
   const result = runList.update(visible, page);
   elements["record-count"].textContent = visible.length === runs.length
@@ -92,43 +121,59 @@ function renderRuns(runs, page) {
   elements["next-runs"].disabled = result.page + 1 === result.totalPages;
 }
 
-function updateEfforts() {
-  const selected = models.find((model) => model.id === elements.model.value && (model.provider || "codex") === elements.provider.value) || models[0];
-  elements.effort.replaceChildren();
-  for (const effort of selected?.efforts || ["medium"]) {
-    const option = document.createElement("option");
-    option.value = effort;
-    option.textContent = effort === "default" ? "Model default" : effort;
-    option.selected = effort === selected?.default_effort;
-    elements.effort.append(option);
-  }
+function updateEfforts(preserve = true) {
+  const previous = preserve ? elements.effort.value : "";
+  const mode = elements["coding-mode"].value;
+  const variants = selectedGroup()?.variants.filter(v => v.speed === elements.speed.value) || [];
+  const efforts = sortedEfforts(variants.flatMap(v => variantEfforts(v, mode) || []));
+  const defaults = variants.map(v => mode === "off" && v.provider === "prime-agent" ? v.default_direct_effort : v.default_effort);
+  const preferred = previous || defaults.find(e => efforts.includes(e)) || efforts[0];
+  elements.effort.replaceChildren(...efforts.map(e => new Option(e === "default" ? "Model default" : e === "enabled" ? "Thinking enabled" : e, e)));
+  if (previous && !efforts.includes(previous)) { const missing = new Option(previous + " (unavailable)", previous); missing.disabled = true; elements.effort.append(missing); }
+  elements.effort.value = preferred || "";
+  elements.effort.disabled = efforts.length < 2;
 }
-
-function updateModels() {
+function updateSpeeds(preserve = true) {
+  const previous = preserve ? elements.speed.value : "";
+  const speeds = [...new Set((selectedGroup()?.variants || []).map(v => v.speed))].filter(speed => elements["observation-mode"].value !== "vision" || speed === "standard");
+  elements.speed.replaceChildren(...speeds.map(speed => new Option(speed === "fast" ? "Fast" : "Standard", speed)));
+  if (previous && !speeds.includes(previous)) { const missing = new Option(previous + " (unavailable)", previous); missing.disabled = true; elements.speed.append(missing); }
+  elements.speed.value = previous || (speeds.includes("standard") ? "standard" : speeds[0]) || "";
+  elements.speed.disabled = speeds.length < 2;
+  updateEfforts(preserve);
+}
+function updateModels(preserve = false) {
+  const previous = preserve ? elements.model.value : "";
   const prime = elements.provider.value === "prime-agent";
   elements["coding-mode"].disabled = false;
-  elements["coding-mode"].querySelector('option[value="off"]').disabled = prime;
-  if (prime && elements["coding-mode"].value === "off") elements["coding-mode"].value = "python";
+  elements["coding-mode"].querySelector('option[value="off"]').disabled = false;
   elements["launch-pair"].hidden = prime;
   updateCodingOptions();
-  const providerModels = models.filter(model => (model.provider || "codex") === elements.provider.value);
-  elements.model.replaceChildren();
-  for (const model of providerModels) {
-    const option = document.createElement("option");
-    option.value = model.id;
-    option.textContent = modelLabel(model.id, model.name);
-    const preferred = ({ codex: "gpt-5.6-terra", "claude-code": "claude-sonnet-5-5", "grok-build": "grok-4.7", antigravity: "gemini-3.8-flash-medium", "muse-code": "muse-wonder-1.0", "kimi-code": "k3.1-pro", "prime-agent": "openai/gpt-4.1-mini" })[elements.provider.value];
-    option.selected = model.id === preferred;
-    elements.model.append(option);
-  }
-  updateEfforts();
-  updateReadiness();
-  updatePrompt();
+  const providerModels = models.filter(model => model.provider === elements.provider.value);
+  elements.model.replaceChildren(...providerModels.map(model => new Option(model.name, model.id)));
+  // Never silently change a user's chosen model during a background refresh.
+  if (previous && !providerModels.some(m => m.id === previous)) {
+    const missing = new Option(previous + " (unavailable)", previous); missing.disabled = true; elements.model.append(missing);
+    elements.model.value = previous;
+  } else elements.model.value = previous || providerModels.find(m => m.variants.some(v => v.is_default))?.id ||
+    providerModels.find(m => m.id === ({ "kimi-code": "k3.1-pro", "claude-code": "claude-sonnet-5-5", "muse-code": "muse-wonder-1.0", "grok-build": "grok-4.7" })[elements.provider.value])?.id || providerModels[0]?.id || "";
+  updateSpeeds(preserve); updateReadiness(); updatePrompt();
 }
-async function loadModels() {
-  const catalog = await api("/api/benchmark/v1/models");
-  models = catalog.models;
-  updateModels();
+async function loadModels(force = false) {
+  if (catalogLoading) return catalogLoading;
+  refreshModels.disabled = true;
+  catalogLoading = (async () => {
+    try {
+      const catalog = await api(`/api/benchmark/v1/models${force ? "?force=1" : ""}`);
+      models = catalog.groups || groupModels(catalog.models);
+      catalogs = catalog.catalogs || {}; catalogCheckedAt = Date.now();
+      updateModels(Boolean(elements.model.value));
+    } catch (error) {
+      for (const provider of Object.keys(catalogs)) catalogs[provider] = { ...catalogs[provider], stale: true, error: error.message };
+      catalogStatus.textContent = "Model refresh failed: " + error.message; updateReadiness();
+    } finally { refreshModels.disabled = false; catalogLoading = null; }
+  })();
+  return catalogLoading;
 }
 
 function launchPayload() {
@@ -137,7 +182,8 @@ function launchPayload() {
     world: elements.world.value,
     ...(elements.world.value === "main-world" ? { observation_mode: elements["observation-mode"].value } : {}),
     provider: elements.provider.value,
-    model: elements.model.value,
+    model: selectedVariant()?.id || "",
+    service_tier: selectedVariant()?.service_tier || "standard",
     effort: elements.effort.value,
     coding_mode: mode,
     tools_enabled: mode !== "off",
@@ -217,18 +263,24 @@ async function poll() {
     elements["run-list"].setAttribute("aria-busy", "false");
     polling = false;
     if (!document.hidden) {
-      const active = latestRuns.some(run => run.runner_active || ["queued", "running", "continuing", "preparing", "pausing"].includes(run.status));
+      const active = latestRuns.some(isActiveRun);
       pollTimer = setTimeout(poll, active ? 5000 : 30000);
     }
   }
 }
 
 elements["launch-form"].addEventListener("submit", launchSingle);
-elements["check-codex"].addEventListener("click", () => checkCodex(true));
+elements["check-codex"].addEventListener("click", () => { void checkCodex(true); void loadModels(true); });
+refreshModels.addEventListener("click", () => loadModels(true));
 elements["launch-pair"].addEventListener("click", launchPair);
 elements.refresh.addEventListener("click", () => poll());
 for (const id of ["run-company", "run-model", "run-sort"]) {
-  elements[id].addEventListener("change", () => renderRuns(latestRuns, 0));
+  elements[id].addEventListener("change", () => {
+    if (id === "run-sort") {
+      try { localStorage.setItem("mazebench.run-sort", elements[id].value); } catch { /* Optional preference. */ }
+    }
+    renderRuns(latestRuns, 0);
+  });
 }
 for (const [id, step] of [["previous-runs", -1], ["next-runs", 1]]) {
   elements[id].addEventListener("click", () => {
@@ -238,7 +290,7 @@ for (const [id, step] of [["previous-runs", -1], ["next-runs", 1]]) {
 }
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) clearTimeout(pollTimer);
-  else poll();
+  else { poll(); if (Date.now() - catalogCheckedAt > 5 * 60_000) loadModels(); }
 });
 elements["run-list"].addEventListener("click", async (event) => {
   const button = event.target.closest("[data-delete-run]");
@@ -296,7 +348,7 @@ async function updateObservation() {
   img.onerror = () => { elements["vision-preview-status"].textContent = "The image could not be rendered. Try again."; };
   img.src = visionUrl(`/api/benchmark/vision/preview?room=${elements["vision-room"].value}&yaw=${previewYaw}&pitch=${previewPitch}`);
 }
-elements["observation-mode"].addEventListener("change", updateObservation);
+elements["observation-mode"].addEventListener("change", () => { updateSpeeds(); updateObservation(); });
 elements["vision-room"].addEventListener("change", updateObservation);
 elements["vision-left"].addEventListener("click", () => { previewYaw = (previewYaw + 3) % 4; updateObservation(); });
 elements["vision-right"].addEventListener("click", () => { previewYaw = (previewYaw + 1) % 4; updateObservation(); });
@@ -317,8 +369,10 @@ document.getElementById("prompt-details").addEventListener("toggle", event => {
 });
 elements["action-limit"].addEventListener("change", updateRunOptionsSummary);
 elements["sequence-enabled"].addEventListener("change", updateRunOptionsSummary);
-elements.model.addEventListener("change", updateEfforts);
-elements.provider.addEventListener("change", updateModels);
+elements.model.addEventListener("change", () => { updateSpeeds(false); updateReadiness(); updatePrompt(); });
+elements.speed.addEventListener("change", () => { updateEfforts(); updateReadiness(); updatePrompt(); });
+elements.effort.addEventListener("change", updateReadiness);
+elements.provider.addEventListener("change", () => { updateModels(); if (Date.now() - catalogCheckedAt > 5 * 60_000) loadModels(); });
 function updateCodingOptions() {
   const supported = supportsAnyLanguage(launchPayload());
   elements["coding-mode"].querySelector('option[value="any"]').disabled = !supported;
@@ -326,17 +380,18 @@ function updateCodingOptions() {
   // launch a different tier when the provider or observation mode changes.
   const prime = elements.provider.value === "prime-agent";
   elements["launch-note"].textContent = prime
-    ? "Prime uses its native Python workspace; Any language also adds the isolated multi-language toolchain. Inference and the remote VM are billed to your Prime account."
+    ? "Python off uses direct maze tools through Prime Inference, a separate harness from stock Prime Agent. Python and Any language use the native Prime Agent workspace. Your Prime account pays inference; native modes also use a billed remote VM."
     : elements["coding-mode"].value === "any"
       ? "A matched pair compares coding off with Any language. The isolated toolchain supports Python, JavaScript, C/C++, Rust, Go, Java, Ruby, Perl and Lua."
       : "A matched pair compares coding off with Python only. Any language is available for all harnesses with ASCII observations.";
 }
-elements["coding-mode"].addEventListener("change", () => { updateCodingOptions(); updateReadiness(); });
+elements["coding-mode"].addEventListener("change", () => { updateCodingOptions(); updateEfforts(false); updateReadiness(); updatePrompt(); });
 
 try {
   setLaunching(false, elements["launch-status"].textContent);
   await Promise.all([loadModels(), checkCodex(), poll()]);
   setInterval(() => { if (!document.hidden) checkCodex(); }, 15 * 60_000);
+  setInterval(() => { if (!document.hidden) loadModels(); }, 5 * 60_000);
 } catch (error) {
   showError(error);
   elements["launch-status"].textContent = error.message;

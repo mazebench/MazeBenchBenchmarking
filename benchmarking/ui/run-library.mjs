@@ -1,6 +1,7 @@
-import { codingLabel, codingMode } from "../all-code/capabilities.mjs";
+import { codingLabel, codingMode, isPrimeDirect } from "../capabilities.mjs";
 import { formatRateLimit } from "../run-errors.mjs";
-import { modelLabel } from "./model-label.mjs";
+import { recoveryPresentation } from "./auto-recovery.mjs";
+import { modelLabel, modelSpeed, modelGroupId } from "./model-label.mjs";
 const dates = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
 const count = value => (value || 0).toLocaleString();
@@ -15,11 +16,14 @@ export function providerName(provider) {
   return ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity", "muse-code": "Meta Muse Code", "kimi-code": "Kimi Code", "prime-agent": "Prime Agent" })[provider] || provider;
 }
 
+export const harnessName = run => isPrimeDirect(run) ? "Prime Inference · direct tools" : providerName(run.provider || "codex");
+
 export function runCompany(run) {
   const model = String(run.model || "").toLowerCase();
-  if (run.provider === "prime-agent" && model.includes("/")) {
+  // Historical imports record the same hosted models under provider "prime".
+  if (["prime-agent", "prime"].includes(run.provider) && model.includes("/")) {
     const vendor = model.split("/")[0];
-    return ({openai: "OpenAI", anthropic: "Anthropic (Claude)", google: "Google", meta: "Meta", "meta-llama": "Meta", xai: "xAI", deepseek: "DeepSeek", alibaba: "Alibaba", mistral: "Mistral"})[vendor] || vendor;
+    return ({openai: "OpenAI", anthropic: "Anthropic (Claude)", google: "Google", meta: "Meta", "meta-llama": "Meta", xai: "xAI", deepseek: "DeepSeek", alibaba: "Alibaba", qwen: "Alibaba", nvidia: "NVIDIA", mistral: "Mistral"})[vendor] || vendor;
   }
   if (model.startsWith("claude")) return "Anthropic (Claude)";
   if (model.startsWith("gemini")) return "Google";
@@ -29,11 +33,22 @@ export function runCompany(run) {
   return ({ codex: "OpenAI", "claude-code": "Anthropic (Claude)", "grok-build": "xAI", antigravity: "Google", "muse-code": "Meta", "kimi-code": "Moonshot AI" })[run.provider || "codex"] || run.provider;
 }
 
+export function isActiveRun(run) {
+  if (["paused", "stopped", "completed"].includes(run.status)) return false;
+  if (run.auto_recovery?.enabled && ["watching", "waiting", "retrying"].includes(run.auto_recovery.state)) return true;
+  return run.runner_active !== false && ["preparing", "queued", "running", "continuing", "pausing"].includes(run.status);
+}
+
+const activityTime = run => Math.max(...[run.updated_at, run.paused_at, run.completed_at, run.stopped_at, run.created_at].map(value => Date.parse(value) || 0));
+
 export function selectRuns(runs, { company = "", model = "", sort = "newest" } = {}) {
-  return runs.filter(run => (!company || runCompany(run) === company) && (!model || run.model === model)).sort((a, b) => {
+  return runs.filter(run => (!company || runCompany(run) === company) && (!model || run.model === model || modelGroupId(run.model) === model) &&
+    (sort !== "active-only" || isActiveRun(run))).sort((a, b) => {
+    const activeOrder = sort === "active" ? Number(isActiveRun(b)) - Number(isActiveRun(a)) : 0;
+    const activityOrder = ["active", "active-only"].includes(sort) ? activityTime(b) - activityTime(a) : 0;
     const companyOrder = sort === "company" ? runCompany(a).localeCompare(runCompany(b)) : 0;
     const modelOrder = ["company", "model"].includes(sort) ? String(a.model || "").localeCompare(String(b.model || ""), undefined, { numeric: true }) : 0;
-    return companyOrder || modelOrder || String(b.created_at || "").localeCompare(String(a.created_at || "")) || String(a.id).localeCompare(String(b.id));
+    return activeOrder || activityOrder || companyOrder || modelOrder || String(b.created_at || "").localeCompare(String(a.created_at || "")) || String(a.id).localeCompare(String(b.id));
   });
 }
 
@@ -51,22 +66,23 @@ export function runCardValues(run) {
   const company = runCompany(run) || "Unknown provider";
   const logo = companyLogos.get(company);
   const rateLimited = Boolean(run.rate_limit && run.status === "failed");
+  const recovery = recoveryPresentation(run);
   return {
     href: `./run.html?id=${encodeURIComponent(run.id)}`,
     company,
     logo: logo ? new URL(`./assets/model-logos/${logo}.svg`, import.meta.url).href : null,
     monochromeLogo: ["openai", "grok"].includes(logo),
-    effort: run.effort || "default",
-    tools: codingMode(run) === "any" ? "(any language)" : run.provider === "prime-agent" || run.tools_enabled ? "(tools on)" : "(tools off)",
-    statusTone: rateLimited || ["queued", "preparing", "pausing"].includes(run.status) ? "yellow"
+    effort: (run.effort || "default") + (modelSpeed(run) === "fast" ? " · Fast" : ""),
+    tools: codingMode(run) === "any" ? "(any language)" : (run.provider === "prime-agent" && !isPrimeDirect(run)) || run.tools_enabled ? "(tools on)" : "(tools off)",
+    statusTone: recovery.waiting || rateLimited || ["queued", "preparing", "pausing"].includes(run.status) ? "yellow"
       : ["running", "continuing"].includes(run.status) ? "green"
       : ["failed", "interrupted"].includes(run.status) ? "red" : "gray",
     condition: `${run.observation_mode === "vision" ? "Vision · " : ""}${codingLabel(run)}`,
-    status: run.rate_limit && run.status === "failed" ? "Rate limited" : String(run.status || "unknown").replaceAll("-", " "),
-    rateLimit: run.status === "failed" ? formatRateLimit(run.rate_limit) : null,
+    status: recovery.label || (run.rate_limit && run.status === "failed" ? "Rate limited" : String(run.status || "unknown").replaceAll("-", " ")),
+    rateLimit: recovery.detail || (run.status === "failed" ? formatRateLimit(run.rate_limit) : null),
     context: `${worldName(run)} · ${run.effort} reasoning`,
     timestamp: `${run.created_at ? dates.format(new Date(run.created_at)) : "—"} · ${duration(run)}`,
-    meta: `${worldName(run)} · ${providerName(run.provider || "codex")} · ${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"} · ${run.service_tier === "fast" ? "Fast" : "Standard speed"}` : ""} · ${run.created_at ? dates.format(new Date(run.created_at)) : "—"} · ${duration(run)}`,
+    meta: `${worldName(run)} · ${harnessName(run)} · ${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"} · ${modelSpeed(run) === "fast" ? "Fast" : "Standard speed"}` : ""} · ${run.created_at ? dates.format(new Date(run.created_at)) : "—"} · ${duration(run)}`,
     progress: run.action_limit ? Math.min(100, (run.action_count || 0) / run.action_limit * 100) : run.status === "completed" ? 100 : 0,
     metrics: [
       ["Actions", `${count(run.action_count)}${run.action_limit ? `/${count(run.action_limit)}` : ""}`],
@@ -104,14 +120,14 @@ function updateCard(card, run, values) {
   text(card.querySelector(".condition"), values.tools);
   const effort = card.querySelector(".record-effort");
   text(effort, values.effort);
-  effort.title = `Reasoning effort: ${values.effort}`;
+  effort.title = `Reasoning${modelSpeed(run) === "fast" ? " and speed" : " effort"}: ${values.effort}`;
   effort.setAttribute("aria-label", effort.title);
   const status = card.querySelector(".record-status");
   status.dataset.tone = values.statusTone;
   status.title = values.rateLimit ? `${values.status}: ${values.rateLimit}` : values.status;
   status.setAttribute("aria-label", status.title);
   const model = card.querySelector(".record-model");
-  text(model, run.model || "Unknown model");
+  text(model, modelLabel(run.model) || "Unknown model");
   model.title = `${run.model || "Unknown model"} · ${values.condition} · ${values.meta}`;
   text(card.querySelector(".record-date"), values.timestamp);
   card.querySelectorAll(".record-metrics > span").forEach((metric, index) => {

@@ -19,10 +19,13 @@ export async function primePrice(model) {
 }
 export const createPrimeTimeline = () => ({ requests: new Map(), totals: null, samples: [], compactions: [] });
 export function consumePrimeEvent(timeline, event) {
+  if (event.type === 'context_compacted') timeline.compactions.push({ timestamp: Date.parse(event._received_at), before_tokens: timeline.samples.at(-1)?.tokens ?? null, after_tokens: null });
   if (event.type === 'turn.completed' && Number.isFinite(event.usage?.input_tokens) && Number.isFinite(event.usage?.output_tokens)) timeline.totals = event.usage;
   if (event.type !== 'request_usage' || !event.response_id || !Number.isFinite(event.usage?.input_tokens) || !Number.isFinite(event.usage?.output_tokens)) return;
   const timestamp = Date.parse(event._received_at);
   timeline.requests.set(event.response_id, { timestamp, model: event.model, usage: event.usage });
+  const compaction = timeline.compactions.at(-1);
+  if (compaction && compaction.after_tokens === null && timestamp >= compaction.timestamp) compaction.after_tokens = event.usage.input_tokens + event.usage.output_tokens;
   if (Number.isFinite(timestamp) && timeline.samples.at(-1)?.response_id !== event.response_id)
     timeline.samples.push({ timestamp, tokens: event.usage.input_tokens + event.usage.output_tokens, response_id: event.response_id });
 }
@@ -42,8 +45,9 @@ export async function primeTelemetry(timeline, metadata, getPrice = primePrice) 
   if (reported) api_estimate.basis = 'Prime reported inference cost for all recorded model responses. Remote VM fees are excluded.';
   else if (api_estimate.usd === null && totals) api_estimate.basis += ' A verified rate for this route or its cache usage is unavailable.';
   const latest = timeline.samples.at(-1);
-  return { available: Boolean(latest), totals, samples: timeline.samples, compactions: [],
+  if (['prime-inference-direct-v1', 'prime-inference-direct-v2'].includes(metadata.harness)) api_estimate.basis = api_estimate.basis.replace('remote VM fees and unreported usage are excluded', 'unreported usage is excluded').replace(' Remote VM fees are excluded.', '');
+  return { available: Boolean(latest), totals, samples: timeline.samples, compactions: timeline.compactions,
     current_tokens: latest?.tokens ?? null, updated_at: latest?.timestamp ?? null,
-    context_window: null, compaction_threshold: null, api_estimate,
+    context_window: metadata.context_window || null, compaction_threshold: metadata.compaction_threshold || null, api_estimate,
     reason: 'Prime reports cumulative token usage. Context samples require per-response usage from the new runner.' };
 }

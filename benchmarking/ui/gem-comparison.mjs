@@ -1,4 +1,4 @@
-import { codingLabel, codingMode } from "../all-code/capabilities.mjs";
+import { codingLabel, codingMode } from "../capabilities.mjs";
 import { benchmarkFetch } from "./benchmark-api.mjs";
 import { runCompany, selectRuns } from "./run-library.mjs";
 import { displayModelName } from "./heatmap-comparison.mjs";

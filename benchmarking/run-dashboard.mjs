@@ -16,7 +16,7 @@ import { POLICY as PRIME_POLICY } from "./prime/policy.mjs";
 import { rateLimitDetails } from "./run-errors.mjs";
 import { POLICY as MUSE_POLICY } from "./muse/policy.mjs";
 
-const fields = ["id", "pair_id", "provider", "world", "model", "observation_mode", "effort", "tools_enabled", "coding_mode", "code_policy", "sequence_enabled", "service_tier", "action_limit", "start_room", "created_at", "updated_at", "completed_at", "paused_at", "stopped_at", "status", "continuation_count", "world_updates", "world_revision", "isolation", "usage"];
+const fields = ["id", "pair_id", "provider", "world", "model", "observation_mode", "effort", "tools_enabled", "coding_mode", "harness", "code_policy", "sequence_enabled", "service_tier", "action_limit", "start_room", "created_at", "updated_at", "completed_at", "paused_at", "stopped_at", "status", "continuation_count", "world_updates", "world_revision", "isolation", "usage"];
 const optional = async (directory, file, fallback) => readCheckpointJson(directory, file).catch(error => { if (error.code === "ENOENT") return fallback; throw error; });
 
 export class RunDashboard {

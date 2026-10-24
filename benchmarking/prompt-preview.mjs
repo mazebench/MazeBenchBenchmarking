@@ -20,7 +20,7 @@ export async function previewBenchmarkPrompt(root, spec = {}) {
   if (!["codex", "claude-code"].includes(provider) && (world !== "main-world" || mode !== "ascii")) {
     throw new Error("This agent supports Main World with ASCII observations only.");
   }
-  const toolsEnabled = provider === "prime-agent" || codingMode(spec) !== "off";
+  const toolsEnabled = codingMode(spec) !== "off";
   const sequences = spec.sequence_enabled !== false && spec.sequence_enabled !== "false";
   const actionLimit = spec.action_limit === null || String(spec.action_limit).toLowerCase() === "unlimited"
     ? null : Math.max(1, Math.min(1_000_000, Math.floor(Number(spec.action_limit) || 100)));
@@ -38,7 +38,7 @@ export async function previewBenchmarkPrompt(root, spec = {}) {
   const source = `benchmarking/${folder}/EVAL-PROMPT.md`;
   const base = await readFile(path.join(root, source), "utf8");
   let prompt;
-  if (provider === "prime-agent") {
+  if (provider === "prime-agent" && toolsEnabled) {
     prompt = base + "\n\nUse your native Prime Agent Python workspace. Discover the MCP server named maze; it provides observe, action, and sequence. Call observe first. Game state lives behind these tools, not in your workspace. You may use Python to plan and call those tools. Other network access is disabled. Continue until all gems are collected or the action limit is reached.\n" +
       (actionLimit === null ? "There is no game action limit." : `The game action limit is ${actionLimit}.`);
   } else if (mode === "vision") {
