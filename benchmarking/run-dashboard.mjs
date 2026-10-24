@@ -1,6 +1,7 @@
 // Read-only HTTP views. Keep dashboard changes outside frozen agent assets.
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { readRunVersion } from "./run-version.mjs";
 import { RunLibrary } from "./run-library.mjs";
 import { readCheckpointJson } from "./v1/checkpoint-json.mjs";
 import { safeReadFile } from "./v1/safe-files.mjs";
@@ -30,6 +31,7 @@ export class RunDashboard {
       history_epoch: snapshot.history_epoch || metadata.integrity?.manifest_sha256 || metadata.created_at,
       runner_active: supervisor.active.has(id), error: metadata.error ? publicRunError(metadata.error) : null,
       display: snapshot.display ?? await optional(directory, "display.json", null) };
+    run.benchmark_version = readRunVersion(directory, metadata, snapshot.summary);
     const rateLimit = metadata.status === "failed" ? rateLimitDetails(metadata.error) : null;
     if (rateLimit) run.rate_limit = rateLimit;
     const policy = metadata.capability_policy;

@@ -4,6 +4,7 @@ import { createReadStream } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import path from 'node:path';
+import { readLegacyRunVersion } from './legacy-run-version.mjs';
 import { importLeaderboardHeatmap } from './ui/heatmap-import.mjs';
 
 export function legacyTools(meta) {
@@ -93,6 +94,7 @@ export async function readLegacyHeatmap(directory, options, previousReport = nul
   }, heatmap: { room_size: 16, cells: [...cells].map(([key, count]) => [...key.split(',').map(Number), count]),
     unique_cells: cells.size, total_visits: [...cells.values()].reduce((sum, count) => sum + count, 0) }
   }, { ...options, allowEmpty: true });
+  result.metadata.benchmark_version = readLegacyRunVersion(directory);
   const source = result.metadata.source;
   source.tools_basis = tools.basis;
   source.position_source = 'recorded-player-or-top-view';

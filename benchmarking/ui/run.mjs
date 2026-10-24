@@ -7,6 +7,7 @@ import { runTabVisible } from "./run-tabs.mjs";
 import { benchmarkFetch, visionUrl } from "./benchmark-api.mjs";
 import { rateLimitDetails, formatRateLimit } from "../run-errors.mjs";
 import { recoveryPresentation } from "./auto-recovery.mjs";
+import { versionPresentation } from "../run-version-label.mjs";
 const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
 const providerName = provider => ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity", "muse-code": "Meta Muse Code", "kimi-code": "Kimi Code", "prime-agent": "Prime Agent" })[provider || "codex"] || provider;
@@ -752,6 +753,17 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["model-monogram"].textContent = modelMonogram(modelLabel(run.model));
   elements["run-kicker"].textContent = `${worldName(run)} · ${harnessName(run)}${run.observation_mode === "vision" ? " · Vision" : ""} · ${codingLabel(run)}`;
   elements["run-title"].textContent = modelLabel(run.model);
+  const version = run.benchmark_version?.label ? run.benchmark_version : versionPresentation(run.benchmark_version);
+  let versionDetails = document.getElementById("run-version-details");
+  if (!versionDetails) {
+    versionDetails = document.createElement("details");
+    versionDetails.id = "run-version-details";
+    versionDetails.className = "run-version-details";
+    versionDetails.innerHTML = "<summary></summary><pre></pre>";
+    elements["run-subtitle"].after(versionDetails);
+  }
+  versionDetails.querySelector("summary").textContent = `Engine & world · ${version.label}`;
+  versionDetails.querySelector("pre").textContent = version.detail;
   elements["run-subtitle"].textContent = `${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"}` : ""} · ${modelSpeed(run) === "fast" ? "Fast" : "Standard"} · ${compactDate(run.created_at)}${run.auto_recovery?.enabled ? " · Auto-resume on" : ""}`;
   elements["run-id"].textContent = run.id;
   const rateLimit = run.status === "failed" ? run.rate_limit || rateLimitDetails(run.error) : null;

@@ -154,7 +154,7 @@ function populateModels(panel, id) {
 function populateRuns(panel, id) {
   const matching = runs.filter(run => comparisonModel(run.model) === panel.model.value);
   panel.run.replaceChildren(...matching.map(run => new Option(
-    `${run.source ? "Imported · " : ""}${comparisonCondition(run)} · ${modelSpeed(run) === "fast" ? "Fast · " : ""}${run.effort ? `${run.effort} · ` : ""}${run.observation_mode !== "ascii" ? `${String(run.observation_mode || "").toUpperCase()} · ` : ""}${run.created_at ? dates.format(new Date(run.created_at)) : "Undated"} · ${run.id.slice(-6)}${run.heatmap_available === false ? " · No heatmap" : ""}`, run.id)));
+    `${run.benchmark_version?.label || "Version unknown"} · ${run.source ? "Imported · " : ""}${comparisonCondition(run)} · ${modelSpeed(run) === "fast" ? "Fast · " : ""}${run.effort ? `${run.effort} · ` : ""}${run.observation_mode !== "ascii" ? `${String(run.observation_mode || "").toUpperCase()} · ` : ""}${run.created_at ? dates.format(new Date(run.created_at)) : "Undated"} · ${run.id.slice(-6)}${run.heatmap_available === false ? " · No heatmap" : ""}`, run.id)));
   if (!matching.length) panel.run.append(new Option("Choose a model first", ""));
   panel.run.disabled = !matching.length;
   panel.run.value = matching.find(run => run.id === id)?.id || matching[0]?.id || "";
@@ -181,7 +181,7 @@ function renderPanel(panel) {
   if (run) link.href = run.source?.url || `./run.html?id=${encodeURIComponent(run.id)}`;
   link.textContent = run?.source ? "Source run ↗" : "Open run ↗";
   panel.element.querySelector(".run-description").textContent = run
-    ? `${run.source ? `${run.harness_label || run.harness || run.provider} · ${run.effort || "Unrecorded"} reasoning · Imported` : `${run.effort || "Default"} reasoning`} · ${String(run.observation_mode || "ascii").toUpperCase()} · ${String(run.status || "unknown").replaceAll("-", " ")}` : "Choose a run";
+    ? `${run.source ? `${run.harness_label || run.harness || run.provider} · ${run.effort || "Unrecorded"} reasoning · Imported` : `${run.effort || "Default"} reasoning`} · ${String(run.observation_mode || "ascii").toUpperCase()} · ${String(run.status || "unknown").replaceAll("-", " ")} · ${run.benchmark_version?.label || "Version unknown"}` : "Choose a run";
   const stats = { actions: data?.actions, tiles: data?.map.points.length, rooms: data ? run?.rooms_visited : null, gems: data ? run?.gems_collected : null };
   for (const [key, value] of Object.entries(stats)) panel.element.querySelector(`[data-stat="${key}"]`).textContent = value == null ? "—" : number(value);
   panel.element.querySelector(".map-coverage").textContent = data

@@ -1,6 +1,7 @@
 import { codingLabel, codingMode, isPrimeDirect } from "../capabilities.mjs";
 import { formatRateLimit } from "../run-errors.mjs";
 import { recoveryPresentation } from "./auto-recovery.mjs";
+import { versionPresentation } from "../run-version-label.mjs";
 import { modelLabel, modelSpeed, modelGroupId } from "./model-label.mjs";
 const dates = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
@@ -68,6 +69,7 @@ export function runCardValues(run) {
   const rateLimited = Boolean(run.rate_limit && run.status === "failed");
   const recovery = recoveryPresentation(run);
   return {
+    version: run.benchmark_version?.label ? run.benchmark_version : versionPresentation(run.benchmark_version),
     href: `./run.html?id=${encodeURIComponent(run.id)}`,
     company,
     logo: logo ? new URL(`./assets/model-logos/${logo}.svg`, import.meta.url).href : null,
@@ -101,7 +103,7 @@ export function runPage(runs, requestedPage = 0, size = 24) {
 
 function createCard() {
   const card = document.createElement("article");
-  card.innerHTML = `<a class="record-card-link"><div class="record-top"><span class="record-logo" role="img"><img alt="" width="20" height="20" hidden><span class="record-logo-fallback" aria-hidden="true">?</span></span><strong class="record-model"></strong><span class="record-effort"></span><span class="condition"></span><span class="record-status" role="img"></span></div><div class="record-metrics">${"<span><small></small><b></b></span>".repeat(4)}</div></a><div class="record-footer"><span class="record-date"></span><button type="button" class="record-delete danger" aria-label="Delete run"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></svg></button></div>`;
+  card.innerHTML = `<a class="record-card-link"><div class="record-top"><span class="record-logo" role="img"><img alt="" width="20" height="20" hidden><span class="record-logo-fallback" aria-hidden="true">?</span></span><strong class="record-model"></strong><span class="record-effort"></span><span class="condition"></span><span class="record-status" role="img"></span></div><div class="record-metrics">${"<span><small></small><b></b></span>".repeat(4)}</div></a><div class="record-footer"><span class="record-date"></span><span class="record-version" tabindex="0"></span><button type="button" class="record-delete danger" aria-label="Delete run"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></svg></button></div>`;
   return card;
 }
 
@@ -130,6 +132,10 @@ function updateCard(card, run, values) {
   text(model, modelLabel(run.model) || "Unknown model");
   model.title = `${run.model || "Unknown model"} · ${values.condition} · ${values.meta}`;
   text(card.querySelector(".record-date"), values.timestamp);
+  const version = card.querySelector(".record-version");
+  text(version, values.version.label);
+  version.title = values.version.detail;
+  version.setAttribute("aria-label", values.version.detail);
   card.querySelectorAll(".record-metrics > span").forEach((metric, index) => {
     text(metric.querySelector("small"), values.metrics[index][0]);
     text(metric.querySelector("b"), values.metrics[index][1]);

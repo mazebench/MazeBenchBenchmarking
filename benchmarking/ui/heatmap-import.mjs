@@ -1,3 +1,4 @@
+import { legacyRunVersion } from "../run-version-label.mjs";
 import { modelGroupId } from "./model-label.mjs";
 import { codingLabel, codingMode } from "../capabilities.mjs";
 // Convert the older leaderboard's exact [worldX, worldY, visits] cells.
@@ -31,6 +32,7 @@ export function importLeaderboardHeatmap(payload, { origin, importedAt, sourceKe
   const metadata = { id, model: run.model_name, provider: run.provider === "claude" ? "claude-code" : run.provider,
     created_at: run.created_at, status: run.status, observation_mode: run.mode === "text" ? "ascii" : run.mode,
     world: "main-world", action_count: run.turns, rooms_visited: run.room_count, gems_collected: run.gem_count, source };
+  metadata.benchmark_version = run.benchmark_version || legacyRunVersion();
   if (typeof run.tools === "boolean") metadata.tools_enabled = run.tools;
   if (run.reasoning) metadata.effort = run.reasoning;
   if (run.harness) metadata.harness = run.harness;

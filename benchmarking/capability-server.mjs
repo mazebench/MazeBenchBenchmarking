@@ -13,6 +13,7 @@ import { inspectCodeSandbox } from './code/sandbox.mjs';
 import { safeReadFile } from './v1/safe-files.mjs';
 import { trustedVisionRequest } from './vision/server.mjs';
 import { ReportReader } from './report-reader.mjs';
+import { readRunVersion } from './run-version.mjs';
 import { RunLibrary } from './run-library.mjs';
 import { RunDashboard } from './run-dashboard.mjs';
 import { previewBenchmarkPrompt } from './prompt-preview.mjs';
@@ -26,6 +27,13 @@ export function createCapabilityServer(root, options = {}) {
   const supervisor = options.supervisor || new BenchmarkSupervisor(root, options);
   const recovery = options.autoRecovery === false ? null : new PrimeAutoRecovery(supervisor, options.recoveryOptions);
   const reports = new ReportReader(), library = new RunLibrary({ markInterrupted: true }), dashboard = new RunDashboard();
+  async function decorateVersion(run, directory) {
+    if (run.benchmark_version || !existsSync(path.join(directory, 'run.json'))) return run;
+    const metadata = JSON.parse(safeReadFile(directory, 'run.json'));
+    run.benchmark_version = readRunVersion(directory, metadata, (await library.snapshot(directory)).summary);
+    return run;
+  }
+  const visionDirectory = id => path.join(options.visionRecordsRoot || process.env.MAZEBENCH_VISION_RECORDS_ROOT || path.join(os.homedir(), 'records/mazebench-vision'), id);
   let sandbox, sandboxAt = 0, visionAt = 0, vision = false;
   const getSandbox = async () => {
     if (Date.now() - sandboxAt > 15000) { sandbox = await inspectCodeSandbox(); sandboxAt = Date.now(); }
@@ -116,6 +124,10 @@ export function createCapabilityServer(root, options = {}) {
           if (!run.runner_active && ['preparing', 'queued', 'running', 'continuing', 'pausing'].includes(run.status)) run.status = 'interrupted';
           if (recovery?.status(run.id)) run.auto_recovery = recovery.status(run.id);
         }
+        for (const run of value.runs || []) {
+          const directory = supervisor.runDirectory(run.id);
+          await decorateVersion(run, existsSync(path.join(directory, 'run.json')) ? directory : visionDirectory(run.id));
+        }
         return reply(res, 200, value);
       }
       if (req.method === 'POST' && [prefix + '/runs', prefix + '/pairs'].includes(url.pathname)) {
@@ -176,6 +188,7 @@ export function createCapabilityServer(root, options = {}) {
               run.compaction_recoverable = run.status === 'failed' && run.capability_boundary_verified && run.provider !== 'prime-agent';
             }
             const tokens = await reports.read(directory, 'tokens').catch(() => null); if (tokens?.totals) run.usage = tokens.totals;
+            await decorateVersion(run, directory);
             return reply(res, 200, recovery ? recovery.decorate(run) : run);
           }
           if (req.method === 'DELETE' && !suffix) return reply(res, 200, await (recovery ? recovery.command(id, 'delete') : supervisor.delete(id)));
@@ -190,6 +203,7 @@ export function createCapabilityServer(root, options = {}) {
           const upstream = await forward(); if (!upstream.ok) return reply(res, upstream.status, await upstream.text());
           const run = await upstream.json(), tokens = await reports.read(telemetryDirectory, 'tokens').catch(() => null);
           if (tokens?.totals) run.usage = tokens.totals;
+          if (run.id === id) await decorateVersion(run, telemetryDirectory);
           return reply(res, 200, run);
         }
       }

@@ -155,3 +155,7 @@ summary::-webkit-details-marker { display: none; }
   .playback-controls #frame-position { grid-row: 4; grid-column: 1 / -1; text-align: right; }
   .panel-heading { padding: 14px 16px; }
 }
+
+.run-version-details { margin-top: 8px; color: var(--muted); font-size: 12px; }
+.run-version-details summary { cursor: pointer; color: #c4b5fd; }
+.run-version-details pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; }
