@@ -95,3 +95,20 @@ test('Gemini pause cancels a pending retry before its owner receives resume', as
   const pause = f.c.command(id, 'pause'); await Promise.resolve(); release(); await Promise.all([tick, pause]);
   assert.equal(f.resumes(), 0); assert.equal(f.c.status(id).state, 'paused');
 });
+
+test('Gemini automatically audits a rejected image read before resuming the same run', async t => {
+  const f = await fixture(t);
+  const missing = `ENOENT: no such file or directory, lstat '${f.directory}/vision-images/${'a'.repeat(64)}.png'`;
+  let repaired = 0;
+  f.c.imageReadRepair = async ({ directory, assertInactive, apply }) => {
+    assert.equal(directory, f.directory); assert.equal(apply, true);
+    await assertInactive(await json(path.join(directory, 'run.json')));
+    await rm(path.join(directory, 'integrity-violation.json'));
+    await f.update({ status: 'paused', error: null }); repaired++;
+  };
+  await f.c.enroll(f.metadata); await f.fail(missing);
+  await writeFile(path.join(f.directory, 'integrity-violation.json'), JSON.stringify({ error: missing }));
+  await f.c.tick(); assert.equal(f.c.status(id).state, 'waiting');
+  f.advance(10); await f.c.tick();
+  assert.equal(repaired, 1); assert.equal(f.resumes(), 1); assert.equal(f.c.status(id).state, 'watching');
+});

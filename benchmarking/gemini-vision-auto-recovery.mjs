@@ -3,12 +3,14 @@ import path from 'node:path';
 import os from 'node:os';
 import { CodexVisionAutoRecovery } from './codex-vision-auto-recovery.mjs';
 import { readCheckpointJson } from './v1/checkpoint-json.mjs';
+import { recoverGeminiImageRead, missingObservationRead } from './recover-gemini-image-read.mjs';
 
 // Retry the unmodified maze continuation through the provider's normal owner.
-// Never edit provider conversations, prompts, filter settings or invalidations.
+// Rejected image reads have a separate audited recovery; conversations, prompts
+// and provider filter settings stay unchanged.
 export function geminiVisionRetryable(error) {
   const message = String(error || '').trim();
-  return /^This request was blocked by Gemini's filters\. They can occasionally trigger by mistake on safe coding, security, or biology-related queries\. Please try rephrasing your prompt\.(?: You can \[send feedback\].*)?$/.test(message);
+  return Boolean(missingObservationRead(message)) || /^This request was blocked by Gemini's filters\. They can occasionally trigger by mistake on safe coding, security, or biology-related queries\. Please try rephrasing your prompt\.(?: You can \[send feedback\].*)?$/.test(message);
 }
 const identity = run => Object.fromEntries(['id', 'provider', 'observation_mode', 'model', 'effort', 'tools_enabled', 'coding_mode', 'antigravity_session_id', 'effective_prompt_sha256'].map(key => [key, run[key]]));
 export function geminiVisionEligible(run) {
@@ -23,9 +25,10 @@ export class GeminiVisionAutoRecovery extends CodexVisionAutoRecovery {
       stateRoot: options.stateRoot || path.join(os.homedir(), '.mazebench/gemini-vision-recovery'),
       delays: options.delays || [15000, 60000, 180000],
       policy: { name: 'gemini-vision-normal-resume-v1', eligible: geminiVisionEligible, identity, retryable: geminiVisionRetryable,
-        waitingReason: 'Gemini blocked the maze continuation. Retrying the same conversation with unchanged settings.',
+        waitingReason: 'Recovering the interrupted Gemini turn from its last valid checkpoint; valid moves are preserved.',
         limitReason: 'Gemini repeatedly blocked the same maze continuation without progress. Needs attention.', hourlyLimit: 8 },
     });
+    this.imageReadRepair = options.imageReadRepair || recoverGeminiImageRead;
   }
   async recoverAndResume(value, run) {
     if (this.closed || !value.enabled) return;
@@ -37,11 +40,20 @@ export class GeminiVisionAutoRecovery extends CodexVisionAutoRecovery {
     const invalidated = await access(path.join(directory, 'integrity-violation.json')).then(() => true, error => {
       if (error.code === 'ENOENT') return false; throw error;
     });
-    if (invalidated) throw new Error('An integrity violation requires review; it cannot be retried automatically.');
+    if (invalidated) {
+      if (!missingObservationRead(run.error)) throw new Error('This integrity violation is not a rejected observation read.');
+      const assertInactive = async metadata => {
+        if (this.closed || !value.enabled) throw new Error('Recovery cancelled by pause/stop.');
+        const latest = await this.request(value.id);
+        if (latest.runner_active || latest.status !== 'failed' || latest.error !== metadata.error ||
+            JSON.stringify(identity(latest)) !== JSON.stringify(value.identity)) throw new Error('Run changed or is active; recovery cancelled.');
+      };
+      await this.imageReadRepair({ root: this.root, directory, assertInactive, apply: true });
+    }
     const summary = await readCheckpointJson(directory, 'summary.json');
     if (['won', 'action-limit'].includes(summary.game_status)) throw new Error('Run is complete.');
     if (this.closed || !value.enabled) return;
-    const audit = { at: new Date(this.now()).toISOString(), run_id: value.id, action: 'normal-resume',
+    const audit = { at: new Date(this.now()).toISOString(), run_id: value.id, action: invalidated ? 'rejected-image-read-resume' : 'normal-resume',
       conversation_id: run.antigravity_session_id, action_count: summary.action_count, error: run.error, attempt: value.attempts };
     const record = entry => appendFile(path.join(this.stateRoot, 'retry-audit.jsonl'), JSON.stringify({ ...audit, ...entry }) + '\n', { mode: 0o600 });
     await record({ status: 'requested' });
