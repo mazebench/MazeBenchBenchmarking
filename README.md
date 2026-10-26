@@ -18,14 +18,23 @@ interrupting existing runs. Vision launches require that service and fail with
 an error if it is offline; they never fall back to ASCII. Image rendering uses
 Playwright and Chrome as described in [the vision setup](benchmarking/vision/README.md).
 
-Vision run cards use the Replays 3D renderer and tween curves for smooth playback
-and seeking. A read-only companion on port 8085 authenticates saved frames and
-builds the presentation timeline; it does not rerun physics or change agent images.
-It starts with the main site, or use `npm run start:playback` to add it to an
-already-running site. **Latest** loads newly recorded moves without interrupting
-the benchmark or an in-progress replay. **Agent camera** is checked by default
-and follows the recorded yaw/pitch; uncheck it to orbit, pan, and zoom freely.
-**Show neighboring rooms** is a separate checkbox, off by default.
+Main-world run cards share a **3D / ASCII** replay switch, independent of what the
+agent received. The **Agent** label shows the original observation mode. 3D uses
+the Replays renderer and tween curves for smooth playback and seeking. A read-only
+companion on port 8085 authenticates saved vision frames; for text runs it replays
+commands in memory with the pinned engine and checks every saved state hash. It
+never changes run records or agent observations. Long text histories can take a
+few seconds to prepare the first time; subsequent updates compile only new moves.
+The companion starts with the main site, or use `npm run start:playback` to add it
+to an already-running site.
+
+New moves load automatically without replacing the player or interrupting playback.
+**Live** starts enabled for active runs and follows incoming moves. Scrubbing back
+or playing history turns following off while the timeline keeps updating; click
+**Live** to return to the latest move. Switching **3D / ASCII** preserves your place.
+In 3D, **Agent camera** is checked by default and follows the recorded yaw/pitch;
+uncheck it to orbit, pan, and zoom freely. **Show neighboring rooms** is a separate
+checkbox, off by default.
 
 Once the server is running, you can go directly to:
 

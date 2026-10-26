@@ -196,3 +196,16 @@ summary::-webkit-details-marker { display: none; }
 .run-replay-camera-toggle input { width: 14px; height: 14px; margin: 0; accent-color: #b7a9ff; cursor: pointer; }
 .run-replay-free-camera { display: flex; gap: 4px; }
 .run-replay-free-camera[hidden] { display: none; }
+
+.run-replay-toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.run-replay-views { display: flex; padding: 3px; border-radius: 9px; background: #ffffff06; }
+.run-replay-views button { min-height: 28px; padding: 0 14px; }
+.run-replay-source { margin-right: auto; color: var(--muted); font-size: 11px; }
+.run-replay-player [data-command=live] { display: flex; align-items: center; gap: 6px; }
+.run-replay-player [data-command=live]::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #777; }
+.run-replay-player [data-command=live][aria-pressed=true]::before { background: #62d593; }
+.run-replay-player [data-command=live][data-loading=true]::before { width: 9px; height: 9px; background: transparent; border: 1px solid #ffffff30; border-top-color: currentColor; animation: replay-spin .8s linear infinite; }
+.run-replay-stage[data-view=ascii] canvas, .run-replay-camera[hidden], .run-replay-ascii[hidden] { display: none; }
+.run-replay-ascii { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #08090b; }
+.run-replay-ascii pre { margin: 0; font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1; letter-spacing: 0; white-space: pre; }
+.run-replay-ascii pre>div { height: 1em; }

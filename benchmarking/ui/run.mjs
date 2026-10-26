@@ -130,12 +130,12 @@ function renderBoard(display) {
   boardSignature = signature;
   const vision = display?.observation_mode === "vision";
   elements.board.classList.toggle("vision-board", vision);
-  if (vision && display.image_record) {
+  if (!numberedWorld(currentRun)) {
     if (!replayPlayer) replayPlayer = new RunReplayPlayer(elements.board, runId, move => {
       currentFrame = move.move;
       elements["board-room"].textContent = `Room ${move.room}`;
       elements["board-move"].textContent = moveLabel(move.move);
-      elements["frame-source"].textContent = "Animated replay";
+      elements["frame-source"].textContent = move.mode === "ascii" ? "ASCII replay" : "3D replay";
     });
     followingLatest = false;
     replayPlayer.update(currentRun).catch(error => replayPlayer.fail(error));
@@ -809,7 +809,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["progress-value"].textContent = run.game_status === "won" ? "objective complete" : run.action_limit ? `${Math.round(progress)}% of budget` : "unlimited run";
   elements.continuations.textContent = formatNumber(run.continuation_count || 0);
   elements["final-message"].textContent = activityData?.final_message || run.final_message || (isFinished(run) ? "The model did not leave a final message." : "No final model message yet.");
-  if (run.observation_mode === "vision") {
+  if (!numberedWorld(run)) {
     renderBoard(run.display);
     if (replayPlayer) replayPlayer.update(run).catch(error => replayPlayer.fail(error));
   } else if (followingLatest || changedRun) {

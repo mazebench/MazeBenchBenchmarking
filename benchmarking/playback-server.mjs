@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { access } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { trustedVisionRequest } from './vision/server.mjs';
@@ -8,6 +9,7 @@ import { gzipSync } from 'node:zlib';
 export function createPlaybackServer(root, options = {}) {
   const port = options.port ?? 8085, mainPort = options.mainPort || 8080;
   const recordsRoot = options.recordsRoot || process.env.MAZEBENCH_VISION_RECORDS_ROOT || path.join(os.homedir(), 'records/mazebench-vision');
+  const recordsRoots = options.recordsRoots || [recordsRoot, process.env.MAZEBENCH_RECORDS_ROOT || path.join(os.homedir(),'records/mazebench-benchmark'),path.join(os.homedir(),'records/mazebench-prime-benchmark')];
   const replays = options.replays || new PlaybackReplay(root);
   const server = createServer(async (req, res) => {
     const reply = (status, value, type = 'application/json') => {
@@ -25,7 +27,12 @@ export function createPlaybackServer(root, options = {}) {
     const match = /^\/api\/benchmark\/playback\/runs\/(run-[\dTZ-]+-[a-f0-9]{6})\/(movie)$/.exec(url.pathname);
     if (!match) return reply(404, { error: 'Unknown playback path.' });
     try {
-      const directory = path.join(recordsRoot, match[1]);
+      let directory = path.join(recordsRoot, match[1]);
+      if (!options.replays) {
+        directory = null;
+        for (const root of recordsRoots) { const candidate=path.join(root,match[1]);try{await access(path.join(candidate,'run.json'));directory=candidate;break;}catch(error){if(error.code!=='ENOENT')throw error;} }
+        if (!directory) return reply(404,{error:'Run not found.'});
+      }
       return reply(200, await replays.movie(directory));
     } catch (error) { reply(400, { error: error.message }); }
   });

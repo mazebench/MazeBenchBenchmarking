@@ -117,3 +117,36 @@ test('room visibility hides context and clips crossing scenes without changing t
   mask.update(true,scene,{clip,local:100});assert.equal(renderer.backgroundRoot.visible,true);assert.equal(renderer.renderer.clippingPlanes.length,0);
   assert.equal(JSON.stringify(timeline),before,'visibility never rewrites curves or poses');
 });
+
+test('ASCII view uses recorded tick poses and camera while incremental movies preserve earlier clips', async () => {
+  const {RecordedReplayBuilder}=await import('../benchmarking/recorded-replay.mjs');
+  const {replayAscii}=await import('../benchmarking/ui/replay-ascii.mjs');
+  const {renderAsciiFrameV1}=await import('../render-ascii/v1/ascii-scene.mjs');
+  const objects=[cell('floor',1),cell('floor',2),cell('player',1)],world=makeWorld([room(objects)]),builder=new RecordedReplayBuilder(world);
+  const first={...frame(objects),camera:{yaw:1,pitch:2}},last={...frame([cell('floor',1),cell('floor',2),cell('player',2)]),camera:{yaw:1,pitch:2}};
+  builder.append(0,{action:{action:'initial'},frames:[first]});const snapshot=builder.movie();
+  builder.append(1,{action:{action:'right'},frames:[first,last]});const movie=builder.movie(),clip=movie.clips[1];
+  assert.equal(snapshot.clips.length,1,'previous snapshots do not grow under an active response');
+  assert.equal(movie.clips[0],snapshot.clips[0],'append retains prior scene identities');
+  const expected=(await renderAsciiFrameV1({...world.rooms[0],objects:last.objects},world.blocks,last.camera)).text;
+  assert.equal((await replayAscii(movie,world,clip,clip.duration)).text,expected);
+  const before=(await renderAsciiFrameV1({...world.rooms[0],objects:first.objects},world.blocks,first.camera)).text;
+  assert.equal((await replayAscii(movie,world,clip,50)).text,before,'ASCII stays on discrete physics ticks');
+});
+
+test('text reconstruction verifies saved state hashes and never writes to the source run', async t => {
+  const {mkdtemp,rm,readFile}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const path=await import('node:path');
+  const {BenchmarkGameRuntime}=await import('../benchmarking/v1/runtime.mjs');const {createRunIntegrity}=await import('../benchmarking/v1/integrity.mjs');
+  const {openAsciiReplay}=await import('../benchmarking/ascii-replay-source.mjs');
+  const directory=await mkdtemp(path.join(tmpdir(),'mazebench-view-replay-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const root=path.resolve(import.meta.dirname,'..'),runtime=await BenchmarkGameRuntime.create(root,directory,{startRoom:'HxI',actionLimit:20});
+  const metadata={start_room:'HxI',integrity:await createRunIntegrity(root,directory,{})};await runtime.persist();
+  for(const action of ['right','camera right','left','undo','reset'])await runtime.apply(action);
+  const files=['game-state.json','summary.json','checkpoint.json','records/history.jsonl'];const before=await Promise.all(files.map(file=>readFile(path.join(directory,file),'utf8')));
+  const source=await openAsciiReplay(root,directory,metadata);
+  for(let move=0;move<=5;move++)assert((await source.readMove(move)).frames.length);
+  assert.deepEqual(await Promise.all(files.map(file=>readFile(path.join(directory,file),'utf8'))),before);
+  const invalid=await openAsciiReplay(root,directory,metadata);invalid.saved.actions[0].stateHash='wrong';
+  await assert.rejects(()=>invalid.readMove(1),/differs from the saved state/);
+  assert.deepEqual(await Promise.all(files.map(file=>readFile(path.join(directory,file),'utf8'))),before);
+});

@@ -1,4 +1,4 @@
-// Presentation-only bridge from authenticated vision snapshots to the same
+// Presentation-only bridge from authenticated run poses to the same
 // sampled curves and retained scene format used by the Replays page.
 import { createCommandTimeline, createResetTimeline, captureTimeline, sampleSegments, DEFAULT_STEP_MS, ROOM_TRANSITION_MS } from '../animations/v1/timeline.mjs';
 import { rememberPresentationIdentities } from '../play/current/presentation-identity.mjs';
@@ -94,12 +94,14 @@ export function recordedTimeline(world, action, recorded, { cycle = false, autho
   return { timeline, from: frameRooms[0], to: frameRooms.at(-1) };
 }
 
-export async function compileRecordedReplay(world, count, readMove, authoredFor = () => world.rooms) {
-  const pool = new TimelinePool(), clips = [], visits = [], gems = [], visited = new Set();
-  let duration = 0, startRoom, previousGems = 0;
-  for (let move = 0; move <= count; move++) {
-    const { action, frames, cycle } = await readMove(move);
-    const { timeline, from, to } = recordedTimeline(world, action.action, frames, { cycle, authoredRooms: authoredFor(action) });
+export class RecordedReplayBuilder {
+  constructor(world) {
+    Object.assign(this, {world, pool: new TimelinePool(), clips: [], visits: [], gems: [], visited: new Set(), duration: 0, previousGems: 0});
+  }
+  append(move, {action, frames, cycle}, authoredRooms = this.world.rooms) {
+    const {world, pool, clips, visits, gems, visited} = this;
+    let {duration, startRoom, previousGems} = this;
+    const { timeline, from, to } = recordedTimeline(world, action.action, frames, { cycle, authoredRooms });
     const cameraPose = frame => frame.camera && ({ ...frame.camera, top: Math.max(1, ...frame.objects.map(object => object.z + 1)) });
     const firstCamera = cameraPose(frames[0]), lastCamera = cameraPose(frames.at(-1));
     const agentCamera = firstCamera && lastCamera ? { from: firstCamera, to: lastCamera, duration: ROOM_TRANSITION_MS } : null;
@@ -110,6 +112,7 @@ export async function compileRecordedReplay(world, count, readMove, authoredFor 
     const settledAt = timeline.times.at(-1) || timeline.duration;
     clips.push({ ...pool.pack(timeline), start: duration, duration: timeline.duration, settledAt, center: roomCenter(world, from),
       room: from.fileName, from: from.fileName, to: to.fileName, label: action.action, type: 'recorded', move, agentCamera,
+      asciiFrames: timeline.ticks.map((tick, i) => ({at: timeline.times[i], room: frames[tick].room, camera: frames[tick].camera})).concat({at: timeline.duration, room: frames.at(-1).room, camera: frames.at(-1).camera}),
       gemsBefore: previousGems, gemsAfter: action.totalGems || 0 });
     if (!visited.has(to.fileName)) { visited.add(to.fileName); visits.push({ room: to.fileName, at: duration + (move ? settledAt : 0) }); }
     // Background gem identities use authored indices; foreground tracks always
@@ -124,7 +127,19 @@ export async function compileRecordedReplay(world, count, readMove, authoredFor 
       }
     }
     previousGems = action.totalGems || 0; duration += timeline.duration;
+    Object.assign(this, {duration, startRoom, previousGems});
+  }
+  movie() {
+    return {startRoom: this.startRoom, duration: this.duration, clips: this.clips.slice(), visits: this.visits.slice(), gems: [...this.gems].sort((a,b) => a.at-b.at),
+      templates: this.pool.templates.slice(), layouts: this.pool.layouts.map(layout => Array.from(layout))};
+  }
+}
+
+export async function compileRecordedReplay(world, count, readMove, authoredFor = () => world.rooms) {
+  const builder = new RecordedReplayBuilder(world);
+  for (let move = 0; move <= count; move++) {
+    const record = await readMove(move); builder.append(move, record, authoredFor(record.action));
     if (move % 32 === 0) await new Promise(resolve => setTimeout(resolve, 0));
   }
-  return { startRoom, duration, clips, visits, gems: gems.sort((a, b) => a.at - b.at), templates: pool.templates, layouts: pool.layouts.map(layout => Array.from(layout)) };
+  return builder.movie();
 }
