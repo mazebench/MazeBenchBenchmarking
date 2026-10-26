@@ -1,3 +1,5 @@
+import { rollingNovelty } from "./novelty-series.mjs";
+
 const canvas = document.getElementById("novelty-chart");
 const picker = document.getElementById("novelty-window");
 const custom = document.getElementById("novelty-window-custom");
@@ -63,17 +65,13 @@ export function drawNovelty(values, toolsEnabled) {
   context.clearRect(0, 0, width, height);
   context.fillStyle = "#090b0e";
   context.fillRect(0, 0, width, height);
-  const plot = (values || []).slice(1);
-  canvas.setAttribute("aria-label", `Novelty rate across actions, rolling window of ${windowSize} moves`);
-  if (!plot.length) { windowValue.textContent = "No moves yet"; return; }
-  let novelCount = 0;
-  const rolling = plot.map((value, index) => {
-    novelCount += Number(Boolean(value));
-    if (index >= windowSize) novelCount -= Number(Boolean(plot[index - windowSize]));
-    return novelCount / Math.min(index + 1, windowSize);
-  });
-  const count = Math.min(windowSize, plot.length);
-  windowValue.textContent = `${Math.round(rolling.at(-1) * 100)}% · last ${count.toLocaleString()} move${count === 1 ? "" : "s"}`;
+  const rolling = rollingNovelty(values, windowSize);
+  canvas.setAttribute("aria-label", `Novelty rate from action 0 (initial state), rolling window of ${windowSize} recorded states`);
+  if (!rolling.length) { windowValue.textContent = "No recorded states yet"; return; }
+  const moves = rolling.length - 1;
+  const count = Math.min(windowSize, moves);
+  const range = moves ? `${moves < windowSize ? "first" : "last"} ${count.toLocaleString()} move${count === 1 ? "" : "s"}` : "initial state";
+  windowValue.textContent = `${Math.round(rolling.at(-1) * 100)}% · ${range}`;
   const padding = { left: 34, right: 18, top: 20, bottom: 26 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
@@ -90,7 +88,7 @@ export function drawNovelty(values, toolsEnabled) {
     context.stroke();
     context.fillText(`${Math.round(rate * 100)}%`, padding.left - 6, y + 3);
   }
-  const xAt = (index) => padding.left + (rolling.length === 1 ? chartWidth : index / (rolling.length - 1) * chartWidth);
+  const xAt = (index) => padding.left + (moves ? index / moves * chartWidth : 0);
   const yAt = (rate) => padding.top + (1 - rate) * chartHeight;
   const accent = toolsEnabled ? "#ffbd5b" : "#6cd7ff";
   const gradient = context.createLinearGradient(0, padding.top, 0, padding.top + chartHeight);
@@ -118,11 +116,18 @@ export function drawNovelty(values, toolsEnabled) {
   context.strokeStyle = accent;
   context.lineWidth = 2;
   context.stroke();
+  if (!moves) {
+    context.beginPath();
+    context.arc(xAt(0), yAt(rolling[0]), 3, 0, Math.PI * 2);
+    context.fillStyle = accent;
+    context.fill();
+  }
   context.fillStyle = "#6f7985";
   context.textAlign = "left";
-  context.fillText("action 1", padding.left, height - 7);
-  context.textAlign = "right";
-  context.fillText(`action ${plot.length}`, width - padding.right, height - 7);
+  context.fillText("action 0", padding.left, height - 7);
+  if (moves) {
+    context.textAlign = "right";
+    context.fillText(`action ${moves}`, width - padding.right, height - 7);
+  }
 }
-
 
