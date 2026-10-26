@@ -1,6 +1,7 @@
 import { createRunHeader } from "./run-header.mjs";
+import { RunVariantSwitcher } from "./run-variants.mjs";
 import { createOverviewCharts } from "./run-overview.mjs";
-import { codingLabel, codingMode, isPrimeDirect } from "../capabilities.mjs";
+import { codingMode, isPrimeDirect } from "../capabilities.mjs";
 import { heatmapVisits } from "./heatmap.mjs";
 import { modelLabel } from "./model-label.mjs";
 import { gemReplayFrames, gemFrameIndex, loadWorldGemLocations, gemCollectionLocations } from "./gem-navigation.mjs";
@@ -8,6 +9,7 @@ import { runTabVisible } from "./run-tabs.mjs";
 import { benchmarkFetch } from "./benchmark-api.mjs";
 import { rateLimitDetails, formatRateLimit } from "../run-errors.mjs";
 import { recoveryPresentation } from "./auto-recovery.mjs";
+import { runRecoveryActions } from "./run-recovery-actions.mjs";
 import { RunReplayPlayer } from "./replay-player.mjs";
 const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
 import { drawNovelty } from "../ui/novelty-chart.mjs";
@@ -28,6 +30,7 @@ const ids = [
 ];
 const elements = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
 const runHeader = createRunHeader(elements);
+const runVariants = new RunVariantSwitcher(elements["pair-compare"]);
 const overviewChartStatus = createOverviewCharts(elements);
 const replayModes = document.createElement("div");
 replayModes.className = "replay-modes";
@@ -63,7 +66,8 @@ let refreshPromise = null;
 let pollTimer = null;
 let analysisData = null, analysisKey = null, analysisBusy = false;
 let activityData = null, activityAt = 0, activityBusy = false;
-let interviewBusy = false, pairRuns = [], pairAt = 0;
+let interviewBusy = false, variantRuns = [], variantsAt = 0, variantsBusy = false;
+let resumeBusy = false, newRunBusy = false, resumeReadyTimer = null;
 let boardSignature = "", feedSignature = "", workspaceSignature = "", interviewSignature = "";
 let replayPlayer = null;
 let tokenUsage = null;
@@ -540,27 +544,6 @@ function renderWorkspace(run) {
   }
 }
 
-function renderPair(run, allRuns) {
-  elements["pair-compare"].replaceChildren();
-  const peers = run.pair_id ? allRuns.filter((candidate) => candidate.pair_id === run.pair_id) : [];
-  if (peers.length < 2) {
-    elements["pair-compare"].hidden = true;
-    return;
-  }
-  elements["pair-compare"].hidden = false;
-  for (const peer of peers.sort((left, right) => Number(left.tools_enabled) - Number(right.tools_enabled))) {
-    const link = document.createElement("a");
-    link.className = `pair-card${peer.tools_enabled ? " tools" : ""}${peer.id === run.id ? " selected" : ""}`;
-    link.href = `./run.html?id=${encodeURIComponent(peer.id)}`;
-    const label = document.createElement("span");
-    label.textContent = codingLabel(peer);
-    const result = document.createElement("strong");
-    result.textContent = `${numberedWorld(peer) ? `${peer.levels_solved || 0} levels solved` : `${peer.gems_collected || 0} gems`} · ${peer.action_count || 0} actions`;
-    link.append(label, result);
-    elements["pair-compare"].append(link);
-  }
-}
-
 function interviewMessage(message) {
   const article = document.createElement("article");
   article.className = `interview-message ${message.role === "assistant" ? "model" : "user"}`;
@@ -715,6 +698,28 @@ function renderInterview(library, interview) {
   if (messages.length) elements["interview-messages"].scrollTop = elements["interview-messages"].scrollHeight;
 }
 
+function renderResumeControls(run) {
+  const controls = runRecoveryActions(run);
+  const resume = elements["resume-run"], failureAction = elements["retry-new-run"];
+  resume.hidden = !controls.resumeVisible;
+  resume.disabled = resumeBusy || controls.resumeDisabled;
+  resume.textContent = resumeBusy ? "Resuming…" : "Resume";
+  resume.title = controls.resumeAt ? `Available after ${new Date(controls.resumeAt).toLocaleTimeString()}` : "Continue this run from its saved progress";
+  failureAction.hidden = !controls.failureAction;
+  failureAction.textContent = controls.failureAction === "resume" ? resume.textContent : "Start a new run with these settings";
+  failureAction.disabled = controls.failureAction === "resume" ? resume.disabled : newRunBusy;
+  failureAction.title = controls.failureAction === "resume" ? resume.title : "";
+  if (controls.rateLimit && !recoveryPresentation(run).waiting) {
+    elements["run-failure-reason"].textContent = `${formatRateLimit(controls.rateLimit)} Your saved progress is kept.`;
+  }
+  clearTimeout(resumeReadyTimer);
+  if (controls.resumeVisible && controls.resumeAt) {
+    resumeReadyTimer = setTimeout(() => {
+      if (currentRun) renderResumeControls(currentRun);
+    }, Math.min(controls.resumeAt - Date.now() + 25, 2147483647));
+  }
+}
+
 function renderRun(run, allRuns, interviewLibrary, interview) {
   if (elements["world-update-status"]) {
     elements["world-update-status"].hidden = !run.world_updates;
@@ -754,15 +759,11 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["run-failure"].classList.toggle("rate-limited", Boolean(rateLimit) || recovery.waiting);
   elements["run-failure"].querySelector("strong").textContent = recovery.label || (rateLimit ? "Rate limit reached" : "Run failed");
   elements["run-failure-reason"].textContent = recovery.detail || formatRateLimit(rateLimit) || run.error || "The runner stopped before finishing. Inspect the activity record for details.";
-  elements["retry-new-run"].hidden = recovery.waiting;
   const terminalGame = ["won", "action-limit"].includes(run.game_status);
   const activeRun = Boolean(run.runner_active);
-  const resumableBoundary = Boolean(run.capability_boundary_verified) && (run.provider !== "prime-agent" || isPrimeDirect(run) || activeRun);
   elements["pause-run"].hidden = (!activeRun && !recovery.waiting) || ["pausing", "paused"].includes(run.status);
   elements["pause-run"].disabled = !activeRun && !recovery.waiting;
-  elements["resume-run"].hidden = terminalGame || !resumableBoundary ||
-    recovery.waiting || (!["paused", "stopped", "interrupted"].includes(run.status) && !((run.world === "slotski" || isPrimeDirect(run)) && run.status === "failed") && !run.compaction_recoverable);
-  elements["resume-run"].disabled = false;
+  renderResumeControls(run);
   elements["stop-run"].hidden = terminalGame || (!recovery.waiting && ["stopped", "failed", "completed"].includes(run.status));
   elements["stop-run"].disabled = false;
   elements["delete-run"].disabled = activeRun;
@@ -800,7 +801,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   gemMapControls.hidden = numberedWorld(run);
   elements.heatmap.setAttribute("aria-label", run.world === "slotski" ? "Top-left positions of selected blocks after actions" : "Heatmap of positions visited");
   if (runTabVisible("analysis")) drawProgress(run);
-  renderPair(run, allRuns);
+  runVariants.update(run, allRuns);
   renderInterview(interviewLibrary, interview);
   elements["connection-status"].textContent = run.runner_active ? "Live" : "Saved run";
   elements["connection-status"].classList.remove("error");
@@ -900,11 +901,15 @@ function refresh() {
   refreshPromise = (async () => {
     try {
       const run = await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}?view=overview`);
-      renderRun(run, pairRuns, currentInterviewLibrary, currentInterview);
+      renderRun(run, variantRuns, currentInterviewLibrary, currentInterview);
       void refreshSection();
-      if (run.pair_id && Date.now() - pairAt > 30000) {
-        pairAt = Date.now();
-        api("/api/benchmark/v1/runs?view=library").then(library => { pairRuns = library.runs || []; renderPair(currentRun, pairRuns); }).catch(() => { pairAt = 0; });
+      if (!variantsBusy && Date.now() - variantsAt > 30000) {
+        variantsAt = Date.now();
+        variantsBusy = true;
+        api("/api/benchmark/v1/runs?view=library")
+          .then(library => { variantRuns = library.runs || []; runVariants.update(currentRun, variantRuns); })
+          .catch(() => {})
+          .finally(() => { variantsBusy = false; });
       }
     } catch (error) {
       if (!currentRun) showError(error);
@@ -961,17 +966,22 @@ elements["pause-run"].addEventListener("click", async () => {
   }
 });
 
-elements["resume-run"].addEventListener("click", async () => {
-  elements["resume-run"].disabled = true;
+async function resumeCurrentRun() {
+  if (!currentRun || resumeBusy || runRecoveryActions(currentRun).resumeDisabled) return;
+  resumeBusy = true;
+  renderResumeControls(currentRun);
   try {
     await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/resume`, { method: "POST" });
     await refreshAfterMutation();
   } catch (error) {
-    elements["resume-run"].disabled = false;
     elements["connection-status"].textContent = error.message;
     elements["connection-status"].classList.add("error");
+  } finally {
+    resumeBusy = false;
+    if (currentRun) renderResumeControls(currentRun);
   }
-});
+}
+elements["resume-run"].addEventListener("click", resumeCurrentRun);
 
 elements["delete-run"].addEventListener("click", async () => {
   if (!currentRun || currentRun.runner_active) return;
@@ -1156,8 +1166,12 @@ if (!runId) {
 }
 
 elements["retry-new-run"].addEventListener("click", async () => {
-  if (!currentRun) return;
+  if (!currentRun || newRunBusy) return;
+  const controls = runRecoveryActions(currentRun);
+  if (controls.failureAction === "resume") return resumeCurrentRun();
+  if (controls.failureAction !== "new") return;
   const button = elements["retry-new-run"];
+  newRunBusy = true;
   button.disabled = true;
   try {
     const run = await api("/api/benchmark/v1/runs", {
@@ -1171,9 +1185,10 @@ elements["retry-new-run"].addEventListener("click", async () => {
     });
     location.href = `./run.html?id=${encodeURIComponent(run.id)}`;
   } catch (error) {
+    newRunBusy = false;
     elements["run-failure-reason"].textContent = error.message;
     button.disabled = false;
   }
 });
 
-window.addEventListener("pagehide", () => replayPlayer?.pause());
+window.addEventListener("pagehide", () => { replayPlayer?.pause(); clearTimeout(resumeReadyTimer); });
