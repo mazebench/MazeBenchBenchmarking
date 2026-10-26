@@ -1,5 +1,27 @@
 const nativeFetch=window.fetch.bind(window);
+const recoveryOrigin=`http://${location.hostname}:8087`;
+let recoveryAt=0,recoveryReady=false,recoveryPending;
+async function recoveryAvailable(){
+  if(Date.now()-recoveryAt<15000)return recoveryReady;
+  recoveryPending ||= (async()=>{
+    try{const response=await nativeFetch(recoveryOrigin+'/api/benchmark/recovery/status',{signal:AbortSignal.timeout(700)});recoveryReady=response.ok&&(await response.json()).version===1;}
+    catch{recoveryReady=false;}
+    recoveryAt=Date.now();recoveryPending=null;return recoveryReady;
+  })();
+  return recoveryPending;
+}
 const origin=`http://${location.hostname}:8082`;
+const providerVisionOrigin=`http://${location.hostname}:8086`;
+let providerVisionAt=0,providerVision=false,providerVisionPending;
+export async function providerVisionAvailable(){
+  if(Date.now()-providerVisionAt<15000)return providerVision;
+  providerVisionPending ||= (async()=>{
+    try{const r=await nativeFetch(providerVisionOrigin+'/api/benchmark/vision-providers/status',{signal:AbortSignal.timeout(700)});providerVision=r.ok&&(await r.json()).observation_mode==='vision';}
+    catch{providerVision=false;}
+    providerVisionAt=Date.now();providerVisionPending=null;return providerVision;
+  })();
+  return providerVisionPending;
+}
 let checkedAt=0,available=false,pending;
 export async function visionAvailable(){
   if(Date.now()-checkedAt<15000)return available;
@@ -22,6 +44,8 @@ export async function capabilitiesAvailable(){
   return capabilitiesPending;
 }
 export async function benchmarkFetch(url,options={}){
+  if(await recoveryAvailable())return nativeFetch(recoveryOrigin+url,options);
+  if(await providerVisionAvailable())return nativeFetch(providerVisionOrigin+url,options);
   // Image launches must never fall through a generic companion to ASCII.
   // Check the image owner first even when catalog/capability servers are online.
   let visionLaunch=false;

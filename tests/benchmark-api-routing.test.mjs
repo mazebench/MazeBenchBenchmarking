@@ -54,8 +54,9 @@ test('browser routes reads and controls to the owning companion across recovery 
     assert.equal(card.statusTone, 'green'); assert.equal(card.tools, '(tools off)');
     const options = { method: 'POST', body: '{}' };
     await benchmarkFetch('/api/benchmark/v1/runs/run-fixture/pause', options);
-    assert.equal(calls.length, 4, 'The availability probe is shared by reads and controls');
-    assert.equal(calls[3].url, 'http://localhost:8083/api/benchmark/v1/runs/run-fixture/pause');
-    assert.equal(calls[3].options, options);
+    const probes = calls.filter(call => call.url.endsWith('/status'));
+    assert.equal(new Set(probes.map(call => call.url)).size, probes.length, 'Availability probes are shared by reads and controls');
+    assert.equal(calls.at(-1).url, 'http://localhost:8083/api/benchmark/v1/runs/run-fixture/pause');
+    assert.equal(calls.at(-1).options, options);
   }
 });

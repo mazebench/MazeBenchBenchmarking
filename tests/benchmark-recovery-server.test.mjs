@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { createRecoveryServer } from '../benchmarking/recovery-server.mjs';
+const id = 'run-2026-10-26T00-00-00-000Z-aaaaaa';
+test('recovery companion decorates reports, owns recovery commands, and leaves other owners untouched', async t => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), 'maze-recovery-api-')); t.after(() => rm(temp, { recursive: true, force: true }));
+  await mkdir(path.join(temp, id)); await writeFile(path.join(temp, id, 'run.json'), JSON.stringify({ provider: 'codex', observation_mode: 'vision' }));
+  const forwarded = [], commands = [];
+  const upstream = createServer(async (req, res) => { let body = ''; for await (const chunk of req) body += chunk; forwarded.push([req.method, req.url, body]); res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(req.url.includes('?view=library') ? { runs: [{ id }] } : { id })); });
+  await new Promise(r => upstream.listen(0, '127.0.0.1', r)); t.after(() => { upstream.closeAllConnections(); upstream.close(); });
+  const recovery = { ready: Promise.resolve(), directory: value => path.join(temp, value), start() {}, close() {},
+    decorate: run => ({ ...run, auto_recovery: { enabled: true, state: 'waiting' } }), command: async (runId, action) => { commands.push([runId, action]); return { id: runId, status: action === 'resume' ? 'continuing' : 'paused' }; } };
+  const { server } = createRecoveryServer(process.cwd(), { port: 0, recovery, upstreamPort: upstream.address().port });
+  await new Promise(r => server.listen(0, '127.0.0.1', r)); t.after(() => { server.closeAllConnections(); server.close(); });
+  const origin = 'http://127.0.0.1:' + server.address().port;
+  const list = await (await fetch(origin + '/api/benchmark/v1/runs?view=library')).json(); assert.equal(list.runs[0].auto_recovery.state, 'waiting');
+  const result = await (await fetch(origin + '/api/benchmark/v1/runs/' + id + '/resume', { method: 'POST' })).json(); assert.equal(result.status, 'continuing'); assert.deepEqual(commands, [[id, 'resume']]);
+  await writeFile(path.join(temp, id, 'run.json'), JSON.stringify({ provider: 'antigravity', observation_mode: 'vision' }));
+  await fetch(origin + '/api/benchmark/v1/runs/' + id + '/pause', { method: 'POST' });
+  assert.deepEqual(commands.at(-1), [id, 'pause'], 'Gemini controls must pass through its recovery controller.');
+  await writeFile(path.join(temp, id, 'run.json'), JSON.stringify({ provider: 'grok-build', observation_mode: 'vision' }));
+  await fetch(origin + '/api/benchmark/v1/runs/' + id + '/resume', { method: 'POST' });
+  assert.deepEqual(commands.at(-1), [id, 'resume'], 'Grok controls must pass through its recovery controller.');
+  await writeFile(path.join(temp, id, 'run.json'), JSON.stringify({ provider: 'muse-code', observation_mode: 'vision' }));
+  await fetch(origin + '/api/benchmark/v1/runs/' + id + '/pause', { method: 'POST' });
+  assert.deepEqual(forwarded.at(-1), ['POST', '/api/benchmark/v1/runs/' + id + '/pause', '']);
+  const body = JSON.stringify({ provider: 'muse-code', observation_mode: 'vision' }); await fetch(origin + '/api/benchmark/v1/runs', { method: 'POST', body });
+  assert.deepEqual(forwarded.at(-1), ['POST', '/api/benchmark/v1/runs', body]);
+  assert.equal((await fetch(origin + '/api/benchmark/recovery/status', { headers: { Origin: 'https://evil.example' } })).status, 403);
+});

@@ -22,7 +22,7 @@ self.onmessage = ({ data: { panels, mode, seconds, scale } }) => {
     const canvas = new OffscreenCanvas(width, height), ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) throw new Error("Canvas rendering is unavailable in this browser.");
     const maps = panels.map(p => p.finalMap), crops = maps.map(croppedBounds), colors = comparisonScale(maps, scale);
-    const margin = 32, gap = 40, panelWidth = (width - 2 * margin - gap * (panels.length - 1)) / panels.length;
+    const margin = 32, gap = Math.min(40, 160 / panels.length), panelWidth = (width - 2 * margin - gap * (panels.length - 1)) / panels.length;
     const cell = Math.min(panelWidth / Math.max(...crops.map(c => c.columns)), 540 / Math.max(...crops.map(c => c.rows)));
     const mapBottom = 582, states = panels.map(() => timelineState());
     ctx.font = "500 30px system-ui, sans-serif";

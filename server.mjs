@@ -2,6 +2,8 @@ import { createCatalogServer } from "./benchmarking/catalog-server.mjs";
 import { createCapabilityServer } from "./benchmarking/capability-server.mjs";
 import { createVisionServer } from "./benchmarking/vision/server.mjs";
 import { createPlaybackServer } from "./benchmarking/playback-server.mjs";
+import { createProviderVisionServer } from "./benchmarking/vision-providers/server.mjs";
+import { createRecoveryServer } from "./benchmarking/recovery-server.mjs";
 import "./benchmarking/codex-releases.mjs";
 import { publishEditorRoom } from "./benchmarking/storage/live-world.mjs";
 import os from "node:os";
@@ -351,6 +353,14 @@ if (process.env.MAZEBENCH_DISABLE_VISION !== "1" && (Number(port) === 8080 || pr
   const { server: playbackServer } = createPlaybackServer(root, { port: playbackPort, mainPort: Number(port) });
   playbackServer.on("error", error => { if (error.code !== "EADDRINUSE") console.error("Run replay:", error.message); });
   playbackServer.listen(playbackPort, "127.0.0.1");
+  const providerVisionPort = Number(process.env.MAZEBENCH_PROVIDER_VISION_PORT || 8086);
+  const { server: providerVisionServer } = createProviderVisionServer(root, { port: providerVisionPort, mainPort: Number(port), upstreamPort: Number(process.env.MAZEBENCH_CATALOG_PORT || 8084) });
+  providerVisionServer.on("error", error => { if (error.code !== "EADDRINUSE") console.error("Subscription vision:", error.message); });
+  providerVisionServer.listen(providerVisionPort, "127.0.0.1");
+  const recoveryPort = Number(process.env.MAZEBENCH_RECOVERY_PORT || 8087);
+  const { server: recoveryServer } = createRecoveryServer(root, { port: recoveryPort, mainPort: Number(port), visionPort });
+  recoveryServer.on("error", error => { if (error.code !== "EADDRINUSE") console.error("Vision recovery:", error.message); });
+  recoveryServer.listen(recoveryPort, "127.0.0.1");
 }
 
 // A previously started companion may own active Any-language runs. Never replace

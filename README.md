@@ -18,6 +18,51 @@ interrupting existing runs. Vision launches require that service and fail with
 an error if it is offline; they never fall back to ASCII. Image rendering uses
 Playwright and Chrome as described in [the vision setup](benchmarking/vision/README.md).
 
+Gemini/Antigravity, Grok Build, Kimi Code, and Muse Code vision runs with Coding
+off use the additional owner on port 8086, also started by the site. Use
+`npm run start:vision-providers` to add it to an already-running site. The
+launcher detects it automatically. Grok, Kimi, and Muse receive native MCP
+images; Gemini's CLI uses a restricted viewer that can read only authenticated
+observation PNGs. Shell, Python, arbitrary file reads, and writes stay disabled.
+Run `npm ci` once for this integration's pinned Playwright dependency; it resolves
+independently of isolated agent homes and requires the local Chrome installation.
+Existing ASCII and Codex/Claude vision owners and signed runtimes are preserved.
+
+Codex vision runs automatically recover from unfinished `list_mcp_resources`
+and `list_mcp_resource_templates` calls that returned no result. The recovery
+companion (port 8087, `npm run start:recovery`) verifies the pinned runtime and
+checkpoint, backs up the session, removes only the unfinished final call, and
+resumes the same conversation. Valid game moves, settings, and agent-event logs
+remain unchanged. Active and newly launched runs are enrolled automatically;
+historical failures and intentionally paused/stopped runs stay stopped. Pause
+and Stop cancel pending retries. Repeated failures have retry limits, and any
+completed/other forbidden tool call or changed checkpoint still needs review.
+
+The same companion covers Gemini vision runs when Antigravity returns its
+"This request was blocked by Gemini's filters" response. It uses the original
+owner's normal Resume operation with the same conversation, prompt, model and
+settings; it does not roll back moves, remove provider messages or change filters.
+Retries wait 15 seconds, 1 minute, then 3 minutes, stopping after three retries
+without new moves or eight per hour. The dashboard shows **Auto-resuming** while
+waiting and **Needs attention** if retries are exhausted. Pause/Stop cancels the
+retry, including across companion restarts. Attempts are recorded in
+`~/.mazebench/gemini-vision-recovery/retry-audit.jsonl`. Other errors and integrity
+violations still require review; a successful Resume does not guarantee the
+provider will accept its next request.
+
+Grok vision runs also use bounded recovery on port 8087. The controller checks
+the recorded result for a matching-session HTTP execution error, then resumes
+the preserved conversation with the same 15-second/1-minute/3-minute limits.
+Grok 1.0.41 can advertise its three existing maze MCP catalog keys on reconnect;
+an audited, per-run compatibility extension accepts those keys while retaining
+the original gateway-only invocation checks. Adoption pins the added harness
+sources in the run manifest and saves a backup under the run's `repairs/` folder.
+Every original runtime hash, game checkpoint, model, effort and coding condition
+is retained. The CLI's conversation forks are recorded in `grok_session_lineage`.
+The recovery companion owns adopted Grok agents, so shutting it down pauses
+those agents; it does not stop the other provider owners. Its retry audit is in
+`~/.mazebench/grok-vision-recovery/retry-audit.jsonl`.
+
 Main-world run cards share a **3D / ASCII** replay switch, independent of what the
 agent received. The **Agent** label shows the original observation mode. 3D uses
 the Replays renderer and tween curves for smooth playback and seeking. A read-only

@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { VisionRuntime } from './vision/runtime.mjs';
 import { verifyVisionIntegrity } from './vision/policy.mjs';
+import { POLICY as PROVIDER_VISION_POLICY, verifyProviderVisionIntegrity } from './vision-providers/policy.mjs';
 import { verifyRunIntegrity, verifyCheckpoint } from './v1/integrity.mjs';
 import { readCheckpointJson } from './v1/checkpoint-json.mjs';
 import { verifyJournal, isIncremental } from './storage/journal.mjs';
@@ -33,7 +34,7 @@ export class PlaybackReplay {
     let entry = this.cache.get(directory);
     if (entry?.value.epoch === epoch && entry.value.action_count === count) return entry.value;
     const vision = metadata.observation_mode === 'vision';
-    if (vision) await verifyVisionIntegrity(this.root,directory,metadata);
+    if (vision) await (metadata.capability_policy?.name===PROVIDER_VISION_POLICY?verifyProviderVisionIntegrity:verifyVisionIntegrity)(this.root,directory,metadata);
     else await verifyRunIntegrity(this.root,directory,metadata.integrity);
     if (!entry || entry.value.epoch !== epoch || entry.value.action_count > count) {
       const source = vision ? null : await openAsciiReplay(this.root,directory,metadata);

@@ -1,6 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { prepareHeatmap, comparisonBounds, comparisonScale, visitValue, heatColor, mapLayout, tileAt, roomAt, defaultComparison } from "../benchmarking/ui/heatmap-comparison.mjs";
+import { prepareHeatmap, comparisonReport, comparisonBounds, comparisonScale, visitValue, heatColor, mapLayout, tileAt, roomAt, defaultComparison } from "../benchmarking/ui/heatmap-comparison.mjs";
+
+test("vision movement histories and aggregated text reports produce identical comparison maps", () => {
+  const vision = comparisonReport({ observation_mode: "vision", action_count: 2,
+    positions: [{ worldX: 116, worldY: 140 }, { worldX: 117, worldY: 140 }, { worldX: 116, worldY: 140 }],
+    actions: [{ traversedPositions: [{ worldX: 118, worldY: 140 }] }, {}] });
+  const text = comparisonReport({ action_count: 2, heatmap: { trackedActions: 1, points: [
+    { worldX: 116, worldY: 140, count: 2 }, { worldX: 117, worldY: 140, count: 1 }, { worldX: 118, worldY: 140, count: 1 }
+  ] } });
+  assert.deepEqual(vision, text);
+  assert.equal(vision.map.total, 4);
+  assert.throws(() => comparisonReport({ positions: [], history_delta: true }), /Complete visit history/);
+  assert.throws(() => comparisonReport({}), /Complete visit history/);
+  assert.equal(comparisonReport({ positions: [], actions: [] }).map.total, 0);
+});
 
 test("comparison retains aggregated visits and ignores invalid world coordinates", () => {
   const map = prepareHeatmap({ points: [

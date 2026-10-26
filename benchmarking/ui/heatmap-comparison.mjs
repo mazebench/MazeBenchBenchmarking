@@ -1,4 +1,5 @@
 import { modelLabel } from "./model-label.mjs";
+import { heatmapVisits } from "./heatmap.mjs";
 
 // All maps use this one coordinate system and one logarithmic color scale.
 const WORLD_SIZE = 256, ROOM_SIZE = 16;
@@ -17,6 +18,19 @@ export function prepareHeatmap(heatmap = {}) {
     return { x, y, count };
   });
   return { points, counts, total: points.reduce((sum, p) => sum + p.count, 0), trackedActions: heatmap.trackedActions || 0 };
+}
+
+// Older vision owners return complete movement history for ?view=analysis;
+// newer owners return aggregated points. Both represent the same world tiles.
+export function comparisonReport(value) {
+  let heatmap = value.heatmap;
+  if (!heatmap) {
+    if (value.history_delta || !Array.isArray(value.positions)) throw new Error("Complete visit history is unavailable.");
+    const visits = heatmapVisits(value);
+    heatmap = { trackedActions: visits.trackedActions,
+      points: visits.positions.filter(Boolean).map(p => ({ ...p, count: 1 })) };
+  }
+  return { map: prepareHeatmap(heatmap), actions: value.action_count || 0 };
 }
 
 export function comparisonBounds(maps, fullWorld = false) {

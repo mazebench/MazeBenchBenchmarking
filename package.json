@@ -6,6 +6,8 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "start:recovery": "node benchmarking/recovery-server.mjs",
+    "start:vision-providers": "node benchmarking/vision-providers/server.mjs",
     "start:playback": "node benchmarking/playback-server.mjs",
     "start:vision": "node --import ./benchmarking/codex-releases.mjs benchmarking/vision/server.mjs",
     "start:capabilities": "node benchmarking/capability-server.mjs",
@@ -70,6 +72,7 @@
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "16.4.0",
+    "mazebench-playwright": "npm:playwright@1.62.1",
     "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",

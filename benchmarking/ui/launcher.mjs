@@ -43,6 +43,8 @@ let codexReady = false;
 let installationStatus = {};
 
 function providerCompatible(provider) {
+  if(elements["observation-mode"].value==='vision'&&installationStatus[provider]?.vision_available)
+    return elements.world.value==='main-world'&&elements['coding-mode'].value==='off';
   return !["grok-build", "antigravity", "muse-code", "kimi-code", "prime-agent"].includes(provider) || (elements.world.value === "main-world" && elements["observation-mode"].value === "ascii");
 }
 
@@ -60,7 +62,7 @@ function updateReadiness() {
   elements["codex-update-status"].textContent = any && !codeReady
     ? (supportsAnyLanguage(launchPayload()) ? status?.code_sandbox?.error || "Checking any-language sandbox…" : "Any language requires ASCII observations in a world supported by this harness.")
     : !providerCompatible(provider)
-    ? `${providerName(provider)} currently supports Main World with ASCII observations.`
+    ? installationStatus[provider]?.vision_available ? `${providerName(provider)} supports Main World vision with Coding off.` : `${providerName(provider)} currently supports Main World with ASCII observations.`
     : !status ? "Checking installation and sign-in…" : status.error || (needsAuth
     ? `${status?.authenticated ? "Signed in" : "Not signed in"} · ${status?.tested ? "Benchmark tool boundary verified" : "Version needs validation"}`
     : `${labels[status?.update_status] || "Checking installation"} · ${status?.tested ? "Benchmark checks supported" : "Version needs validation"}`);
@@ -69,7 +71,7 @@ function updateReadiness() {
   elements["runtime-details"].classList.toggle("needs-attention", Boolean(status && !codexReady));
   if (status && !codexReady) elements["runtime-details"].open = true;
   elements["launch-single"].disabled = launching || !codexReady;
-  elements["launch-pair"].disabled = launching || !codexReady;
+  elements["launch-pair"].disabled = launching || !codexReady || (elements["observation-mode"].value==='vision'&&Boolean(installationStatus[provider]?.vision_available));
 }
 
 async function checkCodex(force = false) {

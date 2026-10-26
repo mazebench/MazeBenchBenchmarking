@@ -1,7 +1,7 @@
 import { benchmarkFetch } from "./benchmark-api.mjs";
-import { runCompany, selectRuns } from "./run-library.mjs";
-import { comparisonCondition, comparisonConditionKey, comparisonModel } from "./heatmap-import.mjs";
-import { prepareHeatmap, comparisonBounds, croppedBounds, comparisonScale, defaultComparison, drawComparisonMap, displayModelName, tileAt, roomAt } from "./heatmap-comparison.mjs";
+import { runCompany, runCardValues, selectRuns } from "./run-library.mjs";
+import { comparisonCondition } from "./heatmap-import.mjs";
+import { comparisonReport, comparisonBounds, croppedBounds, comparisonScale, defaultComparison, drawComparisonMap, displayModelName, tileAt, roomAt } from "./heatmap-comparison.mjs";
 import { modelLabel, modelSpeed } from "./model-label.mjs";
 import { createGemComparison } from "./gem-comparison.mjs";
 import { createHeatmapGifExport } from "./heatmap-gif-export.mjs";
@@ -12,24 +12,44 @@ const dates = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric
 const percent = value => `${new Intl.NumberFormat(undefined, { maximumSignificantDigits: 3 }).format(value)}%`;
 const params = new URLSearchParams(location.search);
 let runs = [], fullWorld = params.get("area") === "world", selectedTile = null, serial = 0, refreshing = false;
-let screenshotMode = false, previousScroll = 0;
-let gemMode = params.get("view") === "gems";
-let panelCount = params.get("models") === "3" || params.has("third") ? 3 : 2;
-const cache = new Map(), pending = new Map();
+let screenshotMode = false, previousScroll = 0, gemMode = params.get("view") === "gems", nextPanel = 0;
+const panels = [], cache = new Map(), pending = new Map();
+const labelKey = "mazebench-heatmap-labels-v1";
+let labels = {};
+try { const saved = JSON.parse(localStorage.getItem(labelKey)); if (saved && typeof saved === "object" && !Array.isArray(saved)) labels = saved; } catch { /* Private browsing can disable storage. */ }
+const labelFor = run => typeof labels[run?.id] === "string" && labels[run.id].trim() ? labels[run.id] : displayModelName(run?.model);
+function saveLabels() { try { localStorage.setItem(labelKey, JSON.stringify(labels)); } catch { /* Keep edits for this page session. */ } }
+const modeName = run => run?.observation_mode === "vision" ? "Vision" : "Text";
+const details = run => `${modeName(run)} · ${comparisonCondition(run)}${run.effort ? ` · ${run.effort}` : ""}${modelSpeed(run) === "fast" ? " · Fast" : ""}${run.benchmark_version?.label ? ` · ${run.benchmark_version.label}` : ""}`;
 if (params.get("scale") === "share") $("color-scale").value = "share";
 
+// The historical HTML is signed. Modern controls live in this presentation module.
 document.title = "MazeBench — Compare runs";
 document.querySelector(".compare-heading h1").textContent = "Compare runs";
-document.querySelector(".compare-heading p").textContent = "Main World · Explore the paths. Compare the progress.";
-$("screenshot-mode").title = "Show a clean comparison. Press Escape or click to return.";
-const viewSwitch = document.createElement("div");
-viewSwitch.className = "comparison-view-switch map-segments";
-viewSwitch.setAttribute("role", "group"); viewSwitch.setAttribute("aria-label", "Comparison view");
-viewSwitch.innerHTML = '<button type="button" data-view="heatmaps">Heatmaps</button><button type="button" data-view="gems">Gems vs. moves</button>';
-document.querySelector(".compare-toolbar").before(viewSwitch);
-const gemComparison = createGemComparison({ onChange: () => {
-  if (gemMode) $("screenshot-mode").disabled = !gemComparison.canScreenshot();
-} });
+document.querySelector(".compare-heading p").remove();
+$("screenshot-mode").textContent = "Screenshot";
+$("screenshot-mode").title = "Clean heatmaps with editable labels";
+$("comparison-note").hidden = true;
+document.querySelectorAll(".compare-help").forEach(node => node.remove());
+const toolbar = document.querySelector(".compare-toolbar");
+const area = toolbar.querySelector('[aria-label="Map area"]');
+const colorSelect = $("color-scale");
+$("model-count").closest("label").remove();
+colorSelect.closest("label").hidden = true;
+const controls = document.createElement("div");
+controls.className = "comparison-controls";
+controls.innerHTML = `<div class="comparison-view-switch map-segments" role="group" aria-label="Comparison view"><button type="button" data-view="heatmaps">Heatmaps</button><button type="button" data-view="gems">Gems vs. moves</button></div>
+  <div class="heatmap-controls"><button type="button" id="add-comparison">＋ Add run</button><details class="map-options"><summary>Map settings</summary><div class="map-options-content"><span>Area</span><div class="area-slot"></div><span>Color</span><div class="map-segments" role="group" aria-label="Color scale"><button type="button" data-scale="count">Visit count</button><button type="button" data-scale="share">Visit share</button></div></div></details></div>`;
+toolbar.before(controls);
+controls.querySelector(".area-slot").append(area);
+controls.querySelector(".map-options-content").append(colorSelect);
+colorSelect.hidden = true;
+toolbar.remove();
+const viewSwitch = controls.querySelector(".comparison-view-switch");
+const help = document.querySelector(".compare-details");
+help.querySelector("summary").textContent = "About these heatmaps";
+help.querySelector("p").textContent = "Compare text and vision runs on the same world coordinates and color scale. Visit share normalizes for run length. Hover or tap a tile to compare visits; arrow keys work with a map focused.";
+const gemComparison = createGemComparison({ onChange: () => { if (gemMode) $("screenshot-mode").disabled = !gemComparison.canScreenshot(); } });
 function updateView() {
   document.documentElement.classList.toggle("gem-view", gemMode);
   for (const button of viewSwitch.querySelectorAll("button")) button.setAttribute("aria-pressed", String((button.dataset.view === "gems") === gemMode));
@@ -42,271 +62,230 @@ viewSwitch.addEventListener("click", event => {
   gemMode = button.dataset.view === "gems"; updateView(); loadSelection();
 });
 
-const panels = ["left", "right", "third"].map((side, index) => {
-  const element = document.createElement("section");
+const picker = document.createElement("dialog");
+picker.className = "comparison-picker";
+picker.setAttribute("aria-labelledby", "comparison-picker-title");
+picker.innerHTML = `<header><h2 id="comparison-picker-title">Choose a run</h2><button type="button" class="picker-close" aria-label="Close run picker">×</button></header>
+  <input type="search" class="picker-search" placeholder="Search model or company" aria-label="Search runs">
+  <div class="picker-filters"><div class="map-segments" role="group" aria-label="Observation mode"><button data-mode="all" aria-pressed="true">All</button><button data-mode="vision" aria-pressed="false">Vision</button><button data-mode="ascii" aria-pressed="false">Text</button></div>
+  <div class="map-segments" role="group" aria-label="Coding tools"><button data-coding="all" aria-pressed="true">All tools</button><button data-coding="off" aria-pressed="false">Off</button><button data-coding="on" aria-pressed="false">On</button></div></div>
+  <div class="picker-runs" role="group" aria-label="Available runs"></div>`;
+document.body.append(picker);
+let picking = null, pickerMode = "all", pickerCoding = "all";
+const search = picker.querySelector("input");
+function addLogo(container, run) {
+  const values = runCardValues(run);
+  if (!values.logo) return;
+  const img = document.createElement("img"); img.src = values.logo; img.alt = ""; img.width = img.height = 22;
+  img.className = `comparison-logo${values.monochromeLogo ? " monochrome" : ""}`;
+  container.append(img);
+}
+function renderPicker() {
+  const query = search.value.trim().toLowerCase();
+  const list = picker.querySelector(".picker-runs"); list.replaceChildren();
+  const visible = runs.filter(run => (!query || `${run.model} ${modelLabel(run.model)} ${runCompany(run)} ${run.id}`.toLowerCase().includes(query))
+    && (pickerMode === "all" || (run.observation_mode || "ascii") === pickerMode)
+    && (pickerCoding === "all" || Boolean(run.tools_enabled) === (pickerCoding === "on")));
+  for (const run of visible) {
+    const button = document.createElement("button"); button.type = "button"; button.className = "picker-run"; button.dataset.id = run.id;
+    button.setAttribute("aria-pressed", String(picking?.id === run.id));
+    addLogo(button, run);
+    const body = document.createElement("span"), title = document.createElement("strong"), subtitle = document.createElement("small");
+    title.textContent = modelLabel(run.model); subtitle.textContent = details(run);
+    body.append(title, subtitle);
+    const stamp = document.createElement("span"); stamp.className = "picker-run-date";
+    stamp.textContent = `${run.created_at ? dates.format(new Date(run.created_at)) : "Undated"}${run.source ? " · Imported" : ""}`;
+    button.title = `${modelLabel(run.model)} · ${details(run)} · ${run.status || "Imported"} · ${run.id}`;
+    button.append(body, stamp); list.append(button);
+  }
+  if (!visible.length) { const empty = document.createElement("p"); empty.className = "picker-empty"; empty.textContent = "No matching runs."; list.append(empty); }
+}
+function openPicker(panel) { picking = panel; search.value = ""; renderPicker(); picker.showModal(); search.focus(); }
+picker.querySelector(".picker-close").addEventListener("click", () => picker.close());
+picker.addEventListener("click", event => {
+  if (event.target === picker) { const r = picker.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) picker.close(); }
+  const choice = event.target.closest(".picker-run");
+  if (choice && picking) { picking.id = choice.dataset.id; picker.close(); loadSelection(); }
+  const filter = event.target.closest("[data-mode], [data-coding]");
+  if (filter) {
+    if (filter.dataset.mode) pickerMode = filter.dataset.mode; else pickerCoding = filter.dataset.coding;
+    for (const button of filter.parentElement.querySelectorAll("button")) button.setAttribute("aria-pressed", String(button === filter));
+    renderPicker();
+  }
+});
+search.addEventListener("input", renderPicker);
+picker.addEventListener("close", () => picking?.element.querySelector(".comparison-pick").focus({ preventScroll: true }));
+
+const observer = new ResizeObserver(() => drawMaps());
+function createPanel(id = "") {
+  const side = `map-${++nextPanel}`, element = document.createElement("section");
   element.className = "comparison-panel";
-  element.setAttribute("aria-label", `${side} run comparison`);
-  element.innerHTML = `
-    <div class="comparison-selectors">
-      <label><span>Model ${index + 1}</span><select class="model-select" aria-label="${side} model" disabled></select></label>
-      <label><span>Run</span><select class="run-select" aria-label="${side} run" disabled></select></label>
-    </div>
-    <div class="comparison-run-meta"><span class="run-description">Choose a run</span><a class="open-run" hidden>Open run ↗</a></div>
-    <dl class="comparison-stats"><div><dt>Actions</dt><dd data-stat="actions">—</dd></div><div><dt>Tiles visited</dt><dd data-stat="tiles">—</dd></div><div><dt>Rooms</dt><dd data-stat="rooms">—</dd></div><div><dt>Gems</dt><dd data-stat="gems">—</dd></div></dl>
-    <div class="comparison-map"><canvas width="640" height="640" tabindex="0" role="img" aria-label="${side} run heatmap" aria-describedby="${side}-tile"></canvas><div class="map-message" role="status">Loading runs…</div></div>
-    <footer><output id="${side}-tile" class="tile-readout">Hover or tap a tile</output><span class="map-coverage">Recorded visits</span></footer>
-    <p class="screenshot-model-name"></p>`;
-  $("comparison-panels").append(element);
-  const panel = { side, element, model: element.querySelector(".model-select"), run: element.querySelector(".run-select"),
-    canvas: element.querySelector("canvas"), message: element.querySelector(".map-message"), data: null, layout: null };
-  panel.model.addEventListener("change", () => {
-    const previous = runs.find(run => run.id === panel.run.value);
-    const preferred = runs.find(run => comparisonModel(run.model) === panel.model.value && comparisonConditionKey(run) === comparisonConditionKey(previous));
-    populateRuns(panel, preferred?.id); loadSelection();
+  element.innerHTML = `<header class="comparison-panel-header"><button type="button" class="comparison-pick"><span class="comparison-pick-body"><strong></strong><small></small></span><span class="pick-chevron" aria-hidden="true">⌄</span></button><button type="button" class="remove-comparison" aria-label="Remove run">×</button></header>
+    <dl class="comparison-stats"><div><dt>Moves</dt><dd data-stat="actions">—</dd></div><div><dt>Tiles</dt><dd data-stat="tiles">—</dd></div><div><dt>Rooms</dt><dd data-stat="rooms">—</dd></div><div><dt>Gems</dt><dd data-stat="gems">—</dd></div></dl>
+    <div class="comparison-map"><canvas width="640" height="640" tabindex="0" role="img" aria-describedby="${side}-tile"></canvas><div class="map-message" role="status">Choose a run</div></div>
+    <footer><output id="${side}-tile" class="tile-readout">Hover to inspect</output><a class="open-run" hidden aria-label="Open run details">↗</a></footer>
+    <p class="screenshot-model-name" role="textbox" aria-multiline="false" spellcheck="false"></p>`;
+  const panel = { id, element, canvas: element.querySelector("canvas"), message: element.querySelector(".map-message"), label: element.querySelector(".screenshot-model-name"), data: null, dataId: null, layout: null };
+  panels.push(panel); $("comparison-panels").append(element); observer.observe(panel.canvas);
+  element.querySelector(".comparison-pick").addEventListener("click", () => openPicker(panel));
+  element.querySelector(".remove-comparison").addEventListener("click", () => {
+    if (panels.length === 1) return;
+    observer.unobserve(panel.canvas); panels.splice(panels.indexOf(panel), 1); element.remove(); syncPanels(); loadSelection();
   });
-  panel.run.addEventListener("change", loadSelection);
+  panel.label.addEventListener("input", () => {
+    labels[panel.id] = panel.label.textContent.slice(0, 160); saveLabels(); fitScreenshotLabels();
+  });
+  panel.label.addEventListener("blur", () => {
+    const value = panel.label.textContent.replace(/\s+/g, " ").trim().slice(0, 160);
+    if (value) labels[panel.id] = value; else delete labels[panel.id];
+    saveLabels(); panel.label.textContent = labelFor(runs.find(run => run.id === panel.id)); drawMaps();
+  });
+  panel.label.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); panel.label.blur(); } });
   const inspect = event => {
     if (screenshotMode || !panel.layout || !panel.data) return;
-    const rect = panel.canvas.getBoundingClientRect();
-    selectedTile = tileAt(panel.layout, event.clientX - rect.left, event.clientY - rect.top);
-    drawMaps();
+    const rect = panel.canvas.getBoundingClientRect(); selectedTile = tileAt(panel.layout, event.clientX - rect.left, event.clientY - rect.top); drawMaps();
   };
-  panel.canvas.addEventListener("pointermove", inspect);
-  panel.canvas.addEventListener("pointerdown", inspect);
+  panel.canvas.addEventListener("pointermove", inspect); panel.canvas.addEventListener("pointerdown", inspect);
   panel.canvas.addEventListener("keydown", event => {
     if (screenshotMode) return;
     const direction = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
     if (event.key === "Escape") { selectedTile = null; drawMaps(); return; }
     if (!direction || !panel.layout || !panel.data) return;
-    event.preventDefault();
-    const b = panel.layout, p = selectedTile || { x: b.minX, y: b.minY };
-    selectedTile = { x: Math.max(b.minX, Math.min(b.minX + b.columns - 1, p.x + direction[0])),
-      y: Math.max(b.minY, Math.min(b.minY + b.rows - 1, p.y + direction[1])) };
-    drawMaps();
+    event.preventDefault(); const b = panel.layout, p = selectedTile || { x: b.minX, y: b.minY };
+    selectedTile = { x: Math.max(b.minX, Math.min(b.minX + b.columns - 1, p.x + direction[0])), y: Math.max(b.minY, Math.min(b.minY + b.rows - 1, p.y + direction[1])) }; drawMaps();
   });
   return panel;
-});
-
-const activePanels = () => panels.slice(0, panelCount);
-const gifExport = createHeatmapGifExport({
-  selection: () => ({ scale: $("color-scale").value, panels: activePanels().map(panel => ({
-    run: runs.find(run => run.id === panel.run.value), map: panel.data?.map, actions: panel.data?.actions,
-  })) }),
-  onExit: () => setScreenshotMode(false), onResize: drawMaps,
-});
-function updatePanelCount() {
-  panels[2].element.hidden = panelCount === 2;
-  $("model-count").value = String(panelCount);
-  $("comparison-panels").style.setProperty("--comparison-count", panelCount);
 }
-updatePanelCount();
+function syncPanels() {
+  $("comparison-panels").style.setProperty("--comparison-count", panels.length);
+  for (const panel of panels) panel.element.querySelector(".remove-comparison").hidden = panels.length === 1;
+}
+const gifExport = createHeatmapGifExport({
+  selection: () => ({ scale: colorSelect.value, panels: panels.map(panel => ({ run: runs.find(run => run.id === panel.id), name: labelFor(runs.find(run => run.id === panel.id)), map: panel.data?.map, actions: panel.data?.actions })) }),
+  onExit: () => setScreenshotMode(false), onResize: () => drawMaps(),
+});
+const resetLabels = document.createElement("button"); resetLabels.type = "button"; resetLabels.textContent = "Reset names";
+resetLabels.addEventListener("click", () => { for (const panel of panels) { delete labels[panel.id]; renderPanel(panel); } saveLabels(); drawMaps(); });
+document.querySelector(".heatmap-export-controls .gif-exit").before(resetLabels);
+const screenshotReturn = document.createElement("button");
+screenshotReturn.className = "screenshot-return"; screenshotReturn.type = "button"; screenshotReturn.textContent = "Done"; screenshotReturn.hidden = true;
+screenshotReturn.addEventListener("click", () => setScreenshotMode(false)); document.body.append(screenshotReturn);
 
 async function importedJSON(path) {
   const response = await fetch(new URL(path, import.meta.url), { signal: AbortSignal.timeout(15000), cache: "no-cache" });
   if (!response.ok) throw new Error(`Imported heatmaps unavailable (${response.status}).`);
   return response.json();
 }
-
 async function api(url) {
-  const response = await benchmarkFetch(url, { signal: AbortSignal.timeout(60000) });
-  const value = await response.json();
-  if (!response.ok) throw new Error(value.error || `Request failed (${response.status}).`);
-  return value;
+  const response = await benchmarkFetch(url, { signal: AbortSignal.timeout(60000) }); const value = await response.json();
+  if (!response.ok) throw new Error(value.error || `Request failed (${response.status}).`); return value;
 }
-
 function report(id) {
   const cached = cache.get(id);
   if (cached && Date.now() - cached.at < 30000) return Promise.resolve(cached.value);
   if (pending.has(id)) return pending.get(id);
   const run = runs.find(run => run.id === id);
-  const request = (run?.source ? importedJSON(`../imports/${encodeURIComponent(id)}.json`)
-    : api(`/api/benchmark/v1/runs/${encodeURIComponent(id)}?view=analysis`)).then(value => {
-    const result = { map: prepareHeatmap(value.heatmap), actions: value.action_count || 0 };
-    if (pending.get(id) === request) {
-      cache.delete(id); cache.set(id, { value: result, at: Date.now() });
-      if (cache.size > 4) cache.delete(cache.keys().next().value);
-    }
+  const request = (run?.source ? importedJSON(`../imports/${encodeURIComponent(id)}.json`) : api(`/api/benchmark/v1/runs/${encodeURIComponent(id)}?view=analysis`)).then(value => {
+    const result = comparisonReport(value);
+    if (pending.get(id) === request) { cache.delete(id); cache.set(id, { value: result, at: Date.now() }); if (cache.size > Math.max(12, panels.length)) cache.delete(cache.keys().next().value); }
     return result;
   }).finally(() => { if (pending.get(id) === request) pending.delete(id); });
-  pending.set(id, request);
-  return request;
+  pending.set(id, request); return request;
 }
-
-function populateModels(panel, id) {
-  panel.model.replaceChildren(new Option("Choose a model", ""));
-  const companies = new Map();
-  for (const run of selectRuns(runs, { sort: "company" })) {
-    const model = comparisonModel(run.model);
-    const company = model === "kimi-k3" ? "Moonshot AI" : runCompany(run);
-    if (!companies.has(company)) companies.set(company, new Set());
-    companies.get(company).add(model);
-  }
-  for (const [company, models] of companies) {
-    const group = document.createElement("optgroup"); group.label = company;
-    for (const model of models) group.append(new Option(modelLabel(model), model));
-    panel.model.append(group);
-  }
-  panel.model.disabled = !runs.length;
-  panel.model.value = comparisonModel(runs.find(run => run.id === id)?.model) || "";
-  populateRuns(panel, id);
-}
-
-function populateRuns(panel, id) {
-  const matching = runs.filter(run => comparisonModel(run.model) === panel.model.value);
-  panel.run.replaceChildren(...matching.map(run => new Option(
-    `${run.benchmark_version?.label || "Version unknown"} · ${run.source ? "Imported · " : ""}${comparisonCondition(run)} · ${modelSpeed(run) === "fast" ? "Fast · " : ""}${run.effort ? `${run.effort} · ` : ""}${run.observation_mode !== "ascii" ? `${String(run.observation_mode || "").toUpperCase()} · ` : ""}${run.created_at ? dates.format(new Date(run.created_at)) : "Undated"} · ${run.id.slice(-6)}${run.heatmap_available === false ? " · No heatmap" : ""}`, run.id)));
-  if (!matching.length) panel.run.append(new Option("Choose a model first", ""));
-  panel.run.disabled = !matching.length;
-  panel.run.value = matching.find(run => run.id === id)?.id || matching[0]?.id || "";
-}
-
 function updateURL() {
   const url = new URL(location.href);
-  for (const panel of panels) {
-    if (activePanels().includes(panel) && panel.run.value) url.searchParams.set(panel.side, panel.run.value);
-    else url.searchParams.delete(panel.side);
-  }
-  url.searchParams.set("models", String(panelCount));
+  for (const key of ["map", "left", "right", "third", "models"]) url.searchParams.delete(key);
+  for (const panel of panels) url.searchParams.append("map", panel.id);
   if (gemMode) url.searchParams.set("view", "gems"); else url.searchParams.delete("view");
   if (fullWorld) url.searchParams.set("area", "world"); else url.searchParams.delete("area");
-  if ($("color-scale").value === "share") url.searchParams.set("scale", "share"); else url.searchParams.delete("scale");
+  if (colorSelect.value === "share") url.searchParams.set("scale", "share"); else url.searchParams.delete("scale");
   history.replaceState(null, "", url);
 }
-
 function renderPanel(panel) {
-  const run = runs.find(run => run.id === panel.run.value), data = panel.data;
-  panel.element.querySelector(".screenshot-model-name").textContent = displayModelName(run?.model);
-  const link = panel.element.querySelector(".open-run");
-  link.hidden = !run;
-  if (run) link.href = run.source?.url || `./run.html?id=${encodeURIComponent(run.id)}`;
-  link.textContent = run?.source ? "Source run ↗" : "Open run ↗";
-  panel.element.querySelector(".run-description").textContent = run
-    ? `${run.source ? `${run.harness_label || run.harness || run.provider} · ${run.effort || "Unrecorded"} reasoning · Imported` : `${run.effort || "Default"} reasoning`} · ${String(run.observation_mode || "ascii").toUpperCase()} · ${String(run.status || "unknown").replaceAll("-", " ")} · ${run.benchmark_version?.label || "Version unknown"}` : "Choose a run";
+  const run = runs.find(run => run.id === panel.id), data = panel.data;
+  if (document.activeElement !== panel.label) panel.label.textContent = labelFor(run);
+  panel.label.setAttribute("aria-label", `Screenshot label for ${modelLabel(run?.model) || "run"}`);
+  const pick = panel.element.querySelector(".comparison-pick");
+  pick.querySelector("strong").textContent = modelLabel(run?.model) || "Choose a run";
+  pick.querySelector("small").textContent = run ? details(run) : "Text or vision";
+  pick.setAttribute("aria-label", `Choose run${run ? `: ${modelLabel(run.model)} · ${details(run)}` : ""}`);
+  pick.querySelector("img")?.remove(); if (run) { const logo = document.createElement("span"); addLogo(logo, run); if (logo.firstChild) pick.prepend(logo.firstChild); }
+  const link = panel.element.querySelector(".open-run"); link.hidden = !run;
+  if (run) { link.href = run.source?.url || `./run.html?id=${encodeURIComponent(run.id)}`; link.title = `${run.source ? "Source" : "Open run"} · ${run.created_at ? dates.format(new Date(run.created_at)) : "Undated"}`; }
   const stats = { actions: data?.actions, tiles: data?.map.points.length, rooms: data ? run?.rooms_visited : null, gems: data ? run?.gems_collected : null };
   for (const [key, value] of Object.entries(stats)) panel.element.querySelector(`[data-stat="${key}"]`).textContent = value == null ? "—" : number(value);
-  panel.element.querySelector(".map-coverage").textContent = data
-    ? `${number(data.map.total)} visits · ${run.source ? "action endpoints · imported snapshot" : `paths tracked for ${number(data.map.trackedActions)} of ${number(data.actions)} actions`}` : "Recorded visits";
-  panel.canvas.setAttribute("aria-label", data ? `${modelLabel(run.model)}: ${number(data.map.points.length)} tiles visited, ${number(data.map.total)} visits. Use arrow keys to inspect tiles.` : "Heatmap unavailable");
+  panel.canvas.setAttribute("aria-label", data ? `${modelLabel(run.model)} ${modeName(run)} heatmap: ${number(data.map.points.length)} tiles visited, ${number(data.map.total)} visits.` : "Heatmap unavailable");
 }
-
-function fitScreenshotLabels(visible) {
-  const labels = visible.map(panel => panel.element.querySelector(".screenshot-model-name"));
-  for (const label of labels) label.style.removeProperty("font-size");
-  if (!screenshotMode) return;
-  // Keep every name complete, on one line, and at the same size.
-  const size = Math.min(...labels.map(label => {
-    const preferred = parseFloat(getComputedStyle(label).fontSize);
-    const range = document.createRange();
-    range.selectNodeContents(label);
-    const width = range.getBoundingClientRect().width;
-    return preferred * Math.min(1, Math.max(1, label.clientWidth - 2) / Math.max(1, width));
+function fitScreenshotLabels() {
+  for (const panel of panels) panel.label.style.removeProperty("font-size");
+  if (!screenshotMode || !panels.length) return;
+  const size = Math.min(...panels.map(({ label }) => {
+    const preferred = parseFloat(getComputedStyle(label).fontSize), range = document.createRange(); range.selectNodeContents(label);
+    return preferred * Math.min(1, Math.max(1, label.clientWidth - 2) / Math.max(1, range.getBoundingClientRect().width));
   }));
-  for (const label of labels) label.style.fontSize = `${Math.floor(size * 100) / 100}px`;
+  for (const panel of panels) panel.label.style.fontSize = `${Math.floor(size * 100) / 100}px`;
 }
-
 function drawMaps() {
   if (gemMode) { gemComparison.draw(); return; }
-  const visible = activePanels();
-  const maps = visible.map(panel => panel.data?.map), bounds = comparisonBounds(maps, fullWorld);
-  const scale = $("color-scale").value, colors = comparisonScale(maps, scale);
-  const crops = maps.map(croppedBounds);
-  const grid = $("comparison-panels");
-  fitScreenshotLabels(visible);
-  const labelHeight = screenshotMode ? Math.max(...visible.map(panel => panel.element.querySelector(".screenshot-model-name").clientHeight)) : 0;
-  // Crop each run independently but keep the same tile size across maps.
-  const screenshotCell = screenshotMode ? Math.max(1, Math.min(
-    (grid.clientWidth - parseFloat(getComputedStyle(grid).columnGap) * (panelCount - 1)) / panelCount / Math.max(...crops.map(crop => crop.columns)),
+  if (!panels.length) return;
+  const maps = panels.map(panel => panel.data?.map), bounds = comparisonBounds(maps, fullWorld), scale = colorSelect.value, colors = comparisonScale(maps, scale), crops = maps.map(croppedBounds);
+  const grid = $("comparison-panels"); fitScreenshotLabels();
+  const labelHeight = screenshotMode ? Math.max(...panels.map(panel => panel.label.clientHeight)) : 0;
+  const screenshotCell = screenshotMode ? Math.max(.05, Math.min(
+    (grid.clientWidth - parseFloat(getComputedStyle(grid).columnGap) * (panels.length - 1)) / panels.length / Math.max(...crops.map(crop => crop.columns)),
     (window.innerHeight - 72 - labelHeight - gifExport.height()) / Math.max(...crops.map(crop => crop.rows))
   )) : 1;
-  $("explored-area").setAttribute("aria-pressed", String(!fullWorld));
-  $("full-world").setAttribute("aria-pressed", String(fullWorld));
-  for (const [index, panel] of visible.entries()) {
+  $("explored-area").setAttribute("aria-pressed", String(!fullWorld)); $("full-world").setAttribute("aria-pressed", String(fullWorld));
+  for (const button of controls.querySelectorAll("[data-scale]")) button.setAttribute("aria-pressed", String(button.dataset.scale === scale));
+  for (const [index, panel] of panels.entries()) {
     panel.layout = drawComparisonMap(panel.canvas, panel.data?.map, screenshotMode ? crops[index] : bounds, scale, colors, selectedTile, { screenshotMode, screenshotCell });
     const count = panel.data?.map.counts.get(`${selectedTile?.x},${selectedTile?.y}`) || 0;
-    panel.element.querySelector(".tile-readout").textContent = !panel.data ? "No heatmap loaded" : !selectedTile ? "Hover or tap a tile to compare visits"
-      : `Room ${roomAt(selectedTile)} · tile ${selectedTile.x % 16}, ${selectedTile.y % 16} · ${number(count)} visits${scale === "share" ? ` · ${percent(panel.data.map.total ? count / panel.data.map.total * 100 : 0)}` : ""}`;
+    panel.element.querySelector(".tile-readout").textContent = !panel.data ? "" : !selectedTile ? `${number(panel.data.map.total)} visits` : `${roomAt(selectedTile)} · ${number(count)} visits${scale === "share" ? ` · ${percent(panel.data.map.total ? count / panel.data.map.total * 100 : 0)}` : ""}`;
   }
   $("comparison-legend").hidden = !colors.maximum;
   const format = scale === "share" ? percent : number;
-  $("legend-min").textContent = format(colors.minimum);
-  $("legend-max").textContent = format(colors.maximum);
-  $("legend-label").textContent = `${scale === "share" ? "Share of each run’s visits" : "Visits per tile"} · logarithmic scale`;
-  $("screenshot-mode").disabled = !visible.every(panel => panel.data?.map.points.length);
+  $("legend-min").textContent = format(colors.minimum); $("legend-max").textContent = format(colors.maximum);
+  $("legend-label").textContent = scale === "share" ? "Share of visits" : "Visits per tile";
+  $("screenshot-mode").disabled = !panels.every(panel => panel.data?.map.points.length);
 }
-
 function setScreenshotMode(active) {
   if (active && $("screenshot-mode").disabled) return;
   if (active) previousScroll = window.scrollY;
-  screenshotMode = active;
-  selectedTile = null;
-  document.documentElement.classList.toggle("screenshot-mode", active);
-  gifExport.setVisible(active && !gemMode);
-  for (const panel of panels) panel.canvas.tabIndex = active ? -1 : 0;
+  else if (document.activeElement?.classList.contains("screenshot-model-name")) document.activeElement.blur();
+  screenshotMode = active; selectedTile = null;
+  document.documentElement.classList.toggle("screenshot-mode", active); gifExport.setVisible(active && !gemMode);
+  screenshotReturn.hidden = !active || !gemMode;
+  for (const panel of panels) { panel.canvas.tabIndex = active ? -1 : 0; panel.label.contentEditable = active ? "plaintext-only" : "false"; panel.label.tabIndex = active ? 0 : -1; }
   document.querySelector(".gem-chart").tabIndex = active ? -1 : 0;
-  if (active) {
-    document.querySelector(".compare-main").focus({ preventScroll: true });
-    window.scrollTo(0, 0);
-  } else {
-    $("screenshot-mode").focus({ preventScroll: true });
-    window.scrollTo(0, previousScroll);
-  }
+  if (active) { document.querySelector(".map-options").open = false; document.querySelector(".compare-main").focus({ preventScroll: true }); window.scrollTo(0, 0); }
+  else { $("screenshot-mode").focus({ preventScroll: true }); window.scrollTo(0, previousScroll); }
   drawMaps();
 }
-
-function comparisonNote() {
-  const selected = activePanels().map(panel => runs.find(run => run.id === panel.run.value)).filter(Boolean);
-  const notes = [];
-  if (selected.length > 1) {
-    if (new Set(selected.map(run => run.id)).size < selected.length) notes.push("Some panels show the same run.");
-    if (new Set(selected.map(comparisonConditionKey)).size > 1) notes.push("These runs use different tool settings.");
-    if (new Set(selected.map(run => run.observation_mode || "ascii")).size > 1) notes.push("These runs use different observation modes.");
-    if (new Set(selected.filter(run => run.effort).map(run => run.effort)).size > 1) notes.push("These runs use different reasoning settings.");
-  }
-  if (selected.some(run => run.source)) notes.push("Imported heatmaps preserve the older run’s world and recorded action endpoints.");
-  $("comparison-note").hidden = !notes.length;
-  $("comparison-note").textContent = notes.join(" ");
-}
-
 async function loadSelection() {
-  const generation = ++serial;
-  selectedTile = null;
-  updateURL(); comparisonNote();
+  const generation = ++serial; selectedTile = null; updateURL();
   if (gemMode) { await gemComparison.load(); return; }
-  $("comparison-status").classList.remove("error");
-  $("comparison-status").textContent = "Loading heatmaps…";
+  $("comparison-status").classList.remove("error"); $("comparison-status").textContent = "Loading…";
   let failed = false;
-  const jobs = activePanels().map(async panel => {
-    const id = panel.run.value;
-    panel.data = null;
-    panel.message.hidden = false;
-    panel.message.textContent = id ? "Loading heatmap…" : runs.length ? "Choose a model and run to compare." : "No Main World runs yet. Launch one from Benchmark.";
-    panel.element.setAttribute("aria-busy", String(Boolean(id)));
-    renderPanel(panel);
-    if (!id) return;
-    try {
-      const data = await report(id);
-      if (serial !== generation) return;
-      panel.data = data;
-      panel.message.hidden = Boolean(data.map.points.length);
-      panel.message.textContent = runs.find(run => run.id === id)?.source ? "This historical run has no recoverable player positions." : "No recorded visits in this run yet.";
-    } catch (error) {
-      if (serial !== generation) return;
-      failed = true;
-      panel.message.textContent = `Couldn’t load this heatmap. ${error.message} Use Refresh to retry.`;
-    } finally {
-      if (serial === generation) {
-        panel.element.setAttribute("aria-busy", "false"); renderPanel(panel); drawMaps();
-      }
-    }
-  });
+  const queue = [...panels];
+  for (const panel of queue) {
+    if (panel.dataId !== panel.id) panel.data = null;
+    panel.message.hidden = Boolean(panel.data); panel.message.textContent = panel.id ? "Loading heatmap…" : "Choose a text or vision run";
+    panel.element.setAttribute("aria-busy", String(Boolean(panel.id))); renderPanel(panel);
+  }
   drawMaps();
-  await Promise.all(jobs);
+  await Promise.all(Array.from({ length: Math.min(3, queue.length) }, async () => {
+    while (queue.length && serial === generation) {
+      const panel = queue.shift(), id = panel.id; if (!id) { panel.element.setAttribute("aria-busy", "false"); continue; }
+      try {
+        const data = await report(id); if (serial !== generation) return;
+        panel.data = data; panel.dataId = id; panel.message.hidden = Boolean(data.map.points.length); panel.message.textContent = "No recorded visits yet";
+      } catch (error) { if (serial !== generation) return; failed = true; panel.data = null; panel.message.hidden = false; panel.message.textContent = `Couldn’t load heatmap. ${error.message}`; }
+      finally { if (serial === generation) { panel.element.setAttribute("aria-busy", "false"); renderPanel(panel); drawMaps(); } }
+    }
+  }));
   if (serial !== generation) return;
-  const count = activePanels().filter(panel => panel.data).length;
-  $("comparison-status").classList.toggle("error", failed);
-  $("comparison-status").textContent = failed ? "Some data couldn’t be loaded" : count ? `Updated ${new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : "Choose runs to compare";
+  $("comparison-status").classList.toggle("error", failed); $("comparison-status").textContent = failed ? "Some heatmaps couldn’t load · Try Refresh" : "";
 }
-
 async function refresh(initial = false) {
   if (refreshing) return;
   refreshing = true; $("refresh-comparison").disabled = true;
@@ -314,34 +293,24 @@ async function refresh(initial = false) {
     const [local, imported] = await Promise.allSettled([api("/api/benchmark/v1/runs?view=library"), importedJSON("../imports/index.json")]);
     if (local.status === "rejected" && imported.status === "rejected") throw local.reason;
     runs = selectRuns([...(local.value?.runs || []), ...(imported.value?.runs || [])].filter(run => !run.world || run.world === "main-world"));
-    if (initial && !params.has("models") && !params.has("left") && runs.some(run => /^claude-haiku-4[.-]5(?:-|$)/.test(run.model))) panelCount = 3;
-    updatePanelCount();
-    const choices = initial ? defaultComparison(runs, params.get("left"), params.get("right"), params.get("third"), 3) : panels.map(panel => panel.run.value);
-    cache.clear(); pending.clear();
-    panels.forEach((panel, index) => populateModels(panel, choices[index]));
-    gemComparison.setRuns(runs, choices.slice(0, panelCount));
-    await loadSelection();
+    if (initial) {
+      const requested = params.getAll("map");
+      const choices = requested.length ? requested : defaultComparison(runs, params.get("left"), params.get("right"), params.get("third"), params.get("models") === "3" || params.has("third") ? 3 : 2);
+      for (const id of choices) createPanel(runs.some(run => run.id === id) ? id : "");
+    }
+    syncPanels(); cache.clear(); pending.clear();
+    gemComparison.setRuns(runs, panels.map(panel => panel.id)); await loadSelection();
     const warnings = [local.status === "rejected" ? "Local runs unavailable" : "", imported.status === "rejected" ? "Imported heatmaps unavailable" : ""].filter(Boolean);
     if (warnings.length) { $("comparison-status").textContent = warnings.join(" · "); $("comparison-status").classList.add("error"); }
-  } catch (error) {
-    $("comparison-status").classList.add("error");
-    $("comparison-status").textContent = `Couldn’t refresh runs. ${error.message}`;
-    if (initial) for (const panel of panels) panel.message.textContent = "Runs unavailable. Use Refresh to retry.";
-  } finally { refreshing = false; $("refresh-comparison").disabled = false; }
+  } catch (error) { $("comparison-status").classList.add("error"); $("comparison-status").textContent = `Couldn’t refresh runs. ${error.message}`; }
+  finally { refreshing = false; $("refresh-comparison").disabled = false; $("add-comparison").disabled = !runs.length; }
 }
-
+$("add-comparison").disabled = true;
+$("add-comparison").addEventListener("click", () => { const panel = createPanel(); syncPanels(); loadSelection(); openPicker(panel); });
 $("refresh-comparison").addEventListener("click", () => refresh());
-$("model-count").addEventListener("change", () => { panelCount = Number($("model-count").value); updatePanelCount(); loadSelection(); });
 $("screenshot-mode").addEventListener("click", () => setScreenshotMode(true));
-document.addEventListener("keydown", event => {
-  if (screenshotMode && event.key === "Escape") { event.preventDefault(); setScreenshotMode(false); }
-});
-document.addEventListener("pointerdown", () => { if (screenshotMode) setScreenshotMode(false); });
+document.addEventListener("keydown", event => { if (screenshotMode && event.key === "Escape") { event.preventDefault(); setScreenshotMode(false); } });
 $("explored-area").addEventListener("click", () => { fullWorld = false; selectedTile = null; updateURL(); drawMaps(); });
 $("full-world").addEventListener("click", () => { fullWorld = true; selectedTile = null; updateURL(); drawMaps(); });
-$("color-scale").addEventListener("change", () => { updateURL(); drawMaps(); });
-const observer = new ResizeObserver(drawMaps);
-for (const panel of panels) observer.observe(panel.canvas);
-observer.observe($("comparison-panels"));
-window.addEventListener("resize", drawMaps);
-refresh(true);
+controls.addEventListener("click", event => { const button = event.target.closest("[data-scale]"); if (button) { colorSelect.value = button.dataset.scale; updateURL(); drawMaps(); } });
+observer.observe($("comparison-panels")); window.addEventListener("resize", drawMaps); refresh(true);

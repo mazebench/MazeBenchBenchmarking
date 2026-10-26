@@ -13,7 +13,7 @@ export function createHeatmapGifExport({ selection, onExit, onResize }) {
       <button type="button" class="gif-start">Export GIF</button>
       <button type="button" class="gif-cancel" hidden>Cancel export</button>
       <a class="gif-download" hidden>Download GIF</a>
-      <button type="button" class="gif-exit">Exit screenshot mode</button>
+      <button type="button" class="gif-exit">Done</button>
     </div>
     <p class="gif-note"></p><output class="gif-status" role="status" aria-live="polite"></output>`;
   document.body.append(toolbar);
@@ -46,7 +46,7 @@ export function createHeatmapGifExport({ selection, onExit, onResize }) {
       if (!window.Worker || !window.OffscreenCanvas) throw new Error("GIF export needs a browser with OffscreenCanvas support.");
       const { panels, scale } = selection(), timelines = [], loaded = new Map();
       if (!panels.length || panels.some(p => !p.run || !p.map)) throw new Error("Load the selected heatmaps before exporting.");
-      for (const [i, { run, map, actions }] of panels.entries()) {
+      for (const [i, { run, map, actions, name }] of panels.entries()) {
         status.textContent = `Loading movement history ${i + 1} of ${panels.length}…`;
         let timeline = loaded.get(run.id);
         if (!timeline) {
@@ -64,7 +64,7 @@ export function createHeatmapGifExport({ selection, onExit, onResize }) {
           loaded.set(run.id, timeline);
         }
         if (job !== current) return;
-        timelines.push({ ...timeline, name: displayModelName(run.model) });
+        timelines.push({ ...timeline, name: name || displayModelName(run.model) });
       }
       animationExtent(timelines, mode.value);
       const worker = new Worker(new URL("./heatmap-gif-worker.mjs", import.meta.url), { type: "module" });
@@ -110,8 +110,7 @@ export function createHeatmapGifExport({ selection, onExit, onResize }) {
       if (!visible) { cancelExport(); clearDownload(); return; }
       status.textContent = ""; status.classList.remove("error");
       const imported = selection().panels.filter(p => p.run?.source).length;
-      note.textContent = imported ? "Imported panels stay static: their snapshots contain no movement history."
-        : "Shared move count or elapsed time from each run’s start. Shorter histories hold their final map.";
+      note.textContent = "Click a name to edit · Esc to exit" + (imported ? " · Imported maps stay static in GIFs" : "");
       start.disabled = imported === selection().panels.length;
     },
   };
