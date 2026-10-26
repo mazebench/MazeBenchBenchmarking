@@ -1,4 +1,5 @@
 import { createRunHeader } from "./run-header.mjs";
+import { createOverviewCharts } from "./run-overview.mjs";
 import { codingLabel, codingMode, isPrimeDirect } from "../capabilities.mjs";
 import { heatmapVisits } from "./heatmap.mjs";
 import { modelLabel } from "./model-label.mjs";
@@ -27,6 +28,7 @@ const ids = [
 ];
 const elements = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
 const runHeader = createRunHeader(elements);
+const overviewChartStatus = createOverviewCharts(elements);
 const replayModes = document.createElement("div");
 replayModes.className = "replay-modes";
 replayModes.setAttribute("role", "group");
@@ -805,9 +807,8 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   document.body.dataset.runnerActive = String(run.runner_active);
 }
 
-function renderAnalysis() {
-  if (!analysisData || !currentRun || !runTabVisible("analysis")) return;
-  drawProgress(currentRun);
+function renderOverviewCharts() {
+  if (!analysisData || !currentRun || !runTabVisible("overview")) return;
   gemMapLegend.hidden = !showGemLocations || !gemCollectionKey;
   elements.heatmap.setAttribute("aria-label", showGemLocations
     ? `Heatmap of positions visited. ${[...gemMapLegend.children].filter(item => !item.hidden).map(item => item.textContent).join(", ")}. Filled green diamonds are collected; outlined cyan diamonds are uncollected.`
@@ -816,7 +817,20 @@ function renderAnalysis() {
   elements["heatmap-count"].title = `Includes slide and punch paths for ${heatmap.trackedActions} moves. Older moves retain their recorded endpoints.`;
   drawHeatmap(heatmap.points || heatmap.positions, currentRun.tools_enabled, heatmap.current);
   drawNovelty(analysisData.novelty, currentRun.tools_enabled);
+}
+
+function renderAnalysis() {
+  if (!currentRun || !runTabVisible("analysis")) return;
+  drawProgress(currentRun);
+  if (!analysisData) return;
   renderIceLevelTimings({ ...currentRun, ...analysisData }, document);
+}
+
+function setChartStatus(message = "") {
+  for (const status of [overviewChartStatus, document.getElementById("analysis-status")]) {
+    status.hidden = !message;
+    status.textContent = message;
+  }
 }
 
 async function refreshSection() {
@@ -824,23 +838,22 @@ async function refreshSection() {
   if (runTabVisible("overview")) {
     fitBoard();
     if (replayMode === "gems") await refreshGemFrames().catch(() => {});
-    return;
   }
-  if (runTabVisible("analysis")) {
-    drawProgress(currentRun);
-    if (showGemLocations && gemLocations) await refreshGemCollections().catch(error => { gemMapNote.textContent = `Gem collections couldn't update: ${error.message}`; });
+  if (runTabVisible("overview") || runTabVisible("analysis")) {
+    renderOverviewCharts();
+    renderAnalysis();
+    if (runTabVisible("overview") && showGemLocations && gemLocations) await refreshGemCollections().catch(error => { gemMapNote.textContent = `Gem collections couldn't update: ${error.message}`; });
     const key = `${currentRun.history_epoch}:${currentRun.action_count}:${currentRun.status}`;
-    if (analysisKey === key) { renderAnalysis(); return; }
+    if (analysisKey === key) { renderOverviewCharts(); return; }
     if (analysisBusy) return;
     analysisBusy = true;
-    const status = document.getElementById("analysis-status");
-    status.hidden = false; status.textContent = analysisData ? "Updating charts…" : "Loading run analysis…";
+    setChartStatus(analysisData ? "" : "Loading charts…");
     try {
       const value = await api(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}?view=analysis`);
       if (value.history_epoch && currentRun.history_epoch && value.history_epoch !== currentRun.history_epoch) return;
       analysisData = value; analysisKey = key;
-      renderAnalysis(); status.hidden = true;
-    } catch (error) { status.textContent = `Analysis couldn’t load: ${error.message} Select Analysis to retry.`; }
+      renderOverviewCharts(); renderAnalysis(); setChartStatus();
+    } catch (error) { setChartStatus(`Charts couldn’t load: ${error.message} Retrying automatically…`); }
     finally { analysisBusy = false; }
     return;
   }
@@ -1032,7 +1045,7 @@ gemMapButton.addEventListener("click", async () => {
   gemMapButton.setAttribute("aria-pressed", String(showGemLocations));
   gemMapButton.textContent = showGemLocations ? "◆ Hide gems" : "◇ Show gems";
   if (showGemLocations && !gemMapNote.textContent) gemMapNote.textContent = "Current world map";
-  renderAnalysis();
+  renderOverviewCharts();
 });
 
 elements["interview-list"].addEventListener("click", async (event) => {
@@ -1132,7 +1145,7 @@ elements["interview-form"].addEventListener("submit", async (event) => {
 
 window.addEventListener("resize", () => {
   if (!currentRun) return;
-  if (runTabVisible("overview")) fitBoard();
+  if (runTabVisible("overview")) { fitBoard(); renderOverviewCharts(); }
   else if (runTabVisible("analysis")) renderAnalysis();
 });
 
