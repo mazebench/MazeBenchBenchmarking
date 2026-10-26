@@ -132,10 +132,22 @@ export function createCapabilityServer(root, options = {}) {
       }
       if (req.method === 'POST' && [prefix + '/runs', prefix + '/pairs'].includes(url.pathname)) {
         const spec = JSON.parse(body || '{}');
+        if (spec.observation_mode === 'vision') {
+          // Never use upstreamPort() here: its offline fallback is ASCII.
+          // This also protects stale launcher tabs and direct API clients.
+          const visionOrigin = `http://127.0.0.1:${options.visionPort || 8082}`;
+          try {
+            const health = await fetch(visionOrigin + '/api/benchmark/vision/status', { signal: AbortSignal.timeout(1200) });
+            if (!health.ok || (await health.json()).observation_mode !== 'vision') throw new Error('Vision runner is unavailable.');
+          } catch {
+            return reply(res, 503, { error: 'Vision runner is unavailable. Start npm run start:vision; no run was launched.' });
+          }
+          const upstream = await fetch(visionOrigin + url.pathname, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+          return reply(res, upstream.status, await upstream.text());
+        }
         if (options.catalog) {
           await options.catalog.selection(spec, { force: true });
-          if (spec.provider === 'prime-agent' || spec.observation_mode === 'vision') {
-            if (spec.observation_mode === 'vision' && spec.service_tier === 'fast') throw new Error('Fast speed is currently available with ASCII observations.');
+          if (spec.provider === 'prime-agent') {
             const upstream = await forward(); return reply(res, upstream.status, await upstream.text());
           }
           if (url.pathname.endsWith('/runs')) return reply(res, 202, await supervisor.launch(spec));

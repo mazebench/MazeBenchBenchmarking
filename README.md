@@ -12,6 +12,19 @@ Open **[http://localhost:8080](http://localhost:8080)** in your browser. No depe
 
 Keep the terminal open while using the site. Press **Ctrl+C** to stop the server.
 
+The default site startup also starts the vision runner on port 8082. If the
+main server is already running, `npm run start:vision` adds it without
+interrupting existing runs. Vision launches require that service and fail with
+an error if it is offline; they never fall back to ASCII. Image rendering uses
+Playwright and Chrome as described in [the vision setup](benchmarking/vision/README.md).
+
+Vision run cards use the Replays 3D renderer and tween curves for smooth playback
+and seeking. A read-only companion on port 8085 authenticates saved frames and
+builds the presentation timeline; it does not rerun physics or change agent images.
+It starts with the main site, or use `npm run start:playback` to add it to an
+already-running site. **Latest** loads newly recorded moves without interrupting
+the benchmark or an in-progress replay.
+
 Once the server is running, you can go directly to:
 
 - Benchmarks: Run eval with Codex / Claude Code / Grok / Antigravity / [Meta Muse Code](benchmarking/muse/README.md) / [Kimi Code](benchmarking/kimi/README.md) / [Prime Agent](benchmarking/prime/README.md)

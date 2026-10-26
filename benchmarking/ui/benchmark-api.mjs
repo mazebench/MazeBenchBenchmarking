@@ -22,6 +22,16 @@ export async function capabilitiesAvailable(){
   return capabilitiesPending;
 }
 export async function benchmarkFetch(url,options={}){
+  // Image launches must never fall through a generic companion to ASCII.
+  // Check the image owner first even when catalog/capability servers are online.
+  let visionLaunch=false;
+  if(options.method?.toUpperCase()==='POST'&&/\/api\/benchmark\/v1\/(runs|pairs)$/.test(url)&&options.body){
+    try{visionLaunch=JSON.parse(options.body).observation_mode==='vision';}catch{}
+  }
+  if(visionLaunch){
+    if(!await visionAvailable())throw new Error('Vision runner is unavailable. Start npm run start:vision; no run was launched.');
+    return nativeFetch(origin+url,options);
+  }
   if(await capabilitiesAvailable())return nativeFetch(activeCapabilityOrigin+url,options);
   const vision=await visionAvailable();
   if(!vision&&options.body){try{if(JSON.parse(options.body).observation_mode==='vision')throw new Error('Vision runner is unavailable. Start node benchmarking/vision/server.mjs.');}catch(error){if(!(error instanceof SyntaxError))throw error;}}

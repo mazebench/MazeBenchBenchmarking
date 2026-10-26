@@ -34,7 +34,7 @@ test('companion preserves existing run owner and dispatches new Any language run
   const supervisor = { active: new Map([[added, {}], [direct, {}]]), runDirectory: id => path.join(root, id),
     launch: async spec => { launches.push(spec); return { owner: 'new', ...spec }; },
     stop: async id => { stops.push(id); return { owner: 'new' }; } };
-  const { server, reports } = createCapabilityServer(process.cwd(), { port: 0, mainPort: upstream.address().port, supervisor, autoRecovery: false });
+  const { server, reports } = createCapabilityServer(process.cwd(), { port: 0, mainPort: upstream.address().port, upstreamPort: upstream.address().port, supervisor, autoRecovery: false });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => { server.closeAllConnections(); server.close(); await reports.close(); });
   const base = `http://127.0.0.1:${server.address().port}`, prefix = '/api/benchmark/v1';
@@ -77,7 +77,7 @@ test('HTTP launch, overview, library and controls use built-in recovery with a r
   const upstream = createServer((req, res) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ runs: launched ? [launched] : [] })); });
   await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
   t.after(() => { upstream.closeAllConnections(); upstream.close(); });
-  const { server, reports, recovery } = createCapabilityServer(root, { port: 0, mainPort: upstream.address().port, supervisor, recoveryOptions: { interval: 60000, now: () => clock, delays: [10] } });
+  const { server, reports, recovery } = createCapabilityServer(root, { port: 0, mainPort: upstream.address().port, upstreamPort: upstream.address().port, supervisor, recoveryOptions: { interval: 60000, now: () => clock, delays: [10] } });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => { await recovery.close(); server.closeAllConnections(); server.close(); await reports.close(); });
   const base = `http://127.0.0.1:${server.address().port}/api/benchmark/v1`;
@@ -108,4 +108,49 @@ test('HTTP launch, overview, library and controls use built-in recovery with a r
   await recovery.tick(); clock += 10; await recovery.tick();
   assert.equal(recovery.status(launched.id).state, 'blocked');
   assert.match(recovery.status(launched.id).reason, /no known message-content repair applies/);
+});
+
+test('vision launch requests never fall back to ASCII through capability or catalog routes', async t => {
+  const asciiCalls = [], imageCalls = [];
+  let healthy = true;
+  const ascii = createServer((req, res) => {
+    asciiCalls.push(req.url); res.end(JSON.stringify({ observation_mode: 'ascii' }));
+  });
+  const vision = createServer(async (req, res) => {
+    res.setHeader('content-type', 'application/json');
+    if (req.url === '/api/benchmark/vision/status') {
+      res.end(JSON.stringify({ observation_mode: healthy ? 'vision' : 'ascii' })); return;
+    }
+    let body = ''; for await (const chunk of req) body += chunk;
+    imageCalls.push({ path: req.url, spec: JSON.parse(body) });
+    res.writeHead(202); res.end(JSON.stringify({ observation_mode: 'vision' }));
+  });
+  await new Promise(resolve => ascii.listen(0, '127.0.0.1', resolve));
+  await new Promise(resolve => vision.listen(0, '127.0.0.1', resolve));
+  const visionPort = vision.address().port;
+  t.after(() => { for (const server of [ascii, vision]) { server.closeAllConnections(); server.close(); } });
+  for (const catalog of [undefined, { selection: () => assert.fail('Vision goes to its dedicated supervisor') }]) {
+    const { server, reports } = createCapabilityServer(process.cwd(), {
+      port: 0, upstreamPort: ascii.address().port, visionPort,
+      autoRecovery: false, supervisor: {}, catalog
+    });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    t.after(async () => { server.closeAllConnections(); server.close(); await reports.close(); });
+    for (const suffix of ['runs', 'pairs']) {
+      const url = `http://127.0.0.1:${server.address().port}/api/benchmark/v1/${suffix}`;
+      const spec = { provider: 'codex', observation_mode: 'vision', tools_enabled: false };
+      const options = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(spec) };
+      healthy = false;
+      const unavailable = await fetch(url, options);
+      assert.equal(unavailable.status, 503);
+      assert.match((await unavailable.json()).error, /no run was launched/);
+      healthy = true;
+      const ready = await fetch(url, options);
+      assert.equal(ready.status, 202);
+      assert.equal((await ready.json()).observation_mode, 'vision');
+      assert.deepEqual(imageCalls.at(-1), { path: `/api/benchmark/v1/${suffix}`, spec });
+    }
+  }
+  assert.equal(imageCalls.length, 4);
+  assert.deepEqual(asciiCalls, [], 'Neither successful nor rejected vision launches reach ASCII');
 });

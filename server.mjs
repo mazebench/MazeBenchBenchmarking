@@ -1,5 +1,7 @@
 import { createCatalogServer } from "./benchmarking/catalog-server.mjs";
 import { createCapabilityServer } from "./benchmarking/capability-server.mjs";
+import { createVisionServer } from "./benchmarking/vision/server.mjs";
+import { createPlaybackServer } from "./benchmarking/playback-server.mjs";
 import "./benchmarking/codex-releases.mjs";
 import { publishEditorRoom } from "./benchmarking/storage/live-world.mjs";
 import os from "node:os";
@@ -150,11 +152,13 @@ async function benchmarkApi(request, response, url) {
     }
     if (request.method === "POST" && url.pathname === "/api/benchmark/v1/runs") {
       const payload = JSON.parse(await requestBody(request, 32 * 1024) || "{}");
+      if (payload.observation_mode === "vision") throw new Error("Vision runs must use the image runner. Reload the launcher; no run was launched.");
       sendJson(response, 202, await benchmarkSupervisor.launch(payload));
       return true;
     }
     if (request.method === "POST" && url.pathname === "/api/benchmark/v1/pairs") {
       const payload = JSON.parse(await requestBody(request, 32 * 1024) || "{}");
+      if (payload.observation_mode === "vision") throw new Error("Vision runs must use the image runner. Reload the launcher; no run was launched.");
       sendJson(response, 202, await benchmarkSupervisor.launchPair(payload));
       return true;
     }
@@ -335,6 +339,19 @@ const server = createServer(async (request, response) => {
 server.listen(port, host, () => {
   console.log(`MazeBenchBenchmarking running at http://localhost:${port}`);
 });
+
+// Start the image runner with the site, preserving a standalone owner that
+// already has live vision runs. ASCII and image observations stay separate.
+if (process.env.MAZEBENCH_DISABLE_VISION !== "1" && (Number(port) === 8080 || process.env.MAZEBENCH_VISION_PORT)) {
+  const visionPort = Number(process.env.MAZEBENCH_VISION_PORT || 8082);
+  const { server: visionServer } = createVisionServer(root, { port: visionPort, mainPort: Number(port) });
+  visionServer.on("error", error => { if (error.code !== "EADDRINUSE") console.error("Vision server:", error.message); });
+  visionServer.listen(visionPort, "127.0.0.1");
+  const playbackPort = Number(process.env.MAZEBENCH_PLAYBACK_PORT || 8085);
+  const { server: playbackServer } = createPlaybackServer(root, { port: playbackPort, mainPort: Number(port) });
+  playbackServer.on("error", error => { if (error.code !== "EADDRINUSE") console.error("Run replay:", error.message); });
+  playbackServer.listen(playbackPort, "127.0.0.1");
+}
 
 // A previously started companion may own active Any-language runs. Never replace
 // it merely because the static/main server restarted.

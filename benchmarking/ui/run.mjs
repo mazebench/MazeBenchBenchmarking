@@ -4,10 +4,11 @@ import { heatmapVisits } from "./heatmap.mjs";
 import { modelLabel, modelSpeed } from "./model-label.mjs";
 import { gemReplayFrames, gemFrameIndex, loadWorldGemLocations, gemCollectionLocations } from "./gem-navigation.mjs";
 import { runTabVisible } from "./run-tabs.mjs";
-import { benchmarkFetch, visionUrl } from "./benchmark-api.mjs";
+import { benchmarkFetch } from "./benchmark-api.mjs";
 import { rateLimitDetails, formatRateLimit } from "../run-errors.mjs";
 import { recoveryPresentation } from "./auto-recovery.mjs";
 import { versionPresentation } from "../run-version-label.mjs";
+import { RunReplayPlayer } from "./replay-player.mjs";
 const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
 const providerName = provider => ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity", "muse-code": "Meta Muse Code", "kimi-code": "Kimi Code", "prime-agent": "Prime Agent" })[provider || "codex"] || provider;
@@ -64,6 +65,7 @@ let analysisData = null, analysisKey = null, analysisBusy = false;
 let activityData = null, activityAt = 0, activityBusy = false;
 let interviewBusy = false, pairRuns = [], pairAt = 0;
 let boardSignature = "", feedSignature = "", workspaceSignature = "", interviewSignature = "";
+let replayPlayer = null;
 let tokenUsage = null;
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 const standardNumbers = new Intl.NumberFormat(), compactNumbers = new Intl.NumberFormat(undefined, { notation: "compact" });
@@ -129,13 +131,14 @@ function renderBoard(display) {
   const vision = display?.observation_mode === "vision";
   elements.board.classList.toggle("vision-board", vision);
   if (vision && display.image_record) {
-    const source = visionUrl(`/api/benchmark/v1/runs/${encodeURIComponent(runId)}/record/${encodeURIComponent(display.image_record)}`);
-    if (elements.board.querySelector("img")?.src === source) return;
-    const img = document.createElement("img");
-    img.src = source; img.className = "vision-board-image";
-    img.alt = `3D agent observation · room ${display.room} · move ${display.observation_revision}`;
-    elements.board.replaceChildren(img);
-    elements.board.setAttribute("aria-label", img.alt);
+    if (!replayPlayer) replayPlayer = new RunReplayPlayer(elements.board, runId, move => {
+      currentFrame = move.move;
+      elements["board-room"].textContent = `Room ${move.room}`;
+      elements["board-move"].textContent = moveLabel(move.move);
+      elements["frame-source"].textContent = "Animated replay";
+    });
+    followingLatest = false;
+    replayPlayer.update(currentRun).catch(error => replayPlayer.fail(error));
     return;
   }
   elements.board.replaceChildren();
@@ -264,6 +267,7 @@ function moveLabel(index) {
 
 async function showFrame(index, { keepPlaying = false } = {}) {
   if (!currentRun) return;
+  if (replayPlayer) { replayPlayer.seekMove(Number(index)); return; }
   const maximum = currentRun.action_count || 0;
   const selected = Math.max(0, Math.min(maximum, Math.round(Number(index) || 0)));
   const request = ++frameRequest;
@@ -805,7 +809,10 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   elements["progress-value"].textContent = run.game_status === "won" ? "objective complete" : run.action_limit ? `${Math.round(progress)}% of budget` : "unlimited run";
   elements.continuations.textContent = formatNumber(run.continuation_count || 0);
   elements["final-message"].textContent = activityData?.final_message || run.final_message || (isFinished(run) ? "The model did not leave a final message." : "No final model message yet.");
-  if (followingLatest || changedRun) {
+  if (run.observation_mode === "vision") {
+    renderBoard(run.display);
+    if (replayPlayer) replayPlayer.update(run).catch(error => replayPlayer.fail(error));
+  } else if (followingLatest || changedRun) {
     currentFrame = run.action_count || 0;
     renderBoard(run.display);
     elements["board-room"].textContent = `${numberedWorld(run) ? "" : "Room "}${run.display?.room || run.room || "—"}`;
@@ -928,11 +935,11 @@ function scheduleRefresh() {
   pollTimer = setTimeout(refresh, currentRun?.runner_active || currentRun?.auto_recovery?.enabled || liveInterview || !currentRun ? 3000 : 30000);
 }
 document.addEventListener("run-tab-change", () => {
-  if (!runTabVisible("overview")) stopPlayback();
+  if (!runTabVisible("overview")) { stopPlayback(); replayPlayer?.pause(); }
   void refreshSection();
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) { clearTimeout(pollTimer); stopPlayback(); }
+  if (document.hidden) { clearTimeout(pollTimer); stopPlayback(); replayPlayer?.pause(); }
   else refresh();
 });
 document.addEventListener("run-tokens", event => { tokenUsage = event.detail; elements["stat-tokens"].textContent = formatNumber(usageTotal(tokenUsage)); });
@@ -1179,3 +1186,5 @@ elements["retry-new-run"].addEventListener("click", async () => {
     button.disabled = false;
   }
 });
+
+window.addEventListener("pagehide", () => replayPlayer?.pause());

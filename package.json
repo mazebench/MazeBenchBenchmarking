@@ -6,6 +6,8 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "start:playback": "node benchmarking/playback-server.mjs",
+    "start:vision": "node --import ./benchmarking/codex-releases.mjs benchmarking/vision/server.mjs",
     "start:capabilities": "node benchmarking/capability-server.mjs",
     "setup:kimi": "python3 scripts/setup-kimi.py",
     "check:kimi": "node scripts/check-kimi.mjs",

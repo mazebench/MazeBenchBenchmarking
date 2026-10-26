@@ -1,3 +1,4 @@
+@import url("../../render/v1/visual-effects.css");
 @import url("./launcher.css");
 
 .run-page, .run-page.tools-on { --accent: #0a84ff; --accent-dark: #0a84ff18; }
@@ -67,6 +68,36 @@ summary::-webkit-details-marker { display: none; }
 .gem-map-legend[hidden] { display: none; }
 .replay-modes[hidden], .gem-map-controls[hidden] { display: none; }
 .board-wrap { min-height: 340px; height: clamp(340px, 52vh, 550px); padding: 20px; background: #101113; }
+/* Reuse the Replays scene and sampled animation clock inside the run card. */
+.tween-replay .playback-controls { display: none; }
+.tween-replay .board-wrap { height: auto; min-height: 0; padding: 0; display: block; }
+.tween-replay #board { width: 100%; padding: 0; }
+.run-replay-player { width: 100%; color: var(--text); font: 12px -apple-system, BlinkMacSystemFont, sans-serif; background: #101113; }
+.run-replay-stage { position: relative; height: clamp(340px, 55vh, 650px); background: radial-gradient(ellipse at 50% 35%, #22212c, #0b0b10 70%); }
+.run-replay-stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.run-replay-loading { z-index: 3; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; pointer-events: none; color: #fff; background: #08090b90; }
+.run-replay-loading[hidden] { display: none; }
+.run-replay-loading i { width: 32px; height: 32px; border: 3px solid #ffffff30; border-top-color: #b7a9ff; border-radius: 50%; animation: replay-spin .8s linear infinite; }
+.run-replay-loading.replay-error { padding: 25px; text-align: center; }
+.run-replay-loading.replay-error i { display: none; }
+.run-replay-player button { min-width: 32px; min-height: 34px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+.run-replay-player button:hover, .run-replay-player button[aria-pressed=true] { color: #fff; background: #ffffff15; }
+.run-replay-player button:disabled { opacity: .3; cursor: default; }
+.run-replay-player button:focus-visible, .run-replay-player input:focus-visible { outline: 2px solid #b7a9ff; outline-offset: 3px; }
+.run-replay-player svg { display: block; width: 20px; height: 20px; fill: currentColor; }
+.run-replay-player [data-command=fullscreen] svg, .run-replay-player [data-command=center] svg { fill: none; stroke: currentColor; stroke-width: 1.7; }
+.run-replay-camera { z-index: 2; position: absolute; right: 14px; bottom: 14px; display: flex; gap: 4px; }
+.run-replay-camera button { background: #17181bd9; color: #eee; backdrop-filter: blur(12px); }
+.run-replay-transport { padding: 14px 16px 10px; border-top: 1px solid var(--line); }
+.run-replay-seek { display: block; width: 100%; margin: 4px 0 12px; height: 5px; appearance: none; border-radius: 4px; background: linear-gradient(to right, #b7a9ff var(--played, 0%), #ffffff25 var(--played, 0%)); cursor: pointer; }
+.run-replay-seek::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #e1d9ff; box-shadow: 0 0 0 3px #a99aff25; }
+.run-replay-seek::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: #e1d9ff; }
+.run-replay-controls, .run-replay-controls>div { display: flex; align-items: center; gap: 3px; }
+.run-replay-controls { justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.run-replay-time { margin: 0 6px; font: 11px ui-monospace, monospace; color: #d0ced8; font-variant-numeric: tabular-nums; }
+.run-replay-player:fullscreen { display: flex; flex-direction: column; }
+.run-replay-player:fullscreen .run-replay-stage { flex: 1; height: auto; min-height: 0; }
+@keyframes replay-spin { to { transform: rotate(360deg); } }
 .ascii-board { padding: 4px; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .board-footer { flex-wrap: wrap; gap: 8px; padding: 12px 16px; border-color: var(--line); font: 10px/1.4 -apple-system, BlinkMacSystemFont, sans-serif; text-transform: none; }
 .canvas-wrap { min-height: 260px; padding: 20px; background: #101113; }
