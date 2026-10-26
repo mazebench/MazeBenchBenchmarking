@@ -137,7 +137,7 @@ function updateEfforts(preserve = true) {
 }
 function updateSpeeds(preserve = true) {
   const previous = preserve ? elements.speed.value : "";
-  const speeds = [...new Set((selectedGroup()?.variants || []).map(v => v.speed))].filter(speed => elements["observation-mode"].value !== "vision" || speed === "standard");
+  const speeds = [...new Set((selectedGroup()?.variants || []).map(v => v.speed))].filter(speed => elements["observation-mode"].value !== "vision" || elements.provider.value === "codex" || speed === "standard");
   elements.speed.replaceChildren(...speeds.map(speed => new Option(speed === "fast" ? "Fast" : "Standard", speed)));
   if (previous && !speeds.includes(previous)) { const missing = new Option(previous + " (unavailable)", previous); missing.disabled = true; elements.speed.append(missing); }
   elements.speed.value = previous || (speeds.includes("standard") ? "standard" : speeds[0]) || "";

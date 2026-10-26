@@ -1,4 +1,15 @@
 const nativeFetch=window.fetch.bind(window);
+const currentCodexOrigin=`http://${location.hostname}:8088`;
+let currentCodexAt=0,currentCodexReady=false,currentCodexPending;
+async function currentCodexAvailable(){
+  if(Date.now()-currentCodexAt<15000)return currentCodexReady;
+  currentCodexPending ||= (async()=>{
+    try{const response=await nativeFetch(currentCodexOrigin+'/api/benchmark/capabilities/status',{signal:AbortSignal.timeout(700)});const status=response.ok?await response.json():{};currentCodexReady=status.version===2&&status.current_codex_owner===true;}
+    catch{currentCodexReady=false;}
+    currentCodexAt=Date.now();currentCodexPending=null;return currentCodexReady;
+  })();
+  return currentCodexPending;
+}
 const recoveryOrigin=`http://${location.hostname}:8087`;
 let recoveryAt=0,recoveryReady=false,recoveryPending;
 async function recoveryAvailable(){
@@ -44,6 +55,7 @@ export async function capabilitiesAvailable(){
   return capabilitiesPending;
 }
 export async function benchmarkFetch(url,options={}){
+  if(await currentCodexAvailable())return nativeFetch(currentCodexOrigin+url,options);
   if(await recoveryAvailable())return nativeFetch(recoveryOrigin+url,options);
   if(await providerVisionAvailable())return nativeFetch(providerVisionOrigin+url,options);
   // Image launches must never fall through a generic companion to ASCII.

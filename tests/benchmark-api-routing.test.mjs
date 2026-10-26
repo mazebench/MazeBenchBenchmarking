@@ -2,6 +2,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runCardValues } from '../benchmarking/ui/run-library.mjs';
 
+test('the current Codex owner receives launches and controls without dropping mode or speed', async t => {
+  const previousWindow = globalThis.window, previousLocation = globalThis.location;
+  t.after(() => { globalThis.window = previousWindow; globalThis.location = previousLocation; });
+  const calls = [];
+  globalThis.location = { hostname: 'localhost' };
+  globalThis.window = { fetch: async (url, options) => {
+    calls.push({ url, options });
+    assert(url.startsWith('http://localhost:8088/'));
+    return Response.json(url.endsWith('/status') ? { version: 2, current_codex_owner: true } : { ok: true });
+  } };
+  const { benchmarkFetch } = await import('../benchmarking/ui/benchmark-api.mjs?current-codex-routing');
+  for (const observation_mode of ['ascii', 'vision']) for (const tools_enabled of [false, true]) {
+    const options = { method: 'POST', body: JSON.stringify({ provider: 'codex', model: 'gpt-6.1-terra', observation_mode, tools_enabled, service_tier: 'fast' }) };
+    await benchmarkFetch('/api/benchmark/v1/runs', options);
+    assert.equal(calls.at(-1).options, options);
+  }
+  await benchmarkFetch('/api/benchmark/v1/runs/run-existing/pause', { method: 'POST' });
+  assert.equal(calls.at(-1).url, 'http://localhost:8088/api/benchmark/v1/runs/run-existing/pause');
+  assert.equal(calls.filter(c => c.url.endsWith('/status')).length, 1);
+});
+
 test('vision launches use only the image owner and fail closed when it is offline', async t => {
   const previousWindow = globalThis.window, previousLocation = globalThis.location;
   t.after(() => { globalThis.window = previousWindow; globalThis.location = previousLocation; });

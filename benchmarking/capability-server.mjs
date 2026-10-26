@@ -72,7 +72,7 @@ export function createCapabilityServer(root, options = {}) {
     try {
       await recovery?.ready;
       // Additive features retain the existing route protocol version.
-      if (url.pathname === '/api/benchmark/capabilities/status') return reply(res, 200, { available: true, version: 2, prime_auto_recovery: Boolean(recovery), model_catalog: Boolean(options.catalog) });
+      if (url.pathname === '/api/benchmark/capabilities/status') return reply(res, 200, { available: true, version: 2, prime_auto_recovery: Boolean(recovery), model_catalog: Boolean(options.catalog), current_codex_owner: options.currentCodexOwner === true });
       let body;
       if (['POST', 'DELETE'].includes(req.method)) {
         let length = 0; const chunks = [];
@@ -85,6 +85,7 @@ export function createCapabilityServer(root, options = {}) {
       if (req.method === 'GET' && url.pathname === prefix + '/providers') {
         const upstream = await forward(); if (!upstream.ok) return reply(res, upstream.status, await upstream.text());
         const values = await upstream.json(), code = await getSandbox();
+        if (options.codexStatus) values.codex = { ...values.codex, ...await options.codexStatus() };
         if (options.catalog) {
           const catalog = await options.catalog.all({ force: url.searchParams.get('force') === '1' });
           return reply(res, 200, Object.fromEntries(Object.entries(values).map(([name, value]) => {
@@ -121,6 +122,7 @@ export function createCapabilityServer(root, options = {}) {
           const metadata = JSON.parse(safeReadFile(supervisor.runDirectory(run.id), 'run.json'));
           run.runner_active = supervisor.active.has(run.id);
           run.status = metadata.status; run.coding_mode = metadata.coding_mode; run.harness = metadata.harness;
+          if (metadata.auto_recovery) run.auto_recovery = metadata.auto_recovery;
           if (!run.runner_active && ['preparing', 'queued', 'running', 'continuing', 'pausing'].includes(run.status)) run.status = 'interrupted';
           if (recovery?.status(run.id)) run.auto_recovery = recovery.status(run.id);
         }
@@ -196,6 +198,7 @@ export function createCapabilityServer(root, options = {}) {
               : await supervisor.get(id, { historyCursor: url.searchParams.get('history_cursor') });
             if (view === 'overview') {
               const metadata = JSON.parse(safeReadFile(directory, 'run.json'));
+              if (metadata.auto_recovery) run.auto_recovery = metadata.auto_recovery;
               run.capability_boundary_verified = metadata.integrity?.version === metadata.capability_policy?.version && !existsSync(path.join(directory, 'integrity-violation.json'));
               run.compaction_recoverable = run.status === 'failed' && run.capability_boundary_verified && run.provider !== 'prime-agent';
             }
