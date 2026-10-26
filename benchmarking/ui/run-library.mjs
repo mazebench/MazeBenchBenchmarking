@@ -2,7 +2,7 @@ import { codingLabel, codingMode, isPrimeDirect } from "../capabilities.mjs";
 import { formatRateLimit } from "../run-errors.mjs";
 import { recoveryPresentation } from "./auto-recovery.mjs";
 import { versionPresentation } from "../run-version-label.mjs";
-import { modelLabel, modelSpeed, modelGroupId } from "./model-label.mjs";
+import { modelSlug, modelSpeed, modelGroupId } from "./model-label.mjs";
 const dates = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
 const count = value => (value || 0).toLocaleString();
@@ -147,7 +147,7 @@ function updateCard(card, run, values) {
   status.title = values.rateLimit ? `${values.status}: ${values.rateLimit}` : values.status;
   status.setAttribute("aria-label", status.title);
   const model = card.querySelector(".record-model");
-  text(model, modelLabel(run.model) || "Unknown model");
+  text(model, modelSlug(run.model) || "unknown-model");
   model.title = `${run.model || "Unknown model"} · ${values.condition} · ${values.meta}`;
   const date = card.querySelector(".record-date");
   text(date, values.timestamp);
@@ -163,7 +163,7 @@ function updateCard(card, run, values) {
   });
   const remove = card.querySelector(".record-delete");
   remove.dataset.deleteRun = run.id;
-  remove.setAttribute("aria-label", `Delete ${modelLabel(run.model)} run`);
+  remove.setAttribute("aria-label", `Delete ${modelSlug(run.model)} run`);
   remove.disabled = Boolean(run.runner_active);
   remove.title = run.runner_active ? "Stop or pause this run before deleting it." : "Permanently delete this run.";
 }

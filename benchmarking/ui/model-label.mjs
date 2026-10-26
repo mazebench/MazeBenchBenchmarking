@@ -1,5 +1,16 @@
 import { modelIdentity } from '../model-catalog/normalize.mjs';
 // Presentation never rewrites the exact provider ID pinned in run.json.
+export function modelSlug(model, fallback = model) {
+  const slug = String(model || fallback || '').trim().toLowerCase().split('/').at(-1)
+    .replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  if (['k3', 'kimi-k3'].includes(slug)) return 'kimi-k3';
+  if (slug === 'k3-256k') return 'kimi-k3-256k';
+  if (/^(?:kimi-)?k3\.1-pro(?:-highspeed)?$/.test(slug)) return 'kimi-k3.1-pro';
+  if (slug === 'kimi-for-coding') return 'kimi-k2.8-preview';
+  if (slug === 'kimi-for-coding-highspeed') return 'kimi-k2.7-code';
+  return modelGroupId(slug);
+}
+
 export function modelLabel(model, fallback = model) {
   if (["kimi/k3", "moonshotai/kimi-k3", "kimi-k3", "k3"].includes(model)) return "Kimi K3";
   if (model === 'k3-256k') return 'Kimi K3 · 256K';

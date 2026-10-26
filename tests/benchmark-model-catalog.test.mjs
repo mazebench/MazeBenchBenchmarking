@@ -10,7 +10,7 @@ import { settings } from '../benchmarking/kimi-v2/policy.mjs';
 import { argumentsFor } from '../benchmarking/antigravity-v2/policy.mjs';
 import { buildClaudeArguments, createClaudeBoundaryValidator } from '../benchmarking/providers-v2/claude-policy.mjs';
 import { buildCodeClaudeArguments } from '../benchmarking/code-v2/policy.mjs';
-import { modelLabel, modelSpeed } from '../benchmarking/ui/model-label.mjs';
+import { modelLabel, modelSlug, modelSpeed } from '../benchmarking/ui/model-label.mjs';
 const entry = (id = 'k3') => ({ id, name: id, provider: 'kimi-code', efforts: ['low', 'high', 'max'], default_effort: 'high', context_limit: 1048576 });
 
 test('catalog refresh coalesces requests, preserves last good data, persists it and rejects stale launches', async t => {
@@ -61,6 +61,14 @@ test('Antigravity groups all effort presets, including non-Gemini models, withou
   assert.equal(prime.name, 'DeepSeek V4.1 Flash'); assert(resolveSelection(prime, { effort: 'max' })); assert.equal(resolveSelection(prime, { effort: 'max', coding_mode: 'python' }), null);
   assert.equal(modelLabel('gemini-3.8-flash-high'), 'gemini-3.8-flash');
   assert.equal(modelLabel('grok-4.7-build-fast'), 'grok-4.7'); assert.equal(modelSpeed({ model: 'grok-4.7-build-fast' }), 'fast');
+  for (const [id, label] of [
+    ['meta/muse-spark-open', 'muse-spark-open'], ['qwen/Qwen3.8-27B', 'qwen3.8-27b'],
+    ['nvidia/nemotron-3.5-lightning', 'nemotron-3.5-lightning'], ['deepseek/deepseek-v4.1-flash', 'deepseek-v4.1-flash'],
+    ['k3.1-pro', 'kimi-k3.1-pro'], ['k3.1-pro-highspeed', 'kimi-k3.1-pro'], ['moonshotai/kimi-k3', 'kimi-k3'],
+    ['kimi-for-coding', 'kimi-k2.8-preview'], ['kimi-for-coding-highspeed', 'kimi-k2.7-code'],
+    ['Meta Muse Spark 1.3', 'meta-muse-spark-1.3']
+  ]) assert.equal(modelSlug(id), label);
+  assert.equal(modelSlug('gpt-6.1-terra', 'GPT 6.1 Terra'), 'gpt-6.1-terra');
 });
 test('Grok uses cache capabilities and combines its documented fast routing variant', () => {
   const models = grokModels({ models: Object.fromEntries(['grok-4.7', 'grok-4.7-build-fast', 'grok-4.6'].map(id => [id, { info: { id, name: id, reasoning_effort: 'high', reasoning_efforts: [{ id: 'high' }, { id: 'xhigh' }] }, api_key: 'must-not-escape' }])) });
