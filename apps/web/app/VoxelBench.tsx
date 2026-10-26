@@ -3545,7 +3545,9 @@ export default function VoxelBench() {
       </header> : <header className="author-header">
         <div className="author-topbar">
           <nav className="author-nav" aria-label="Maze Bench navigation">
-            <a className="nav-link home-back-link" href="http://localhost:8080/" aria-label="Back to home" title="Back to home">
+            {/* Leave the lab for the main site's static map, outside the app router. */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+            <a className="nav-link home-back-link" href="/" aria-label="Back to home" title="Back to home">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg>
               <span>Back</span>
             </a>

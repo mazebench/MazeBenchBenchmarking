@@ -42,8 +42,12 @@ hashes and binary hash, independently of whether edits have been committed.
 
 ## Commands
 
-Run `npm ci` once. `npm start` runs the site on port 8080;
-`npm run dev:lab` runs the lab on port 3001. The lab saves to this repository's
+Run `npm ci` once. `npm start` builds the test editor and runs the site on port
+8080, including `/unit-tests/`. Its library, editor, and search workspace all
+use the existing `apps/web` source. `npm run build:unit-tests` refreshes that
+page after UI edits; runtime renderer assets and WASM load directly from their
+canonical files, without a second copy. `npm run dev:lab` remains an optional
+standalone development server on port 3001. Both entry points save to this repository's
 `project-data`. `npm run build` builds all current browser assets and engines.
 `npm test` runs the native, lab, WASM, and site suites. `npm run test:lab` and
 `npm run test:site` run those groups separately; lint, typecheck, and parity

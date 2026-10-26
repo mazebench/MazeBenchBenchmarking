@@ -5,6 +5,7 @@ import { RunListView, providerName, runCompany, selectRuns, isActiveRun } from "
 import { modelLabel, modelSlug, modelGroupId } from "./model-label.mjs";
 import { setupLauncherLayout } from "./launcher-layout.mjs";
 import { setupPromptPreview } from "./prompt-preview.mjs";
+import { cachedRuns, cacheRuns, setupRunLoading, loadRunsWithProgress } from "./run-loading.mjs";
 import './pricing-link.mjs';
 const elements = Object.fromEntries([
   "world", "world-description", "world-objective", "connection-status", "launch-form", "provider", "model", "effort", "action-limit", "run-options-summary",
@@ -91,7 +92,8 @@ async function checkCodex(force = false) {
 async function api(path, options = {}) {
   const response = await benchmarkFetch(path, {
     ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+    // GETs need no JSON content header (or the extra cross-origin preflight).
+    headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) }
   });
   const value = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(value.error || `Request failed (${response.status}).`);
@@ -99,8 +101,10 @@ async function api(path, options = {}) {
 }
 
 const runList = new RunListView(elements["run-list"]);
+const runLoading = setupRunLoading(elements["run-list"]);
 const updatePrompt = setupPromptPreview(document.getElementById("agent-prompts"), launchPayload);
 let latestRuns = [];
+let hasRunData = false, runsAreCached = false, pendingRuns;
 let pollTimer;
 
 function filterOptions(select, values, placeholder, label = value => value) {
@@ -119,10 +123,9 @@ function renderRuns(runs, page) {
   const company = elements["run-company"].value;
   filterOptions(elements["run-model"], runs.filter(run => !company || runCompany(run) === company).map(run => modelGroupId(run.model)), "All models", modelLabel);
   const visible = selectRuns(runs, { company, model: elements["run-model"].value, sort: elements["run-sort"].value });
-  const result = runList.update(visible, page);
+  const result = runList.update(visible, page, { cached: runsAreCached });
   elements["record-count"].textContent = visible.length === runs.length
     ? `${runs.length} run${runs.length === 1 ? "" : "s"}` : `${visible.length} of ${runs.length} runs`;
-  elements["run-list"].setAttribute("aria-busy", "false");
   elements["run-pagination"].hidden = result.totalPages === 1;
   elements["run-page"].textContent = `${result.page + 1} of ${result.totalPages}`;
   elements["previous-runs"].disabled = result.page === 0;
@@ -215,16 +218,48 @@ async function launchSingle(event) {
       method: "POST",
       body: JSON.stringify(launchPayload())
     });
-    await refreshRuns();
+    await refreshRuns({ afterMutation: true });
     setLaunching(false, `Launched ${modelLabel(run.model)}. Its live record is ready below.`);
   } catch (error) {
     setLaunching(false, error.message);
   }
 }
 
-async function refreshRuns() {
-  const value = await api("/api/benchmark/v1/runs?view=library");
-  renderRuns(value.runs);
+async function refreshRuns({ afterMutation = false } = {}) {
+  // A launch needs a response requested after creation; ordinary refreshes share work.
+  if (afterMutation && pendingRuns) await pendingRuns.catch(() => {});
+  if (pendingRuns) return pendingRuns;
+  runLoading.start({ initial: !hasRunData, cached: runsAreCached });
+  pendingRuns = (async () => {
+    try {
+      const signal = AbortSignal.timeout(30_000);
+      const showPartial = !hasRunData;
+      const value = await loadRunsWithProgress(() => api("/api/benchmark/v1/runs?view=library", { signal }), {
+        signal, progress: value => runLoading.progress(value),
+        partial: runs => {
+          if (!showPartial) return;
+          runsAreCached = true;
+          renderRuns(runs);
+          hasRunData = true;
+        }
+      });
+      runsAreCached = false;
+      renderRuns(value.runs);
+      hasRunData = true;
+      cacheRuns(value.runs);
+      runLoading.finish();
+    } catch (error) {
+      if (hasRunData) {
+        runsAreCached = true;
+        renderRuns(latestRuns);
+      }
+      runLoading.finish({ error: true, hasRuns: hasRunData });
+      throw error;
+    } finally {
+      pendingRuns = null;
+    }
+  })();
+  return pendingRuns;
 }
 
 function showError(error) {
@@ -244,14 +279,13 @@ async function poll() {
     elements["connection-status"].classList.add("connected");
   } catch (error) {
     showError(error);
-    if (elements["run-list"].getAttribute("aria-busy") === "true") {
+    if (!hasRunData) {
       const message = document.createElement("p");
       message.className = "empty-copy";
       message.textContent = "Runs couldn’t load. Refresh to try again.";
       elements["run-list"].replaceChildren(message);
     }
   } finally {
-    elements["run-list"].setAttribute("aria-busy", "false");
     polling = false;
     if (!document.hidden) {
       const active = latestRuns.some(isActiveRun);
@@ -385,7 +419,13 @@ elements["coding-mode"].addEventListener("change", () => { updateCodingOptions()
 try {
   updateRunOptionsSummary();
   setLaunching(false, elements["launch-status"].textContent);
-  await Promise.all([loadModels(), checkCodex(), poll()]);
+  const savedRuns = cachedRuns();
+  if (savedRuns) {
+    runsAreCached = true;
+    renderRuns(savedRuns);
+    hasRunData = true;
+  }
+  await Promise.all([poll(), loadModels(), checkCodex()]);
   setInterval(() => { if (!document.hidden) checkCodex(); }, 15 * 60_000);
   setInterval(() => { if (!document.hidden) loadModels(); }, 5 * 60_000);
 } catch (error) {

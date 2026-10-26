@@ -1,4 +1,5 @@
 import { createCatalogServer } from "./benchmarking/catalog-server.mjs";
+import { createLocalProjectHandler } from "./scripts/lib/local-project-http.mjs";
 import { createCapabilityServer } from "./benchmarking/capability-server.mjs";
 import { createVisionServer } from "./benchmarking/vision/server.mjs";
 import { createPlaybackServer } from "./benchmarking/playback-server.mjs";
@@ -38,6 +39,7 @@ const runLibrary = new RunLibrary({ markInterrupted: true });
 const runDashboard = new RunDashboard(runLibrary);
 const reportReader = new ReportReader();
 const tokenTelemetry = new TokenTelemetry();
+const localProject = createLocalProjectHandler(path.join(root, "project-data"));
 
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -319,6 +321,7 @@ const server = createServer(async (request, response) => {
     return;
   }
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+  if (await localProject(request, response)) return;
   if (url.pathname.startsWith("/api/benchmark/v1/") &&
       await benchmarkApi(request, response, url)) return;
   const v1LevelMatch = url.pathname.match(/^\/api\/(?:v1\/)?levels\/([^/]+)$/);
@@ -335,7 +338,9 @@ const server = createServer(async (request, response) => {
     send(response, 405, "Method not allowed.");
     return;
   }
-  await serveStatic(request, response, url.pathname);
+  // The test lab's runtime stays canonical; don't copy its WASM or renderers.
+  const labAsset = /^\/(?:physics\/|vendor\/|mazebench-runtime\/|utils\/|assets\/objects\/|search-worker\.js$)/.test(url.pathname);
+  await serveStatic(request, response, labAsset ? `/apps/web/public${url.pathname}` : url.pathname);
 });
 
 server.listen(port, host, () => {

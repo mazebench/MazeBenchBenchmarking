@@ -45,6 +45,33 @@ test("library exposes quota reset metadata without sending raw provider diagnost
   assert.equal(JSON.stringify(value).includes("request_id"), false);
 });
 
+test("streamed card progress counts actual reads, handles invalid records, and stops on disconnect", async t => {
+  const { supervisor, add } = await fixture(t);
+  const first = await add(0);
+  await first.move();
+  const second = await add(1);
+  const broken = await add(2);
+  await writeFile(path.join(broken.directory, "summary.json"), "invalid");
+  const library = new RunLibrary();
+  const events = [];
+  for await (const event of library.stream([supervisor.recordsRoot, supervisor.recordsRoot])) events.push(event);
+  assert.deepEqual(events.map(event => [event.type, event.loaded, event.total]), [
+    ["start", 0, 3], ["record", 1, 3], ["record", 2, 3], ["record", 3, 3], ["done", 3, 3],
+  ]);
+  assert.deepEqual(events.filter(e => e.run).map(e => e.run.id).sort(), [first.id, second.id]);
+  assert.equal(events.find(e => e.run?.id === first.id).run.action_count, 1);
+  const controller = new AbortController();
+  const partial = [];
+  for await (const event of library.stream([supervisor.recordsRoot], controller.signal)) {
+    partial.push(event);
+    if (event.type === "record") controller.abort();
+  }
+  assert.equal(partial.length, 2);
+  const empty = [];
+  for await (const event of library.stream([path.join(supervisor.recordsRoot, "missing")])) empty.push(event);
+  assert.deepEqual(empty.map(e => [e.type, e.total]), [["start", 0], ["done", 0]]);
+});
+
 test("library projects verified counters, caches unchanged summaries, and reflects commits and liveness", async t => {
   const { supervisor, add } = await fixture(t);
   const run = await add(0, { status: "running" });

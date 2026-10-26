@@ -164,8 +164,8 @@ function updateCard(card, run, values) {
   const remove = card.querySelector(".record-delete");
   remove.dataset.deleteRun = run.id;
   remove.setAttribute("aria-label", `Delete ${modelSlug(run.model)} run`);
-  remove.disabled = Boolean(run.runner_active);
-  remove.title = run.runner_active ? "Stop or pause this run before deleting it." : "Permanently delete this run.";
+  remove.disabled = values.cached || Boolean(run.runner_active);
+  remove.title = values.cached ? "Waiting for current run status." : run.runner_active ? "Stop or pause this run before deleting it." : "Permanently delete this run.";
 }
 
 export class RunListView {
@@ -175,7 +175,7 @@ export class RunListView {
     this.page = 0;
   }
 
-  update(runs, requestedPage = this.page) {
+  update(runs, requestedPage = this.page, { cached = false } = {}) {
     const result = runPage(runs, requestedPage);
     this.page = result.page;
     const wanted = new Set(result.runs.map(run => run.id));
@@ -197,6 +197,8 @@ export class RunListView {
       let entry = this.cards.get(run.id);
       if (!entry) { entry = { card: createCard() }; this.cards.set(run.id, entry); }
       const values = runCardValues(run);
+      values.cached = cached;
+      if (cached) Object.assign(values, { statusTone: "gray", status: "Saved status · waiting for an update", rateLimit: null });
       const signature = JSON.stringify([run, values]);
       if (entry.signature !== signature) {
         updateCard(entry.card, run, values);

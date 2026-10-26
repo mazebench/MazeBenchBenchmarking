@@ -9,6 +9,7 @@ apps/web/dist/
 apps/web/.next/
 apps/web/.vinext/
 apps/web/out/
+/unit-tests/
 apps/web/.wrangler/
 .wrangler/
 dist/

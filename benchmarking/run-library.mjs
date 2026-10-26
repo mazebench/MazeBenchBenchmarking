@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 import { closeSync, fstatSync } from "node:fs";
 import { readdir } from "node:fs/promises";
+import path from "node:path";
 import { journalHead, verifyJournal } from "./storage/journal.mjs";
 import { readCheckpointJson } from "./v1/checkpoint-json.mjs";
 import { safeOpenFile } from "./v1/safe-files.mjs";
@@ -78,6 +79,44 @@ export class RunLibrary {
     return this.cache.get(directory).snapshot;
   }
 
+  async card(directory, active = false) {
+    const metadata = await readCheckpointJson(directory, "run.json");
+    const summary = await this.summary(directory);
+    const run = { ...pick(metadata, METADATA), ...summary, runner_active: active };
+    run.benchmark_version = readRunVersion(directory, metadata, this.cache.get(directory)?.snapshot.summary);
+    const rateLimit = metadata.status === "failed" ? rateLimitDetails(metadata.error) : null;
+    if (rateLimit) run.rate_limit = rateLimit;
+    if (this.markInterrupted && !active && TRANSIENT.has(run.status)) {
+      run.recorded_status = run.status;
+      run.status = "interrupted";
+    }
+    return run;
+  }
+
+  // Read-only streaming for the dashboard. Runtime liveness still comes from
+  // each run's owner; these cards are presented as saved results until then.
+  async *stream(roots, signal) {
+    const directories = new Map();
+    for (const root of roots) {
+      const entries = await readdir(root, { withFileTypes: true }).catch(error => {
+        if (error.code === "ENOENT") return [];
+        throw error;
+      });
+      for (const entry of entries) if (entry.isDirectory() && RUN_ID.test(entry.name) && !directories.has(entry.name)) {
+        directories.set(entry.name, path.join(root, entry.name));
+      }
+    }
+    const total = directories.size;
+    let loaded = 0;
+    yield { type: "start", total, loaded };
+    for (const directory of directories.values()) {
+      if (signal?.aborted) return;
+      const run = await this.card(directory).catch(() => null);
+      yield { type: "record", total, loaded: ++loaded, run };
+    }
+    yield { type: "done", total, loaded };
+  }
+
   async list(supervisor) {
     // Several open pages share the same disk scan instead of queueing copies.
     if (this.pending) return this.pending;
@@ -96,17 +135,7 @@ export class RunLibrary {
       try {
         const directory = supervisor.runDirectory(entry.name);
         directories.add(directory);
-        const metadata = await readCheckpointJson(directory, "run.json");
-        const summary = await this.summary(directory);
-        const run = { ...pick(metadata, METADATA), ...summary, runner_active: supervisor.active.has(entry.name) };
-        run.benchmark_version = readRunVersion(directory, metadata, this.cache.get(directory)?.snapshot.summary);
-        const rateLimit = metadata.status === "failed" ? rateLimitDetails(metadata.error) : null;
-        if (rateLimit) run.rate_limit = rateLimit;
-        if (this.markInterrupted && !run.runner_active && TRANSIENT.has(run.status)) {
-          run.recorded_status = run.status;
-          run.status = "interrupted";
-        }
-        return run;
+        return await this.card(directory, supervisor.active.has(entry.name));
       } catch { return null; }
     }));
     for (const directory of this.cache.keys()) if (!directories.has(directory)) this.cache.delete(directory);

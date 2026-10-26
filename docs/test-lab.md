@@ -10,11 +10,13 @@ New projects begin with a 16 × 16 × ∞ test world. Existing tests retain thei
 
 ```bash
 npm install
-npm run dev
+npm start
 ```
 
 Run these commands from the MazeBenchBenchmarking repository. Open
-[http://localhost:3001](http://localhost:3001).
+[http://localhost:8080/unit-tests/](http://localhost:8080/unit-tests/).
+This is the same editor source used by the optional `npm run dev:lab` development
+server. Run `npm run build:unit-tests` to rebuild its main-site bundle after UI edits.
 
 ## Editor controls
 

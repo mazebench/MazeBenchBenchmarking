@@ -11,6 +11,13 @@
   an in-repository symbolic link, never another release copy.
 - apps/web is the test lab (port 3001); project-data contains all authored
   test fixtures. The main site remains node server.mjs (port 8080).
+- The main site's Unit tests link opens /unit-tests/ on the same origin.
+  npm start builds that page from apps/web/site using the existing VoxelBench
+  component; npm run build:unit-tests refreshes it after UI edits. Its generated
+  unit-tests directory is ignored. Public renderer/worker/WASM files are served
+  directly from apps/web/public, and the shared /api/local-project handler saves
+  to project-data with revision checks. Port 3001 is optional standalone lab
+  development, never a hard-coded main-site navigation target.
 - engine/current contains the live storage-v2 adapter and browser engine API.
   play/current contains the live command playback and connected-room adapter.
   The lab retains its format adapter in apps/web/app/physicsEngine.ts. Test

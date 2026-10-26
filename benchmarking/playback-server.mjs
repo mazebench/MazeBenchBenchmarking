@@ -7,6 +7,8 @@ import { PlaybackReplay } from './playback-replay.mjs';
 import { ReportReader } from './report-reader.mjs';
 import { gzipSync } from 'node:zlib';
 import { PricingService } from './pricing-service.mjs';
+import { RunLibrary } from './run-library.mjs';
+import { setImmediate as yieldToIO } from 'node:timers/promises';
 
 export function createPlaybackServer(root, options = {}) {
   const port = options.port ?? 8085, mainPort = options.mainPort || 8080;
@@ -15,6 +17,7 @@ export function createPlaybackServer(root, options = {}) {
   const replays = options.replays || new PlaybackReplay(root);
   const reports = options.reports || new ReportReader();
   const pricing = options.pricing || new PricingService();
+  const library = options.library || new RunLibrary();
   const server = createServer(async (req, res) => {
     const reply = (status, value, type = 'application/json') => {
       if (res.destroyed) return;
@@ -28,6 +31,22 @@ export function createPlaybackServer(root, options = {}) {
     if (req.method !== 'GET') return reply(405, { error: 'Playback is read-only.' });
     const url = new URL(req.url, 'http://' + req.headers.host);
     if (url.pathname === '/api/benchmark/playback/status') return reply(200, { available: true, token_pricing: true });
+    if (url.pathname === '/api/benchmark/playback/library') {
+      const controller = new AbortController();
+      res.once('close', () => controller.abort());
+      res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      res.flushHeaders();
+      try {
+        for await (const event of library.stream(recordsRoots, controller.signal)) {
+          if (res.destroyed) return;
+          res.write(JSON.stringify(event) + '\n');
+          // Flush each real completion before the next synchronous verification.
+          await yieldToIO();
+        }
+      } catch (error) { if (!res.destroyed) res.write(JSON.stringify({ type: 'error', error: error.message }) + '\n'); }
+      if (!res.destroyed) res.end();
+      return;
+    }
     if (url.pathname === '/api/benchmark/v1/pricing') {
       try { return reply(200, await pricing.refresh(url.searchParams.get('force') === '1')); }
       catch (error) { return reply(503, { error: error.message }); }
