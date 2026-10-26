@@ -14,9 +14,11 @@ const left = 62, right = 1070, top = 22, bottom = 185;
 let data = null;
 let busy = false;
 let fetchedAt = 0, signature = "";
+const pointTime = point => Number.isFinite(point.active_ms) ? point.active_ms : point.timestamp;
 
 function elapsed(ms) {
   const minutes = Math.max(0, ms) / 60000;
+  if (minutes >= 60) return `${Math.floor(minutes / 60)}h${Math.floor(minutes % 60) ? ` ${Math.floor(minutes % 60)}m` : ''}`;
   return minutes < 1 ? `${Math.round(minutes * 60)}s` : `${Math.round(minutes)}m`;
 }
 
@@ -46,16 +48,16 @@ function render(value) {
     return;
   }
   const samples = value.samples;
-  const start = samples[0].timestamp;
-  const end = Math.max(start + 1000, samples.at(-1).timestamp);
+  const start = pointTime(samples[0]);
+  const end = Math.max(start + 1000, pointTime(samples.at(-1)));
   const max = Math.max(1, value.context_window || 0, value.compaction_threshold || 0, ...samples.map(s => s.tokens)) * 1.08;
   const x = time => left + (time - start) / (end - start) * (right - left);
   const y = tokens => bottom - tokens / max * (bottom - top);
   // Hold each reported value until the next report; a compaction is a drop,
   // not a gradual decrease during the time spent waiting for its response.
   const points = samples.flatMap((sample, index) => [
-    ...(index ? [`${x(sample.timestamp).toFixed(1)},${y(samples[index - 1].tokens).toFixed(1)}`] : []),
-    `${x(sample.timestamp).toFixed(1)},${y(sample.tokens).toFixed(1)}`
+    ...(index ? [`${x(pointTime(sample)).toFixed(1)},${y(samples[index - 1].tokens).toFixed(1)}`] : []),
+    `${x(pointTime(sample)).toFixed(1)},${y(sample.tokens).toFixed(1)}`
   ]).join(" ");
   const grid = Array.from({ length: 5 }, (_, index) => {
     const tokens = index * max / 4;
@@ -68,18 +70,21 @@ function render(value) {
   const threshold = value.compaction_threshold;
   const trigger = threshold === null ? "" : `<rect x="${left}" y="${top}" width="${right - left}" height="${Math.max(0, y(threshold) - top)}" class="token-warning-band"/><line x1="${left}" x2="${right}" y1="${y(threshold)}" y2="${y(threshold)}" class="token-trigger-line"/><text x="${right}" y="${y(threshold) - 7}" text-anchor="end" class="token-trigger-text">Compact at ${number.format(threshold)}</text>`;
   const markers = value.compactions.map((event, index) => {
-    const px = x(event.timestamp);
+    if (event.timestamp < samples[0].timestamp || event.timestamp > samples.at(-1).timestamp) return '';
+    const px = x(pointTime(event));
     if (px < left || px > right) return "";
     return `<line x1="${px}" x2="${px}" y1="${top}" y2="${bottom}" class="token-compaction-line"/><circle cx="${px}" cy="${y(event.after_tokens ?? 0)}" r="4" class="token-compaction-dot"><title>Compaction ${index + 1}: ${event.before_tokens ?? "unknown"} → ${event.after_tokens ?? "pending"} tokens</title></circle>`;
   }).join("");
-  chart.innerHTML = `<defs><linearGradient id="token-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#62d9ef" stop-opacity="0.2"/><stop offset="100%" stop-color="#62d9ef" stop-opacity="0.01"/></linearGradient></defs>${grid}${trigger}<polygon points="${left},${bottom} ${points} ${x(samples.at(-1).timestamp)},${bottom}" fill="url(#token-fill)"/><polyline points="${points}" class="token-series"/>${markers}<circle cx="${x(samples.at(-1).timestamp)}" cy="${y(value.current_tokens)}" r="4" class="token-current-dot"/>${ticks}<text x="550" y="224" text-anchor="middle" class="token-axis">Elapsed since first token report</text><line id="token-crosshair" y1="${top}" y2="${bottom}" class="token-crosshair" visibility="hidden"/>`;
+  const active = value.time_axis?.kind === 'active', axisLabel = active ? 'Active runtime' : 'Elapsed runtime';
+  chart.innerHTML = `<defs><linearGradient id="token-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#62d9ef" stop-opacity="0.2"/><stop offset="100%" stop-color="#62d9ef" stop-opacity="0.01"/></linearGradient></defs>${grid}${trigger}<polygon points="${left},${bottom} ${points} ${x(pointTime(samples.at(-1)))},${bottom}" fill="url(#token-fill)"/><polyline points="${points}" class="token-series"/>${markers}<circle cx="${x(pointTime(samples.at(-1)))}" cy="${y(value.current_tokens)}" r="4" class="token-current-dot"/>${ticks}<text x="550" y="224" text-anchor="middle" class="token-axis">${axisLabel}</text><line id="token-crosshair" y1="${top}" y2="${bottom}" class="token-crosshair" visibility="hidden"/>`;
   current.textContent = threshold === null
     ? `${number.format(value.current_tokens)} context tokens`
     : `${number.format(value.current_tokens)} / ${number.format(threshold)} · ${Math.round(value.current_tokens / threshold * 100)}% of trigger`;
   current.classList.toggle("near-compaction", threshold !== null && value.current_tokens >= threshold * 0.85);
   const count = value.compactions.length;
-  detail.textContent = `${count} compaction${count === 1 ? "" : "s"} · Last reported ${clock(value.updated_at)}`;
-  chart.setAttribute("aria-label", `${current.textContent}. ${detail.textContent}. Context tokens over elapsed run time.`);
+  detail.textContent = `${count} compaction${count === 1 ? "" : "s"}${value.time_axis?.excluded_ms >= 1000 ? ` · ${elapsed(value.time_axis.excluded_ms)} downtime excluded` : ''} · Last reported ${clock(value.updated_at)}`;
+  detail.title = value.time_axis?.basis || '';
+  chart.setAttribute("aria-label", `${current.textContent}. ${detail.textContent}. Context tokens over ${axisLabel.toLowerCase()}.`);
 }
 
 function rateLabel(rate) { return Number.isFinite(rate) ? `$${rate}` : 'unavailable'; }
@@ -88,15 +93,15 @@ chart.addEventListener("pointermove", event => {
   if (!data?.samples?.length) return;
   const bounds = chart.getBoundingClientRect();
   const px = (event.clientX - bounds.left) / bounds.width * 1100;
-  const start = data.samples[0].timestamp;
-  const end = Math.max(start + 1000, data.samples.at(-1).timestamp);
+  const start = pointTime(data.samples[0]);
+  const end = Math.max(start + 1000, pointTime(data.samples.at(-1)));
   const time = start + Math.max(0, Math.min(1, (px - left) / (right - left))) * (end - start);
-  const sample = data.samples.reduce((best, value) => Math.abs(value.timestamp - time) < Math.abs(best.timestamp - time) ? value : best);
-  tooltip.textContent = `${clock(sample.timestamp)} · ${number.format(sample.tokens)} context tokens`;
+  const sample = data.samples.reduce((best, value) => Math.abs(pointTime(value) - time) < Math.abs(pointTime(best) - time) ? value : best);
+  tooltip.textContent = `${elapsed(pointTime(sample) - start)}${data.time_axis?.kind === 'active' ? ' active' : ''} · ${clock(sample.timestamp)} · ${number.format(sample.tokens)} context tokens`;
   tooltip.hidden = false;
   tooltip.style.left = `${Math.max(8, Math.min(bounds.width - 250, event.clientX - bounds.left + 12))}px`;
   const cursor = chart.querySelector("#token-crosshair");
-  const cx = left + (sample.timestamp - start) / (end - start) * (right - left);
+  const cx = left + (pointTime(sample) - start) / (end - start) * (right - left);
   cursor.setAttribute("x1", cx);
   cursor.setAttribute("x2", cx);
   cursor.setAttribute("visibility", "visible");

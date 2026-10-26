@@ -14,6 +14,7 @@ const finite = value => typeof value === "number" && Number.isFinite(value) && v
 export { requestApiCost } from "./token-pricing.mjs";
 import { estimateRequests } from "./token-pricing.mjs";
 import { kimiRunHomes, findKimiSession, createKimiTimeline, consumeKimiEvent, kimiTelemetry } from "./kimi-telemetry.mjs";
+import { ActivityClockReader } from './activity-clock-reader.mjs';
 
 export function modelTokenLimits(model = {}) {
   const window = model.context_window ?? model.max_context_window;
@@ -95,6 +96,7 @@ export class TokenTelemetry {
     this.kimiHomes = kimiHomes;
     this.cache = new Map();
     this.pending = new Map();
+    this.activity = new ActivityClockReader();
   }
 
   async findRollout(metadata) {
@@ -121,7 +123,7 @@ export class TokenTelemetry {
 
   async read(runDirectory) {
     if (this.pending.has(runDirectory)) return this.pending.get(runDirectory);
-    const operation = this.readTimeline(runDirectory);
+    const operation = this.readTimeline(runDirectory).then(value => this.activity.read(runDirectory, value));
     this.pending.set(runDirectory, operation);
     try { return await operation; }
     finally { this.pending.delete(runDirectory); }
