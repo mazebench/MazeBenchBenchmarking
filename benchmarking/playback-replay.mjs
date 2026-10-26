@@ -13,12 +13,18 @@ import { openAsciiReplay } from './ascii-replay-source.mjs';
 
 export class PlaybackReplay {
   constructor(root) { this.root = root; this.cache = new Map(); this.loading = new Map(); }
-  async movie(directory) {
+  async movie(directory, {limit = Infinity} = {}) {
     if (this.loading.has(directory)) return this.loading.get(directory);
-    const task = this.build(directory); this.loading.set(directory,task);
+    const task = this.build(directory,limit); this.loading.set(directory,task);
     try { return await task; } finally { this.loading.delete(directory); }
   }
-  async build(directory) {
+  async chunk(directory, cursor = {}) {
+    const limit = Math.max(1,Math.min(256,Math.floor(Number(cursor.limit)||128)));
+    const value = await this.movie(directory,{limit});
+    const {sliceReplayChunk} = await import('./replay-chunks.mjs');
+    return sliceReplayChunk(value,{...cursor,limit});
+  }
+  async build(directory, limit = Infinity) {
     const incremental = isIncremental(directory), head = incremental ? verifyJournal(directory) : (verifyCheckpoint(directory), null);
     const metadata = JSON.parse(await readFile(path.join(directory,'run.json'),'utf8'));
     const epoch = head ? `${head.generation}:${head.historyEpoch || head.generation}` : `legacy:${metadata.created_at || directory}`;
@@ -36,12 +42,13 @@ export class PlaybackReplay {
       const world = {storageFormat:V2_WORLD_FORMAT,columns:[...new Set(rooms.map(room=>room.position[0]))].sort(),rows:[...new Set(rooms.map(room=>room.position[1]))].sort(),
         roomWidth:assets.roomWidth,roomHeight:assets.roomHeight,rooms,blocks:assets.blocks};
       entry = {source,runtime,world,builder:new RecordedReplayBuilder(world),value:{epoch,action_count:-1}};
-    } else if (vision) entry.runtime = await VisionRuntime.open(this.root,directory);
-    else entry.source.saved = await readCheckpointJson(directory);
+    } else if (vision && entry.runtime.internal.actionCount !== count) entry.runtime = await VisionRuntime.open(this.root,directory);
+    else if (!vision && entry.source.saved.actionCount !== count) entry.source.saved = await readCheckpointJson(directory);
     const {runtime,world,builder,source} = entry;
     const available = vision ? runtime.internal.actionCount : source.saved.actionCount;
+    const end = Math.min(available,entry.value.action_count+limit);
     try {
-      for (let move = entry.value.action_count+1; move <= available; move++) {
+      for (let move = entry.value.action_count+1; move <= end; move++) {
         let record;
         if (vision) {
           const set = runtime.frameSet(move), index = JSON.parse((await runtime.readRecord(set.animation.index_record)).content), frames = [];
@@ -60,7 +67,7 @@ export class PlaybackReplay {
         const after=verifyJournal(directory);
         if (`${after.generation}:${after.historyEpoch||after.generation}`!==epoch) throw new Error('Replay history changed. Reload the player.');
       }
-      entry.value={epoch,action_count:available,observation_mode:vision?'vision':'ascii',world,movie:builder.movie()};
+      entry.value={epoch,action_count:end,total_action_count:available,observation_mode:vision?'vision':'ascii',world,movie:builder.movie()};
       entry.bytes=Buffer.byteLength(JSON.stringify(entry.value));
       this.cache.delete(directory);this.cache.set(directory,entry);
       while(this.cache.size>2||[...this.cache.values()].reduce((sum,item)=>sum+item.bytes,0)>128*1024*1024)this.cache.delete(this.cache.keys().next().value);

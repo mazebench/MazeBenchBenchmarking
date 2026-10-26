@@ -24,7 +24,12 @@ the Replays renderer and tween curves for smooth playback and seeking. A read-on
 companion on port 8085 authenticates saved vision frames; for text runs it replays
 commands in memory with the pinned engine and checks every saved state hash. It
 never changes run records or agent observations. Long text histories can take a
-few seconds to prepare the first time; subsequent updates compile only new moves.
+few seconds to prepare the first time. Verified moves arrive in batches, so you
+can play before the whole history finishes loading. The scrubber shows played
+moves in purple, buffered moves in gray, and unloaded moves on the dark track.
+Playback waits at the buffer edge and continues when more moves arrive; seeking
+ahead waits for that part of the history. A loading bar and percentage show real
+move progress. Subsequent updates compile and transfer only new moves.
 The companion starts with the main site, or use `npm run start:playback` to add it
 to an already-running site.
 
@@ -32,9 +37,18 @@ New moves load automatically without replacing the player or interrupting playba
 **Live** starts enabled for active runs and follows incoming moves. Scrubbing back
 or playing history turns following off while the timeline keeps updating; click
 **Live** to return to the latest move. Switching **3D / ASCII** preserves your place.
-In 3D, **Agent camera** is checked by default and follows the recorded yaw/pitch;
-uncheck it to orbit, pan, and zoom freely. **Show neighboring rooms** is a separate
-checkbox, off by default.
+In 3D, the **ⓘ** menu contains **Agent camera**, checked by default to follow the
+recorded yaw/pitch; uncheck it to orbit, pan, and zoom freely. **Show neighboring
+rooms** is a separate checkbox, off by default.
+
+The download menu exports either **3D** or **ASCII** as a **GIF** or **Video**.
+Each export captures the whole run recorded so far at the selected playback
+speed, using the current camera and neighboring-room options. ASCII retains its
+fixed letter size and original font. Exports have progress and cancellation and
+use a separate renderer, leaving the viewer and active runners alone. Videos
+use MP4 when the browser supports it, otherwise WebM, and record in real time;
+keep the tab open during creation. GIFs loop with a short final hold and reduce
+their frame rate for very long histories to keep encoding bounded.
 
 Once the server is running, you can go directly to:
 

@@ -1,17 +1,14 @@
-import { harnessName } from "./run-library.mjs";
+import { createRunHeader } from "./run-header.mjs";
 import { codingLabel, codingMode, isPrimeDirect } from "../capabilities.mjs";
 import { heatmapVisits } from "./heatmap.mjs";
-import { modelLabel, modelSpeed } from "./model-label.mjs";
+import { modelLabel } from "./model-label.mjs";
 import { gemReplayFrames, gemFrameIndex, loadWorldGemLocations, gemCollectionLocations } from "./gem-navigation.mjs";
 import { runTabVisible } from "./run-tabs.mjs";
 import { benchmarkFetch } from "./benchmark-api.mjs";
 import { rateLimitDetails, formatRateLimit } from "../run-errors.mjs";
 import { recoveryPresentation } from "./auto-recovery.mjs";
-import { versionPresentation } from "../run-version-label.mjs";
 import { RunReplayPlayer } from "./replay-player.mjs";
 const numberedWorld = run => ["ice-maze", "slotski"].includes(run.world);
-const worldName = run => ({ "ice-maze": "Ice Maze", slotski: "Slotski" }[run.world] || "Main World");
-const providerName = provider => ({ codex: "Codex", "claude-code": "Claude Code", "grok-build": "Grok Build", antigravity: "Google Antigravity", "muse-code": "Meta Muse Code", "kimi-code": "Kimi Code", "prime-agent": "Prime Agent" })[provider || "codex"] || provider;
 import { drawNovelty } from "../ui/novelty-chart.mjs";
 import { renderIceLevelTimings } from "./ice-level-timings.mjs";
 
@@ -29,6 +26,7 @@ const ids = [
   "interview-status", "interview-send"
 ];
 const elements = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
+const runHeader = createRunHeader(elements);
 const replayModes = document.createElement("div");
 replayModes.className = "replay-modes";
 replayModes.setAttribute("role", "group");
@@ -67,7 +65,6 @@ let interviewBusy = false, pairRuns = [], pairAt = 0;
 let boardSignature = "", feedSignature = "", workspaceSignature = "", interviewSignature = "";
 let replayPlayer = null;
 let tokenUsage = null;
-const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 const standardNumbers = new Intl.NumberFormat(), compactNumbers = new Intl.NumberFormat(undefined, { notation: "compact" });
 
 async function api(path, options = {}) {
@@ -88,11 +85,6 @@ function isFinished(run) {
   return !run.auto_recovery?.enabled && ["completed", "failed", "stopped"].includes(run.status);
 }
 
-function compactDate(value) {
-  if (!value) return "—";
-  return dateFormatter.format(new Date(value));
-}
-
 function formatNumber(value) {
   return (value >= 100_000 ? compactNumbers : standardNumbers).format(Number(value) || 0);
 }
@@ -102,11 +94,6 @@ function usageTotal(usage) {
   if (Number.isFinite(usage.total_tokens)) return usage.total_tokens;
   if (Number.isFinite(usage.totalTokens)) return usage.totalTokens;
   return (usage.input_tokens || usage.inputTokens || 0) + (usage.output_tokens || usage.outputTokens || 0);
-}
-
-function modelMonogram(model) {
-  const meaningful = String(model || "M").split(/[-_.\s]/).filter(Boolean).filter((part) => !/^(gpt|codex|5|6)$/.test(part));
-  return (meaningful.at(-1)?.[0] || "M").toUpperCase();
 }
 
 function setCanvasSize(canvas) {
@@ -451,6 +438,7 @@ function drawHeatmap(positions, toolsEnabled, currentPosition) {
 }
 
 function drawProgress(run) {
+  if (!runTabVisible("analysis")) return;
   const canvas = elements["progress-chart"];
   const { context, width, height } = setCanvasSize(canvas);
   context.clearRect(0, 0, width, height);
@@ -754,21 +742,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   document.body.classList.toggle("tools-on", Boolean(run.tools_enabled));
   document.body.classList.toggle("ice-world", numberedWorld(run));
   document.title = `${modelLabel(run.model)} · MazeBench record`;
-  elements["model-monogram"].textContent = modelMonogram(modelLabel(run.model));
-  elements["run-kicker"].textContent = `${worldName(run)} · ${harnessName(run)}${run.observation_mode === "vision" ? " · Vision" : ""} · ${codingLabel(run)}`;
-  elements["run-title"].textContent = modelLabel(run.model);
-  const version = run.benchmark_version?.label ? run.benchmark_version : versionPresentation(run.benchmark_version);
-  let versionDetails = document.getElementById("run-version-details");
-  if (!versionDetails) {
-    versionDetails = document.createElement("details");
-    versionDetails.id = "run-version-details";
-    versionDetails.className = "run-version-details";
-    versionDetails.innerHTML = "<summary></summary><pre></pre>";
-    elements["run-subtitle"].after(versionDetails);
-  }
-  versionDetails.querySelector("summary").textContent = `Engine & world · ${version.label}`;
-  versionDetails.querySelector("pre").textContent = version.detail;
-  elements["run-subtitle"].textContent = `${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"}` : ""} · ${modelSpeed(run) === "fast" ? "Fast" : "Standard"} · ${compactDate(run.created_at)}${run.auto_recovery?.enabled ? " · Auto-resume on" : ""}`;
+  runHeader.update(run);
   elements["run-id"].textContent = run.id;
   const rateLimit = run.status === "failed" ? run.rate_limit || rateLimitDetails(run.error) : null;
   const recovery = recoveryPresentation(run);
@@ -823,7 +797,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
   replayModes.hidden = numberedWorld(run);
   gemMapControls.hidden = numberedWorld(run);
   elements.heatmap.setAttribute("aria-label", run.world === "slotski" ? "Top-left positions of selected blocks after actions" : "Heatmap of positions visited");
-  if (runTabVisible("overview")) drawProgress(run);
+  if (runTabVisible("analysis")) drawProgress(run);
   renderPair(run, allRuns);
   renderInterview(interviewLibrary, interview);
   elements["connection-status"].textContent = run.runner_active ? "Live" : "Saved run";
@@ -833,6 +807,7 @@ function renderRun(run, allRuns, interviewLibrary, interview) {
 
 function renderAnalysis() {
   if (!analysisData || !currentRun || !runTabVisible("analysis")) return;
+  drawProgress(currentRun);
   gemMapLegend.hidden = !showGemLocations || !gemCollectionKey;
   elements.heatmap.setAttribute("aria-label", showGemLocations
     ? `Heatmap of positions visited. ${[...gemMapLegend.children].filter(item => !item.hidden).map(item => item.textContent).join(", ")}. Filled green diamonds are collected; outlined cyan diamonds are uncollected.`
@@ -847,11 +822,12 @@ function renderAnalysis() {
 async function refreshSection() {
   if (!currentRun || document.hidden) return;
   if (runTabVisible("overview")) {
-    fitBoard(); drawProgress(currentRun);
+    fitBoard();
     if (replayMode === "gems") await refreshGemFrames().catch(() => {});
     return;
   }
   if (runTabVisible("analysis")) {
+    drawProgress(currentRun);
     if (showGemLocations && gemLocations) await refreshGemCollections().catch(error => { gemMapNote.textContent = `Gem collections couldn't update: ${error.message}`; });
     const key = `${currentRun.history_epoch}:${currentRun.action_count}:${currentRun.status}`;
     if (analysisKey === key) { renderAnalysis(); return; }
@@ -1156,7 +1132,7 @@ elements["interview-form"].addEventListener("submit", async (event) => {
 
 window.addEventListener("resize", () => {
   if (!currentRun) return;
-  if (runTabVisible("overview")) { fitBoard(); drawProgress(currentRun); }
+  if (runTabVisible("overview")) fitBoard();
   else if (runTabVisible("analysis")) renderAnalysis();
 });
 

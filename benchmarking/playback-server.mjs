@@ -24,7 +24,7 @@ export function createPlaybackServer(root, options = {}) {
     if (req.method !== 'GET') return reply(405, { error: 'Playback is read-only.' });
     const url = new URL(req.url, 'http://' + req.headers.host);
     if (url.pathname === '/api/benchmark/playback/status') return reply(200, { available: true });
-    const match = /^\/api\/benchmark\/playback\/runs\/(run-[\dTZ-]+-[a-f0-9]{6})\/(movie)$/.exec(url.pathname);
+    const match = /^\/api\/benchmark\/playback\/runs\/(run-[\dTZ-]+-[a-f0-9]{6})\/(movie|chunk)$/.exec(url.pathname);
     if (!match) return reply(404, { error: 'Unknown playback path.' });
     try {
       let directory = path.join(recordsRoot, match[1]);
@@ -33,7 +33,7 @@ export function createPlaybackServer(root, options = {}) {
         for (const root of recordsRoots) { const candidate=path.join(root,match[1]);try{await access(path.join(candidate,'run.json'));directory=candidate;break;}catch(error){if(error.code!=='ENOENT')throw error;} }
         if (!directory) return reply(404,{error:'Run not found.'});
       }
-      return reply(200, await replays.movie(directory));
+      return reply(200, match[2]==='chunk' ? await replays.chunk(directory,Object.fromEntries(url.searchParams)) : await replays.movie(directory));
     } catch (error) { reply(400, { error: error.message }); }
   });
   return { server, replays };
