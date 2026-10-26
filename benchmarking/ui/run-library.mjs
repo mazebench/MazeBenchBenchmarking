@@ -10,7 +10,7 @@ const text = (element, value) => { if (element.textContent !== String(value)) el
 const companyLogos = new Map([
   ["OpenAI", "openai"], ["Anthropic (Claude)", "claude-color"], ["Google", "gemini-color"],
   ["Meta", "meta-color"], ["xAI", "grok"], ["DeepSeek", "deepseek-color"],
-  ["Alibaba", "alibaba-color"], ["Mistral", "mistral-color"], ["Moonshot AI", "kimi-color"]
+  ["Alibaba", "alibaba-color"], ["Mistral", "mistral-color"], ["Moonshot AI", "kimi-color"], ["NVIDIA", "nvidia-color"]
 ]);
 
 export function providerName(provider) {
@@ -30,6 +30,7 @@ export function runCompany(run) {
   if (model.startsWith("gemini")) return "Google";
   if (model.startsWith("muse-")) return "Meta";
   if (model.startsWith("grok")) return "xAI";
+  if (model.startsWith("nvidia/") || model.startsWith("nemotron")) return "NVIDIA";
   if (/^(gpt-|o\d)/.test(model)) return "OpenAI";
   return ({ codex: "OpenAI", "claude-code": "Anthropic (Claude)", "grok-build": "xAI", antigravity: "Google", "muse-code": "Meta", "kimi-code": "Moonshot AI" })[run.provider || "codex"] || run.provider;
 }
@@ -62,7 +63,19 @@ function duration(run) {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-export function runCardValues(run) {
+function runAge(createdAt, now) {
+  const started = Date.parse(createdAt);
+  if (!Number.isFinite(started)) return "—";
+  const minutes = Math.max(0, Math.floor((now - started) / 60000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? "min" : "mins"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? "day" : "days"} ago`;
+}
+
+export function runCardValues(run, { now = Date.now() } = {}) {
   const numbered = ["ice-maze", "slotski"].includes(run.world);
   const company = runCompany(run) || "Unknown provider";
   const logo = companyLogos.get(company);
@@ -75,22 +88,22 @@ export function runCardValues(run) {
     logo: logo ? new URL(`./assets/model-logos/${logo}.svg`, import.meta.url).href : null,
     monochromeLogo: ["openai", "grok"].includes(logo),
     effort: (run.effort || "default") + (modelSpeed(run) === "fast" ? " · Fast" : ""),
-    tools: codingMode(run) === "any" ? "(any language)" : (run.provider === "prime-agent" && !isPrimeDirect(run)) || run.tools_enabled ? "(tools on)" : "(tools off)",
+    observation: run.observation_mode === "vision" ? "Vision" : "ASCII",
+    tools: codingMode(run) === "any" ? "Any language" : (run.provider === "prime-agent" && !isPrimeDirect(run)) || codingMode(run) !== "off" ? "Coding on" : "Coding off",
     statusTone: recovery.waiting || rateLimited || ["queued", "preparing", "pausing"].includes(run.status) ? "yellow"
       : ["running", "continuing"].includes(run.status) ? "green"
       : ["failed", "interrupted"].includes(run.status) ? "red" : "gray",
-    condition: `${run.observation_mode === "vision" ? "Vision · " : ""}${codingLabel(run)}`,
+    condition: `${run.observation_mode === "vision" ? "Vision" : "ASCII"} · ${codingLabel(run)}`,
     status: recovery.label || (run.rate_limit && run.status === "failed" ? "Rate limited" : String(run.status || "unknown").replaceAll("-", " ")),
     rateLimit: recovery.detail || (run.status === "failed" ? formatRateLimit(run.rate_limit) : null),
     context: `${worldName(run)} · ${run.effort} reasoning`,
-    timestamp: `${run.created_at ? dates.format(new Date(run.created_at)) : "—"} · ${duration(run)}`,
+    timestamp: runAge(run.created_at, now),
     meta: `${worldName(run)} · ${harnessName(run)} · ${run.effort} reasoning${run.world === "slotski" ? ` · ${run.sequence_enabled === false ? "Single moves" : "Batched moves"} · ${modelSpeed(run) === "fast" ? "Fast" : "Standard speed"}` : ""} · ${run.created_at ? dates.format(new Date(run.created_at)) : "—"} · ${duration(run)}`,
     progress: run.action_limit ? Math.min(100, (run.action_count || 0) / run.action_limit * 100) : run.status === "completed" ? 100 : 0,
     metrics: [
       ["Actions", `${count(run.action_count)}${run.action_limit ? `/${count(run.action_limit)}` : ""}`],
       [numbered ? "Levels solved" : "Gems", numbered ? `${run.levels_solved || 0}/${run.levels_total || (run.world === "slotski" ? 1 : 30)}` : count(run.gems_collected)],
-      [numbered ? "Level" : "Rooms", numbered ? count(run.level_number) : count(run.rooms_visited || 1)],
-      ["Cells", count(run.unique_cells || 1)]
+      [numbered ? "Level" : "Rooms", numbered ? count(run.level_number) : count(run.rooms_visited || 1)]
     ]
   };
 }
@@ -103,7 +116,7 @@ export function runPage(runs, requestedPage = 0, size = 24) {
 
 function createCard() {
   const card = document.createElement("article");
-  card.innerHTML = `<a class="record-card-link"><div class="record-top"><span class="record-logo" role="img"><img alt="" width="20" height="20" hidden><span class="record-logo-fallback" aria-hidden="true">?</span></span><strong class="record-model"></strong><span class="record-effort"></span><span class="condition"></span><span class="record-status" role="img"></span></div><div class="record-metrics">${"<span><small></small><b></b></span>".repeat(4)}</div></a><div class="record-footer"><span class="record-date"></span><span class="record-version" tabindex="0"></span><button type="button" class="record-delete danger" aria-label="Delete run"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></svg></button></div>`;
+  card.innerHTML = `<a class="record-card-link"><div class="record-top"><span class="record-logo" role="img"><img alt="" width="20" height="20" hidden><span class="record-logo-fallback" aria-hidden="true">?</span></span><strong class="record-model"></strong><span class="record-effort"></span><span class="record-observation"></span><span class="condition"></span><span class="record-status" role="img"></span></div><div class="record-metrics">${"<span><small></small><b></b></span>".repeat(3)}</div></a><div class="record-footer"><time class="record-date"></time><span class="record-version" tabindex="0"></span><button type="button" class="record-delete danger" aria-label="Delete run"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></svg></button></div>`;
   return card;
 }
 
@@ -120,6 +133,11 @@ function updateCard(card, run, values) {
   logoImage.hidden = !values.logo;
   logo.querySelector(".record-logo-fallback").hidden = Boolean(values.logo);
   text(card.querySelector(".condition"), values.tools);
+  const observation = card.querySelector(".record-observation");
+  text(observation, values.observation);
+  observation.dataset.mode = values.observation.toLowerCase();
+  observation.setAttribute("aria-label", `Agent observation: ${values.observation}`);
+  card.querySelector(".condition").title = codingLabel(run);
   const effort = card.querySelector(".record-effort");
   text(effort, values.effort);
   effort.title = `Reasoning${modelSpeed(run) === "fast" ? " and speed" : " effort"}: ${values.effort}`;
@@ -131,7 +149,10 @@ function updateCard(card, run, values) {
   const model = card.querySelector(".record-model");
   text(model, modelLabel(run.model) || "Unknown model");
   model.title = `${run.model || "Unknown model"} · ${values.condition} · ${values.meta}`;
-  text(card.querySelector(".record-date"), values.timestamp);
+  const date = card.querySelector(".record-date");
+  text(date, values.timestamp);
+  date.dateTime = run.created_at || "";
+  date.title = run.created_at ? `Started ${new Date(run.created_at).toLocaleString()} · Duration ${duration(run)}` : "";
   const version = card.querySelector(".record-version");
   text(version, values.version.label);
   version.title = values.version.detail;

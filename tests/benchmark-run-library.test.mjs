@@ -145,10 +145,11 @@ test("a thousand runs render at most 24 cards and page indices recover after del
 
 test("cards retain world-specific scores and use a fixed elapsed time for paused runs", () => {
   const run = { id: "fixture", created_at: "2026-10-03T00:00:00Z", paused_at: "2026-10-03T00:02:00Z", runner_active: false, status: "paused", effort: "high", action_count: 50, action_limit: 100, gems_collected: 8, rooms_visited: 4, unique_cells: 20 };
-  const main = runCardValues(run);
+  const main = runCardValues(run, { now: Date.parse("2026-10-03T00:02:00Z") });
   assert.equal(main.progress, 50);
   assert.match(main.meta, /2m 0s$/);
-  assert.deepEqual(main.metrics, [["Actions", "50/100"], ["Gems", "8"], ["Rooms", "4"], ["Cells", "20"]]);
+  assert.deepEqual(main.metrics, [["Actions", "50/100"], ["Gems", "8"], ["Rooms", "4"]]);
+  assert.equal(main.timestamp, "2 mins ago");
   const ice = runCardValues({ ...run, world: "ice-maze", levels_solved: 5, levels_total: 30, level_number: 6 });
   assert.deepEqual(ice.metrics.slice(1, 3), [["Levels solved", "5/30"], ["Level", "6"]]);
 });
@@ -158,10 +159,13 @@ test("compact cards identify the model company independently of its runner", () 
   const hosted = runCardValues({ provider: "prime-agent", model: "anthropic/claude-sonnet-5-5" });
   assert.equal(direct.logo, hosted.logo);
   assert.match(direct.logo, /\/assets\/model-logos\/claude-color\.svg$/);
-  assert.equal(direct.tools, "(tools off)");
-  assert.equal(hosted.tools, "(tools on)");
+  assert.equal(direct.tools, "Coding off");
+  assert.equal(hosted.tools, "Coding on");
   assert.equal(direct.effort, "high");
   assert.equal(hosted.effort, "default");
+  const nvidia = runCardValues({ provider: "prime-agent", model: "nvidia/nemotron-3.5-lightning" });
+  assert.match(nvidia.logo, /\/assets\/model-logos\/nvidia-color\.svg$/);
+  assert.equal(runCompany({ model: "nemotron-3.5-lightning" }), "NVIDIA");
   const unknown = runCardValues({ provider: "prime-agent", model: "unknown/new-model" });
   assert.equal(unknown.logo, null);
   assert.equal(unknown.company, "unknown");
