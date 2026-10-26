@@ -190,3 +190,9 @@ summary::-webkit-details-marker { display: none; }
 .run-version-details { margin-top: 8px; color: var(--muted); font-size: 12px; }
 .run-version-details summary { cursor: pointer; color: #c4b5fd; }
 .run-version-details pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; }
+
+.run-replay-camera { align-items: center; justify-content: flex-end; flex-wrap: wrap; max-width: calc(100% - 28px); }
+.run-replay-camera-toggle { display: flex; align-items: center; gap: 7px; padding: 9px 11px; border-radius: 8px; background: #17181bd9; color: #eee; cursor: pointer; backdrop-filter: blur(12px); }
+.run-replay-camera-toggle input { width: 14px; height: 14px; margin: 0; accent-color: #b7a9ff; cursor: pointer; }
+.run-replay-free-camera { display: flex; gap: 4px; }
+.run-replay-free-camera[hidden] { display: none; }

@@ -1,3 +1,4 @@
+import { sampleAgentCamera, applyAgentCamera } from './replay-camera.mjs';
 const icon = path => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>`;
 const playIcon = 'm8 5 11 7-11 7z', pauseIcon = 'M6 5h4v14H6zM14 5h4v14h-4z';
 const clock = ms => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
@@ -8,9 +9,9 @@ export class RunReplayPlayer {
     this.origin = `http://${location.hostname}:8085/api/benchmark/playback/runs/${encodeURIComponent(id)}/movie`;
     this.container = document.createElement('div'); this.container.className = 'run-replay-player'; this.container.tabIndex = -1;
     this.container.innerHTML = `
-      <div class="run-replay-stage"><canvas tabindex="0" aria-label="Animated run replay. Drag to orbit; Q and E zoom."></canvas>
+      <div class="run-replay-stage"><canvas tabindex="0" aria-label="Animated run replay. Following the agent camera."></canvas>
         <div class="run-replay-loading" role="status"><i aria-hidden="true"></i><span>Preparing replay…</span></div>
-        <div class="run-replay-camera"><button data-command="zoom-in" aria-label="Zoom in">+</button><button data-command="zoom-out" aria-label="Zoom out">−</button><button data-command="center" aria-label="Center camera">${icon('M12 3v4m0 10v4M3 12h4m10 0h4M8 8h8v8H8z')}</button></div>
+        <div class="run-replay-camera"><label class="run-replay-camera-toggle"><input type="checkbox" data-setting="agent-camera" checked> Agent camera</label><label class="run-replay-camera-toggle"><input type="checkbox" data-setting="neighbors"> Show neighboring rooms</label><div class="run-replay-free-camera" hidden><button data-command="zoom-in" aria-label="Zoom in">+</button><button data-command="zoom-out" aria-label="Zoom out">−</button><button data-command="center" aria-label="Center camera">${icon('M12 3v4m0 10v4M3 12h4m10 0h4M8 8h8v8H8z')}</button></div></div>
       </div>
       <div class="run-replay-transport">
         <input class="run-replay-seek" type="range" min="0" max="1" step="1" value="0" aria-label="Replay position" disabled>
@@ -22,7 +23,11 @@ export class RunReplayPlayer {
       </div>`;
     board.replaceChildren(this.container); board.removeAttribute('role'); board.removeAttribute('aria-label');
     board.closest('.board-panel').classList.add('tween-replay');
-    this.canvas = this.container.querySelector('canvas'); this.seek = this.container.querySelector('input');
+    this.canvas = this.container.querySelector('canvas'); this.seek = this.container.querySelector('.run-replay-seek');
+    this.agentCamera = this.container.querySelector('[data-setting=agent-camera]');
+    this.neighbors = this.container.querySelector('[data-setting=neighbors]');
+    this.neighbors.addEventListener('change', () => this.draw(this.time));
+    this.agentCamera.addEventListener('change', () => this.syncCameraMode());
     this.notice = this.container.querySelector('[role=status]'); this.playButton = this.button('play');
     this.seek.addEventListener('input', () => { const time = Number(this.seek.value); this.pause(); this.draw(time); });
     this.container.addEventListener('click', event => {
@@ -35,8 +40,8 @@ export class RunReplayPlayer {
       if (command === 'play') this.togglePlay();
       if (command === 'previous' || command === 'next') this.step(command === 'previous' ? -1 : 1);
       if (command === 'latest') this.refresh(true).catch(error => this.fail(error));
-      if (command === 'center') this.view?.center();
-      if (command === 'zoom-in' || command === 'zoom-out') this.view?.renderer.zoomBy(command === 'zoom-in' ? .8 : 1.25);
+      if (!this.agentCamera.checked && command === 'center') this.view?.center();
+      if (!this.agentCamera.checked && (command === 'zoom-in' || command === 'zoom-out')) this.view?.renderer.zoomBy(command === 'zoom-in' ? .8 : 1.25);
       if (command === 'fullscreen') void (document.fullscreenElement ? document.exitFullscreen() : this.container.requestFullscreen()).catch(error => this.fail(error));
     });
     this.container.addEventListener('keydown', event => {
@@ -49,7 +54,7 @@ export class RunReplayPlayer {
       else if ([',', '.'].includes(key)) this.step(key === ',' ? -1 : 1);
       else { this.pause(); this.draw(key === 'home' ? 0 : key === 'end' ? this.movie.duration : this.time + (key === 'j' ? -5000 : 5000)); }
     });
-    this.resize = new ResizeObserver(() => this.view?.renderer.resize()); this.resize.observe(this.canvas);
+    this.resize = new ResizeObserver(() => { this.view?.renderer.resize(); if (this.agentCamera.checked) this.draw(this.time); }); this.resize.observe(this.canvas);
   }
   button(command) { return this.container.querySelector(`[data-command="${command}"]`); }
   async update(run) {
@@ -63,8 +68,8 @@ export class RunReplayPlayer {
     const generation = ++this.generation; this.pause(); this.busy = true;
     this.notice.hidden = false; this.notice.classList.remove('replay-error'); this.notice.querySelector('span').textContent = 'Preparing replay…';
     this.playButton.disabled = true;
-    const [response, { ReplayView }, { prepareBrowserModels, paintLoadProgress }, { locateReplay }, { installFlyoverControls }] = await Promise.all([
-      fetch(this.origin), import('../../replays/v1/view.mjs'), import('../../ui/browser-world.mjs'), import('../../replays/v1/movie.mjs'), import('../../ui/flyover-controls.mjs')
+    const [response, { ReplayView }, { prepareBrowserModels, paintLoadProgress }, { locateReplay }, { installFlyoverControls }, { ReplayRoomVisibility }] = await Promise.all([
+      fetch(this.origin), import('../../replays/v1/view.mjs'), import('../../ui/browser-world.mjs'), import('../../replays/v1/movie.mjs'), import('../../ui/flyover-controls.mjs'), import('./replay-room-visibility.mjs')
     ]);
     const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not load replay.');
     if (generation !== this.generation) return;
@@ -75,25 +80,54 @@ export class RunReplayPlayer {
     world.blockDefinitions = new Map(world.blocks.map(block => [block.id, block]));
     await prepareBrowserModels(new Set(world.blocks.map(block => block.visual?.modelUrl).filter(Boolean)));
     await paintLoadProgress(); if (generation !== this.generation) return;
-    this.locate = locateReplay;
+    this.locate = locateReplay; this.installCameraControls = installFlyoverControls;
     this.notice.querySelector('span').textContent = 'Drawing replay…';
     if (this.view) this.view.setMovie(data.movie);
     else {
       this.view = new ReplayView(this.canvas, world, data.movie);
-      // Camera shortcuts belong to this player, not the rest of the run page.
       this.view.renderer.disposeFlyoverControls();
-      this.view.renderer.disposeFlyoverControls = installFlyoverControls(this.view.renderer, { window: this.container, document });
+      this.view.renderer.disposeFlyoverControls = null;
+      this.roomVisibility = new ReplayRoomVisibility(this.view.renderer);
     }
     this.movie = data.movie; this.actionCount = data.action_count;
     this.roomLabels = new Map(world.rooms.map(room => [room.fileName, room.position.join('x')]));
     this.seek.max = String(this.movie.duration); this.seek.disabled = false; this.playButton.disabled = false;
-    this.busy = false; this.view.renderer.resize(); this.draw(latest ? this.movie.duration : 0);
+    this.busy = false; this.syncCameraMode(false); this.view.renderer.resize(); this.draw(latest ? this.movie.duration : 0);
     this.notice.hidden = true;
+  }
+  syncCameraMode(redraw = true) {
+    const locked = this.agentCamera.checked;
+    this.container.querySelector('.run-replay-free-camera').hidden = locked;
+    this.canvas.setAttribute('aria-label', locked ? 'Animated run replay. Following the agent camera.' : 'Animated run replay. Drag to orbit; Q and E zoom.');
+    this.canvas.dataset.agentCamera = String(locked);
+    if (!this.view) return;
+    const renderer = this.view.renderer;
+    renderer.disposeFlyoverControls?.(); renderer.disposeFlyoverControls = null; renderer.cancelCameraMotion();
+    if (!locked) renderer.disposeFlyoverControls = this.installCameraControls(renderer, { window: this.container, document });
+    if (redraw) this.draw(this.time);
   }
   fail(error) { this.pause(); this.busy = false; this.notice.hidden = false; this.notice.classList.add('replay-error'); this.notice.querySelector('span').textContent = `${error.message} Click Latest to retry.`; }
   draw(time) {
     if (!this.movie || !this.view) return;
-    const location = this.view.show(time); this.time = location.time; this.transport(location);
+    if (this.agentCamera.checked) {
+      const { clip, local } = this.locate(this.movie, time);
+      applyAgentCamera(this.view.renderer, sampleAgentCamera(clip, local));
+      // Discard any free-camera pan before ReplayView samples its room-centre
+      // track, so re-locking or seeking cannot retain a user's offset.
+      if (this.view.lastCamera) {
+        this.view.renderer.target.x = this.view.lastCamera[0];
+        this.view.renderer.target.z = this.view.lastCamera[1];
+      }
+    }
+    // Set the room mask before the single draw, including cached-scene seeks.
+    const renderer = this.view.renderer;
+    renderer.renderSuspended = (renderer.renderSuspended || 0) + 1;
+    let location;
+    try {
+      location = this.view.show(time);
+      this.roomVisibility.update(this.neighbors.checked, this.view.scene, location);
+    } finally { renderer.renderSuspended--; }
+    renderer.render(); this.time = location.time; this.transport(location);
   }
   transport(location = this.movie && this.locate(this.movie, this.time)) {
     if (!location) return;
@@ -125,5 +159,5 @@ export class RunReplayPlayer {
     this.draw(direction < 0 ? this.time > clip.start ? clip.start : this.movie.clips[Math.max(0, index - 1)].start : this.movie.clips[index + 1]?.start ?? this.movie.duration);
   }
   seekMove(move) { if (this.movie) { this.pause(); this.draw(this.movie.clips.find(clip => clip.move === move)?.start ?? this.movie.duration); } }
-  dispose() { this.generation++; this.pause(); this.resize.disconnect(); this.view?.renderer.disposeFlyoverControls(); this.view?.scene?.dispose(); this.view?.sceneCache?.clear(); }
+  dispose() { this.generation++; this.pause(); this.resize.disconnect(); this.view?.renderer.disposeFlyoverControls?.(); this.view?.scene?.dispose(); this.view?.sceneCache?.clear(); }
 }

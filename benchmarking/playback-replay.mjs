@@ -29,7 +29,7 @@ export class PlaybackReplay {
         const frames = [];
         for (const record of index.frames) {
           const { frame } = await runtime.readRecord(record.record);
-          frames.push({ room: record.room, objects: frame.room.objects });
+          frames.push({ room: record.room, objects: frame.room.objects, camera: frame.camera });
         }
         return { action: move ? set : { action: 'initial', totalGems: 0 }, frames, cycle: index.cycle };
       }, action => {

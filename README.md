@@ -23,7 +23,9 @@ and seeking. A read-only companion on port 8085 authenticates saved frames and
 builds the presentation timeline; it does not rerun physics or change agent images.
 It starts with the main site, or use `npm run start:playback` to add it to an
 already-running site. **Latest** loads newly recorded moves without interrupting
-the benchmark or an in-progress replay.
+the benchmark or an in-progress replay. **Agent camera** is checked by default
+and follows the recorded yaw/pitch; uncheck it to orbit, pan, and zoom freely.
+**Show neighboring rooms** is a separate checkbox, off by default.
 
 Once the server is running, you can go directly to:
 

@@ -79,3 +79,41 @@ test('replay service only serves authenticated local read requests and propagate
   assert.equal((await fetch(url.replace('/movie','/other'))).status, 404);
   const failure = await fetch(url);assert.equal(failure.status,400);assert.match((await failure.json()).error,/integrity/);
 });
+
+test('recorded camera turns retain their angles and sample the shortest arc when seeking', async () => {
+  const {sampleAgentCamera, VISION_PITCHES} = await import('../benchmarking/ui/replay-camera.mjs');
+  const objects = [cell('player', 1)], world = makeWorld([room(objects)]);
+  const movie = await compileRecordedReplay(world, 2, async move => ({ action: {action: move ? 'camera right' : 'initial'}, frames: move
+    ? [{...frame(objects),camera:{yaw:move === 1 ? 3 : 0,pitch:2}}, {...frame(objects),camera:{yaw:move === 1 ? 0 : 1,pitch:move === 1 ? 2 : 0}}]
+    : [{...frame(objects),camera:{yaw:3,pitch:2}}] }));
+  const clip = movie.clips[1];
+  assert.equal(clip.duration,250,'a camera-only action has time to turn');
+  assert.equal(sampleAgentCamera(clip,0).yaw,3*Math.PI/2);
+  assert.equal(sampleAgentCamera(clip,125).yaw,7*Math.PI/4);
+  assert.equal(sampleAgentCamera(clip,250).yaw,0);
+  assert.equal(sampleAgentCamera(clip,125).yaw,7*Math.PI/4,'backward seeks have no camera history');
+  assert.equal(sampleAgentCamera(movie.clips[2],250).pitch,VISION_PITCHES[0]);
+  assert.equal(sampleAgentCamera(movie.clips[0],0).pitch,Math.PI/4);
+});
+
+test('room visibility hides context and clips crossing scenes without changing their animation', async () => {
+  const { ReplayRoomVisibility } = await import('../benchmarking/ui/replay-room-visibility.mjs');
+  const { Vector3 } = await import('../render/vendor/three.module.min.js');
+  const world = makeWorld([room([cell('player',7)]),room([cell('player',0)],1)]);
+  const {timeline} = recordedTimeline(world,'right',[frame([cell('player',7)]),frame([cell('player',0)],'IxI')]);
+  const before = JSON.stringify(timeline);
+  const renderer = {world,renderer:{clippingPlanes:[]},backgroundRoot:{visible:true},canvas:{dataset:{}}};
+  const mask = new ReplayRoomVisibility(renderer),scene={timeline},clip={room:'0.json',to:'1.json',settledAt:100};
+  mask.update(false,scene,{clip,local:0});
+  assert.equal(renderer.backgroundRoot.visible,false);
+  assert.equal(renderer.renderer.clippingPlanes.length,4);
+  const inside=point=>renderer.renderer.clippingPlanes.every(plane=>plane.distanceToPoint(point)>=0);
+  assert(inside(new Vector3(-4,1,0)));
+  assert(!inside(new Vector3(4,1,0)),'destination scenery is hidden before crossing');
+  mask.update(false,scene,{clip,local:100});
+  assert(inside(new Vector3(4,1,0)));
+  assert(!inside(new Vector3(-4,1,0)),'departed scenery is hidden after crossing');
+  mask.update(false,scene,{clip,local:0});assert(inside(new Vector3(-4,1,0)),'backward scrub restores the visible room');
+  mask.update(true,scene,{clip,local:100});assert.equal(renderer.backgroundRoot.visible,true);assert.equal(renderer.renderer.clippingPlanes.length,0);
+  assert.equal(JSON.stringify(timeline),before,'visibility never rewrites curves or poses');
+});

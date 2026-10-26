@@ -100,10 +100,16 @@ export async function compileRecordedReplay(world, count, readMove, authoredFor 
   for (let move = 0; move <= count; move++) {
     const { action, frames, cycle } = await readMove(move);
     const { timeline, from, to } = recordedTimeline(world, action.action, frames, { cycle, authoredRooms: authoredFor(action) });
+    const cameraPose = frame => frame.camera && ({ ...frame.camera, top: Math.max(1, ...frame.objects.map(object => object.z + 1)) });
+    const firstCamera = cameraPose(frames[0]), lastCamera = cameraPose(frames.at(-1));
+    const agentCamera = firstCamera && lastCamera ? { from: firstCamera, to: lastCamera, duration: ROOM_TRANSITION_MS } : null;
+    if (agentCamera && (firstCamera.yaw !== lastCamera.yaw || firstCamera.pitch !== lastCamera.pitch)) {
+      timeline.duration = Math.max(timeline.duration, ROOM_TRANSITION_MS);
+    }
     startRoom ||= from.fileName;
     const settledAt = timeline.times.at(-1) || timeline.duration;
     clips.push({ ...pool.pack(timeline), start: duration, duration: timeline.duration, settledAt, center: roomCenter(world, from),
-      room: from.fileName, from: from.fileName, to: to.fileName, label: action.action, type: 'recorded', move,
+      room: from.fileName, from: from.fileName, to: to.fileName, label: action.action, type: 'recorded', move, agentCamera,
       gemsBefore: previousGems, gemsAfter: action.totalGems || 0 });
     if (!visited.has(to.fileName)) { visited.add(to.fileName); visits.push({ room: to.fileName, at: duration + (move ? settledAt : 0) }); }
     // Background gem identities use authored indices; foreground tracks always
