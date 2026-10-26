@@ -2,11 +2,13 @@ import { groupModels, sortedEfforts, variantEfforts, resolveSelection } from "..
 import { supportsAnyLanguage } from "../capabilities.mjs";
 import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs";
 import { RunListView, providerName, runCompany, selectRuns, isActiveRun } from "./run-library.mjs";
-import { modelLabel, modelGroupId } from "./model-label.mjs";
+import { modelLabel, modelSlug, modelGroupId } from "./model-label.mjs";
+import { setupLauncherLayout } from "./launcher-layout.mjs";
 import { setupPromptPreview } from "./prompt-preview.mjs";
+import './pricing-link.mjs';
 const elements = Object.fromEntries([
   "world", "world-description", "world-objective", "connection-status", "launch-form", "provider", "model", "effort", "action-limit", "run-options-summary",
-  "coding-mode", "launch-note", "sequence-option", "sequence-enabled", "observation-option", "observation-mode", "vision-preview", "vision-preview-image", "vision-preview-status", "vision-room", "vision-left", "vision-right", "vision-tilt", "launch-single", "launch-pair",
+  "coding-mode", "launch-note", "sequence-option", "sequence-enabled", "observation-option", "observation-mode", "vision-preview", "vision-preview-image", "vision-preview-status", "vision-room", "vision-left", "vision-right", "vision-tilt", "launch-single",
   "launch-status", "refresh", "run-list", "record-count", "codex-version", "codex-update-status", "check-codex", "runtime-details", "agent-readiness", "run-pagination", "run-page", "previous-runs", "next-runs", "run-company", "run-model", "run-sort"
 ].map((id) => [id, document.getElementById(id)]));
 
@@ -27,6 +29,7 @@ catalogControls.className = "model-catalog-controls";
 const refreshModels = document.createElement("button"); refreshModels.type = "button"; refreshModels.textContent = "Refresh models";
 const catalogStatus = document.createElement("span"); catalogStatus.setAttribute("role", "status");
 catalogControls.append(refreshModels, catalogStatus); elements["launch-form"].after(catalogControls);
+const launcherLayout = setupLauncherLayout(elements, catalogControls);
 let models = [], catalogs = {}, catalogLoading, catalogCheckedAt = 0;
 const selectedGroup = () => models.find(m => m.id === elements.model.value && m.provider === elements.provider.value);
 const selectedVariant = () => resolveSelection(selectedGroup(), { speed: elements.speed.value, effort: elements.effort.value, coding_mode: elements["coding-mode"].value });
@@ -60,7 +63,7 @@ function updateReadiness() {
   elements["codex-version"].textContent = status?.version ? `${providerName(provider)} ${status.version.replace(/^codex-cli /, "")}` : "Checking agent…";
   const labels = { "up-to-date": "Up to date", "update-available": `Update available: ${status?.latest_version}. Run codex update, then restart the server.`, "newer-than-release": "Newer than the current stable release", unknown: "Latest release check unavailable" };
   elements["codex-update-status"].textContent = any && !codeReady
-    ? (supportsAnyLanguage(launchPayload()) ? status?.code_sandbox?.error || "Checking any-language sandbox…" : "Any language requires ASCII observations in a world supported by this harness.")
+    ? (supportsAnyLanguage(launchPayload()) ? status?.code_sandbox?.error || "Checking coding workspace…" : elements["coding-mode"].querySelector('option[value="any"]').title)
     : !providerCompatible(provider)
     ? installationStatus[provider]?.vision_available ? `${providerName(provider)} supports Main World vision with Coding off.` : `${providerName(provider)} currently supports Main World with ASCII observations.`
     : !status ? "Checking installation and sign-in…" : status.error || (needsAuth
@@ -69,9 +72,12 @@ function updateReadiness() {
   elements["check-codex"].textContent = provider === "codex" ? "Check for updates" : "Check installation";
   elements["agent-readiness"].textContent = codexReady ? "Ready" : status ? "Needs attention" : "Checking…";
   elements["runtime-details"].classList.toggle("needs-attention", Boolean(status && !codexReady));
-  if (status && !codexReady) elements["runtime-details"].open = true;
+  if (status && !codexReady && selectedGroup()) {
+    elements["runtime-details"].open = true;
+    elements["runtime-details"].closest('.run-options').open = true;
+  }
   elements["launch-single"].disabled = launching || !codexReady;
-  elements["launch-pair"].disabled = launching || !codexReady || (elements["observation-mode"].value==='vision'&&Boolean(installationStatus[provider]?.vision_available));
+  launcherLayout.update();
 }
 
 async function checkCodex(force = false) {
@@ -146,13 +152,11 @@ function updateSpeeds(preserve = true) {
 }
 function updateModels(preserve = false) {
   const previous = preserve ? elements.model.value : "";
-  const prime = elements.provider.value === "prime-agent";
   elements["coding-mode"].disabled = false;
   elements["coding-mode"].querySelector('option[value="off"]').disabled = false;
-  elements["launch-pair"].hidden = prime;
   updateCodingOptions();
   const providerModels = models.filter(model => model.provider === elements.provider.value);
-  elements.model.replaceChildren(...providerModels.map(model => new Option(model.name, model.id)));
+  elements.model.replaceChildren(...providerModels.map(model => new Option(modelSlug(model.id), model.id)));
   // Never silently change a user's chosen model during a background refresh.
   if (previous && !providerModels.some(m => m.id === previous)) {
     const missing = new Option(previous + " (unavailable)", previous); missing.disabled = true; elements.model.append(missing);
@@ -200,7 +204,6 @@ function launchPayload() {
 function setLaunching(active, message) {
   launching = active;
   elements["launch-single"].disabled = active || !codexReady;
-  elements["launch-pair"].disabled = active || !codexReady;
   elements["launch-status"].textContent = message;
 }
 
@@ -214,20 +217,6 @@ async function launchSingle(event) {
     });
     await refreshRuns();
     setLaunching(false, `Launched ${modelLabel(run.model)}. Its live record is ready below.`);
-  } catch (error) {
-    setLaunching(false, error.message);
-  }
-}
-
-async function launchPair() {
-  setLaunching(true, "Checking isolation, then starting both coding conditions…");
-  try {
-    await api("/api/benchmark/v1/pairs", {
-      method: "POST",
-      body: JSON.stringify(launchPayload())
-    });
-    await refreshRuns();
-    setLaunching(false, "Matched pair launched. Open either record to watch its model report.");
   } catch (error) {
     setLaunching(false, error.message);
   }
@@ -274,7 +263,6 @@ async function poll() {
 elements["launch-form"].addEventListener("submit", launchSingle);
 elements["check-codex"].addEventListener("click", () => { void checkCodex(true); void loadModels(true); });
 refreshModels.addEventListener("click", () => loadModels(true));
-elements["launch-pair"].addEventListener("click", launchPair);
 elements.refresh.addEventListener("click", () => poll());
 for (const id of ["run-company", "run-model", "run-sort"]) {
   elements[id].addEventListener("change", () => {
@@ -319,7 +307,7 @@ function updateRunOptionsSummary() {
   const sequences = elements.world.value === "slotski"
     ? ` · ${elements["sequence-enabled"].value === "true" ? "Batch moves" : "Single moves"}`
     : "";
-  elements["run-options-summary"].textContent = actions + sequences;
+  elements["run-options-summary"].textContent = `${elements.world.selectedOptions[0]?.textContent || "Main World"} · ${actions}${sequences}`;
 }
 
 function updateWorld() {
@@ -377,19 +365,25 @@ elements.effort.addEventListener("change", updateReadiness);
 elements.provider.addEventListener("change", () => { updateModels(); if (Date.now() - catalogCheckedAt > 5 * 60_000) loadModels(); });
 function updateCodingOptions() {
   const supported = supportsAnyLanguage(launchPayload());
-  elements["coding-mode"].querySelector('option[value="any"]').disabled = !supported;
+  const anyOption = elements["coding-mode"].querySelector('option[value="any"]');
+  anyOption.disabled = !supported;
+  anyOption.title = supported ? "Use the full coding workspace with any supported language"
+    : elements["observation-mode"].value === "vision"
+      ? "Vision's full coding workspace is not available yet. Choose ASCII to use Coding tools On."
+      : "Coding tools On is not supported by this agent in the selected world.";
   // Preserve a selected unsupported condition and explain it; never silently
   // launch a different tier when the provider or observation mode changes.
   const prime = elements.provider.value === "prime-agent";
   elements["launch-note"].textContent = prime
-    ? "Python off uses direct maze tools through Prime Inference, a separate harness from stock Prime Agent. Python and Any language use the native Prime Agent workspace. Your Prime account pays inference; native modes also use a billed remote VM."
+    ? "Off uses direct maze tools through Prime Inference, a separate harness from stock Prime Agent. On and Python Only use the native Prime Agent workspace. Your Prime account pays inference; native modes also use a billed remote VM."
     : elements["coding-mode"].value === "any"
-      ? "A matched pair compares coding off with Any language. The isolated toolchain supports Python, JavaScript, C/C++, Rust, Go, Java, Ruby, Perl and Lua."
-      : "A matched pair compares coding off with Python only. Any language is available for all harnesses with ASCII observations.";
+      ? "On supports Python, JavaScript, C/C++, Rust, Go, Java, Ruby, Perl and Lua."
+      : "On enables the full coding workspace with ASCII observations. Python Only is the legacy workspace.";
 }
 elements["coding-mode"].addEventListener("change", () => { updateCodingOptions(); updateEfforts(false); updateReadiness(); updatePrompt(); });
 
 try {
+  updateRunOptionsSummary();
   setLaunching(false, elements["launch-status"].textContent);
   await Promise.all([loadModels(), checkCodex(), poll()]);
   setInterval(() => { if (!document.hidden) checkCodex(); }, 15 * 60_000);

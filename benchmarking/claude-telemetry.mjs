@@ -18,12 +18,12 @@ export function consumeClaudeEvent(timeline, event) {
   if (inner?.type === "message_start") {
     const message = inner.message;
     timeline.active.set(turn, message.id);
-    timeline.requests.set(message.id, { response_id: message.id, turn, timestamp, usage: usage(message.usage) });
+    timeline.requests.set(message.id, { response_id: message.id, turn, timestamp, service_tier: message.usage?.speed, usage: usage(message.usage) });
   } else if (inner?.type === "message_delta") {
     const record = timeline.requests.get(timeline.active.get(turn));
     if (record && Number.isFinite(inner.usage?.output_tokens)) record.usage.output_tokens = inner.usage.output_tokens;
   } else if (event.type === "assistant" && event.message?.id && !timeline.requests.has(event.message.id)) {
-    timeline.requests.set(event.message.id, { response_id: event.message.id, turn, timestamp, usage: usage(event.message.usage) });
+    timeline.requests.set(event.message.id, { response_id: event.message.id, turn, timestamp, service_tier: event.message.usage?.speed, usage: usage(event.message.usage) });
   } else if (event.type === "system" && event.subtype === "compact_boundary") {
     timeline.compactions.push({ timestamp, before_tokens: event.compact_metadata?.pre_tokens ?? timeline.samples.at(-1)?.tokens ?? null, after_tokens: null });
   } else if (event.type === "result") {

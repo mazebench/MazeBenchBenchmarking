@@ -1,4 +1,5 @@
 import { createRunHeader } from "./run-header.mjs";
+import './pricing-link.mjs';
 import { RunVariantSwitcher } from "./run-variants.mjs";
 import { createOverviewCharts } from "./run-overview.mjs";
 import { codingMode, isPrimeDirect } from "../capabilities.mjs";

@@ -1,21 +1,22 @@
-import { estimateRequests } from './token-pricing.mjs';
-let catalog = new Map(), expires = 0, pending;
+import { estimateRequests, primeCatalogPrice, livePrice } from './token-pricing.mjs';
+let catalog = new Map(), expires = 0, pending, checkedAt = null;
 export async function primePrice(model) {
+  const synced = livePrice(model, Date.now(), 'standard', 'prime');
+  if (synced) return synced;
   if (Date.now() > expires) {
     pending ||= (async () => {
       try {
         const response = await fetch('https://api.pinference.ai/api/v1/models', { signal: AbortSignal.timeout(4000) });
         if (!response.ok) throw new Error('Catalog unavailable');
         catalog = new Map((await response.json()).data.map(m => [m.id, m.pricing]));
+        checkedAt = new Date().toISOString().slice(0, 10);
         expires = Date.now() + 3600000;
       } catch { expires = Date.now() + 60000; }
     })().finally(() => { pending = null; });
     await pending;
   }
   const p = catalog.get(model);
-  if (!Number.isFinite(p?.input_usd_per_mtok) || !Number.isFinite(p?.output_usd_per_mtok)) return null;
-  return { rates: [p.input_usd_per_mtok, p.cache_read_usd_per_mtok, p.cache_write_usd_per_mtok, p.output_usd_per_mtok],
-    source: 'https://api.pinference.ai/api/v1/models', effective_at: p.effective_at };
+  return primeCatalogPrice(p, checkedAt);
 }
 export const createPrimeTimeline = () => ({ requests: new Map(), totals: null, samples: [], compactions: [] });
 export function consumePrimeEvent(timeline, event) {
@@ -34,14 +35,15 @@ export async function primeTelemetry(timeline, metadata, getPrice = primePrice) 
   const price = await getPrice(metadata.model);
   // Old Prime streams report cumulative snapshots. Price that inclusive total
   // once using the selected Prime route's flat catalog rates, never sum polls.
-  const api_estimate = estimateRequests(totals ? [totals] : [], metadata.model, { price });
   const requests = [...timeline.requests.values()];
   const sum = key => requests.reduce((n, r) => n + (r.usage[key] || 0), 0);
-  const reported = requests.length && requests.every(r => Number.isFinite(r.usage.cost_usd) && r.usage.cost_usd >= 0) &&
-    sum('input_tokens') === totals?.input_tokens && sum('output_tokens') === totals?.output_tokens;
-  if (reported) api_estimate.usd = sum('cost_usd');
+  const complete = requests.length && sum('input_tokens') === totals?.input_tokens && sum('output_tokens') === totals?.output_tokens;
+  const api_estimate = estimateRequests(complete ? requests : totals ? [totals] : [], metadata.model, { price,
+    ...(complete ? { priceFor: (model, timestamp) => livePrice(model, timestamp, 'standard', 'prime') || price } : {}) });
+  const reported = complete && requests.every(r => Number.isFinite(r.usage.cost_usd) && r.usage.cost_usd >= 0);
+  if (reported) { api_estimate.usd = sum('cost_usd'); api_estimate.unpriced_requests = 0; }
   api_estimate.request_count = timeline.requests.size || null;
-  api_estimate.basis = 'Prime Inference catalog token estimate, including reported cache reads. Cumulative usage is counted once; remote VM fees and unreported usage are excluded.';
+  api_estimate.basis = `Prime Inference catalog token estimate, including reported cache reads. ${complete ? 'Recorded responses use observed price history' : 'Cumulative usage is priced once at current catalog rates'}; remote VM fees and unreported usage are excluded.`;
   if (reported) api_estimate.basis = 'Prime reported inference cost for all recorded model responses. Remote VM fees are excluded.';
   else if (api_estimate.usd === null && totals) api_estimate.basis += ' A verified rate for this route or its cache usage is unavailable.';
   const latest = timeline.samples.at(-1);

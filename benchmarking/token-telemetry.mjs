@@ -30,21 +30,29 @@ export function createTokenTimeline() {
   return { samples: [], compactions: [], context_window: null, total_tokens: null, usage_records: new Map() };
 }
 
-function recordUsage(timeline, record) {
+function recordUsage(timeline, record, timestamp) {
   if (!record?.response_id || !finite(record.usage?.input_tokens) || !finite(record.usage?.output_tokens)) return;
-  const usage = Object.fromEntries(["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens"].map(key => [key, finite(record.usage[key]) ? record.usage[key] : 0]));
+  const usage = Object.fromEntries(["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "cache_write_long_input_tokens", "output_tokens"].map(key => [key, finite(record.usage[key]) ? record.usage[key] : 0]));
+  usage.timestamp = timeline.usage_records.get(record.response_id)?.timestamp ?? timestamp;
+  if (record.service_tier) usage.service_tier = record.service_tier;
   timeline.usage_records.set(record.response_id, usage);
   if (finite(record.thread_token_usage?.total_tokens)) timeline.total_tokens = record.thread_token_usage.total_tokens;
 }
 
-export function tokenBilling(timeline, model) {
+export function tokenBilling(timeline, model, metadata = {}) {
   const totals = { input_tokens: 0, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 0, total_tokens: 0 };
   for (const usage of timeline.usage_records.values()) {
     for (const key of Object.keys(totals)) if (key in usage) totals[key] += usage[key];
   }
   totals.total_tokens = totals.input_tokens + totals.output_tokens;
+  const history = [...metadata.service_tier_history || []].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const records = [...timeline.usage_records.values()].map(usage => {
+    let tier = metadata.service_tier || 'standard';
+    for (const change of history) if (Date.parse(change.at) <= usage.timestamp) tier = change.service_tier || 'standard';
+    return { ...usage, service_tier: usage.service_tier || tier };
+  });
   return { totals: timeline.usage_records.size ? totals : null,
-    api_estimate: estimateRequests(timeline.usage_records.values(), model) };
+    api_estimate: estimateRequests(records, model, { service_tier: metadata.service_tier || 'standard' }) };
 }
 
 export function consumeTokenEvent(timeline, event) {
@@ -53,9 +61,9 @@ export function consumeTokenEvent(timeline, event) {
   const payload = event.payload || {};
   if (event.type === "compacted") {
     timeline.compactions.push({ timestamp, before_tokens: timeline.samples.at(-1)?.tokens ?? null, after_tokens: null });
-    recordUsage(timeline, payload.latest_token_usage_record);
+    recordUsage(timeline, payload.latest_token_usage_record, timestamp);
   } else if (event.type === "token_usage_record") {
-    recordUsage(timeline, payload);
+    recordUsage(timeline, payload, timestamp);
   } else if (event.type === "event_msg" && payload.type === "token_count") {
     const info = payload.info;
     const tokens = info?.last_token_usage?.total_tokens;
@@ -179,7 +187,7 @@ export class TokenTelemetry {
       context_window: timeline.context_window ?? limits.context_window,
       current_tokens: latest?.tokens ?? null, updated_at: latest?.timestamp ?? null,
       total_tokens: timeline.total_tokens,
-      ...tokenBilling(timeline, metadata.model),
+      ...tokenBilling(timeline, metadata.model, metadata),
       samples: timeline.samples, compactions: timeline.compactions
     };
   }

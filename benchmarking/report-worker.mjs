@@ -6,6 +6,7 @@ import { TokenTelemetry } from "./token-telemetry.mjs";
 import { RunTelemetry } from "./run-telemetry.mjs";
 import { heatmapVisits } from "./ui/heatmap.mjs";
 import { iceLevelTimings } from "./ui/ice-level-timings.mjs";
+import { loadPricingCache } from './pricing-service.mjs';
 
 const tokens = new TokenTelemetry(), charts = new RunTelemetry(), library = new RunLibrary();
 const analyses = new Map();
@@ -40,6 +41,7 @@ parentPort.on("message", message => {
   queue = queue.catch(() => {}).then(async () => {
     const { id, directory, kind, runnerActive } = message;
     try {
+      if (kind === 'tokens' || kind === 'charts') await loadPricingCache();
       let value;
       if (kind === "analysis") value = await analysis(directory, runnerActive);
       else if (kind === "tokens") value = await tokens.read(directory);

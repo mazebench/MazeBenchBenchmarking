@@ -33,8 +33,10 @@ function render(value) {
   const source = document.getElementById("token-pricing-source");
   if (source) { source.hidden = !pricing?.source; if (pricing?.source) source.href = pricing.source; }
   const rates = pricing?.rates_per_million;
+  const contextPricing = pricing?.context_tiers?.length ? pricing.context_tiers.map(tier => `Above ${number.format(tier.threshold)} input tokens: ${rateLabel(tier.rates[0])} input, ${rateLabel(tier.rates[1])} cached input and ${rateLabel(tier.rates[3])} output per million.`).join(' ')
+    : pricing?.long_context ? `Requests above ${number.format(pricing.long_context.threshold)} input tokens use ${pricing.long_context.input_multiplier}× input/cache and ${pricing.long_context.output_multiplier}× output rates.` : 'No long-context premium configured.';
   document.getElementById("token-pricing-detail").textContent = rates
-    ? `${pricing.basis} Rates checked ${pricing.pricing_date}: $${rates.input} input, $${rates.cached_input} cached input, $${rates.cache_writes} cache writes, and $${rates.output} output per million tokens. ${pricing.long_context ? `Requests above ${number.format(pricing.long_context.threshold)} input tokens use ${pricing.long_context.input_multiplier}× input/cache and ${pricing.long_context.output_multiplier}× output rates.` : "No long-context premium."} ${pricing.request_count} reported responses counted, with duplicate records removed. Unreported usage and non-token fees are excluded.`
+    ? `${pricing.basis} ${pricing.pricing_date ? `Rates checked ${pricing.pricing_date}` : 'Configured rates'}: ${rateLabel(rates.input)} input, ${rateLabel(rates.cached_input)} cached input, ${rateLabel(rates.cache_writes)} cache writes, and ${rateLabel(rates.output)} output per million tokens.${pricing.service_tiers?.length > 1 ? ' Displayed rates are for the current speed; each response uses its recorded speed.' : ''} ${contextPricing} ${pricing.request_count ?? 'Unknown number of'} reported responses counted, with duplicate records removed. Unreported usage and non-token fees are excluded.`
     : pricing?.basis || "No verified API price or detailed usage is available for this record.";
   if (!value.available || !value.samples.length) {
     current.textContent = value.totals ? "Context not reported" : "Waiting for token data";
@@ -79,6 +81,8 @@ function render(value) {
   detail.textContent = `${count} compaction${count === 1 ? "" : "s"} · Last reported ${clock(value.updated_at)}`;
   chart.setAttribute("aria-label", `${current.textContent}. ${detail.textContent}. Context tokens over elapsed run time.`);
 }
+
+function rateLabel(rate) { return Number.isFinite(rate) ? `$${rate}` : 'unavailable'; }
 
 chart.addEventListener("pointermove", event => {
   if (!data?.samples?.length) return;
