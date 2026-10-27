@@ -11,6 +11,7 @@
 
 [Quick start](#quick-start) ·
 [Play](#play-it-yourself) ·
+[Replays](#watch-a-solution-replay) ·
 [What agents see](#what-agents-see) ·
 [Run a benchmark](#run-a-benchmark) ·
 [Watch runs](#watch-and-compare-runs) ·
@@ -63,7 +64,7 @@ Every tool is one click from the world map:
 | **World map**  | `/`                    | Fly over all 256 rooms and pick one to play or edit   |
 | **Play**       | `/play/v1/?room=HxI`   | Play the world yourself, in 3D or ASCII               |
 | **Benchmark**  | `/benchmarking/v1/`    | Launch agent runs and follow them live                |
-| **Replays**    | `/replays/v1/`         | Turn UDLR move lists into smooth replay movies        |
+| **Replays**    | `/replays/v1/`         | Watch a solution file as a movie                      |
 | **Solutions**  | `/solutions/v1/`       | Search for and store routes through the world         |
 | **Editor**     | `/editor/v1/?room=HxI` | Build and adjust rooms                                |
 | **Object lab** | `/object-lab/`         | Preview individual blocks and objects in 3D           |
@@ -94,6 +95,48 @@ A few rules worth knowing:
 - **Sequences.** Paste a UDLR string such as `RRUULD` into *Move sequence* to play it
   back. The *Room moves* panel records your moves in the same format.
 - **Tweens** (smooth motion) can be switched off under *Playback settings*.
+
+## Watch a solution replay
+
+<img align="right" src="docs/media/replay-import.png" width="300" alt="The Import a replay dialog: choose a file or paste moves, starting in room H×I">
+
+Got a solution file, such as the full 100-gem route? **Replays** turns it into a movie
+you can pause, scrub and watch from any angle.
+
+1. On the world map, click **Replays**.
+2. Click **Choose a file** and pick your solution, or drop it onto the page. You can
+   also paste moves and press **Create replay**.
+3. Wait while the movie is built. The progress bar shows a time estimate, and the
+   full 100-gem solution takes about a minute.
+4. Press <kbd>Space</kbd> to play.
+
+Plain text with one move per line (`up`, `left`, …), `UDLR` strings, `room X×Y` jumps
+and Solutions JSON exports all work. Replays start in H×I unless the file names
+another start room.
+
+<br clear="right">
+<br>
+
+<img src="docs/media/replay-camera.gif" width="760" alt="A short sample route replaying at half speed while the camera orbits, zooms in and zooms out">
+
+The camera stays yours while the movie plays, and pausing or seeking keeps your view.
+
+| Action                       | Keyboard and mouse                                     |
+| ---------------------------- | ------------------------------------------------------ |
+| Play / pause                 | <kbd>Space</kbd> or <kbd>K</kbd>                       |
+| Orbit                        | Drag the view                                          |
+| Rotate / tilt                | <kbd>A</kbd> <kbd>D</kbd> / <kbd>W</kbd> <kbd>S</kbd>  |
+| Zoom                         | <kbd>Q</kbd> / <kbd>E</kbd>                            |
+| Center camera                | <kbd>/</kbd>                                           |
+| Seek 5 s (0.1 s with Shift)  | <kbd>←</kbd> <kbd>→</kbd> or <kbd>J</kbd> <kbd>L</kbd> |
+| Previous / next action       | <kbd>,</kbd> / <kbd>.</kbd>                            |
+
+- **Speed** runs from 0.25× to 10×. The full solution lasts about 78 minutes at 1×,
+  or under 8 minutes at 10×.
+- **Gems** and **New rooms** add clickable ticks to the timeline, so you can jump
+  straight to each gem or first visit.
+- **3D / ASCII** switches views without losing your place.
+- Importing never changes your saved solutions or the rooms.
 
 ## What agents see
 
