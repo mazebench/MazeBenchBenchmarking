@@ -1,9 +1,11 @@
-import { createPrimeTimeline, consumePrimeEvent, primeTelemetry } from "./prime-telemetry.mjs";
+import { createPrimeTimeline, consumePrimeEvent, primeTelemetry, primePrice } from "./prime-telemetry.mjs";
 // Read-only dashboard telemetry. Never imported by the benchmark agent or MCP.
 import { constants } from "node:fs";
 import { open, readdir, lstat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createZstdDecompress } from 'node:zlib';
+import { pipeline } from 'node:stream/promises';
 import { StringDecoder } from "node:string_decoder";
 import { safeReadFile, safeDirectory } from "./v1/safe-files.mjs";
 import { createClaudeTimeline, consumeClaudeEvent, claudeTelemetry } from "./claude-telemetry.mjs";
@@ -12,7 +14,7 @@ import { findMuseSession, museRunHomes, createMuseTimeline, consumeMuseEvent, mu
 
 const finite = value => typeof value === "number" && Number.isFinite(value) && value >= 0;
 export { requestApiCost } from "./token-pricing.mjs";
-import { estimateRequests } from "./token-pricing.mjs";
+import { estimateRequests, livePrice } from "./token-pricing.mjs";
 import { kimiRunHomes, findKimiSession, createKimiTimeline, consumeKimiEvent, kimiTelemetry } from "./kimi-telemetry.mjs";
 import { ActivityClockReader } from './activity-clock-reader.mjs';
 
@@ -104,9 +106,9 @@ export class TokenTelemetry {
     if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(id || "")) return null;
     const created = Date.parse(metadata.created_at);
     if (!Number.isFinite(created)) return null;
-    for (const delta of [0, -1, 1]) {
-      const date = new Date(created + delta * 86400000).toISOString().slice(0, 10).replaceAll("-", "/");
-      const relative = `sessions/${date}`;
+    const directories = [0, -1, 1].map(delta => `sessions/${new Date(created + delta * 86400000).toISOString().slice(0, 10).replaceAll('-', '/')}`);
+    directories.push('archived_sessions');
+    for (const relative of directories) {
       try {
         // A missing UTC-day folder is normal when rollouts use local dates.
         // Check existence separately: safeDirectory intentionally treats missing
@@ -114,7 +116,7 @@ export class TokenTelemetry {
         await lstat(path.join(this.codexHome, relative));
         const directory = safeDirectory(this.codexHome, relative);
         const names = await readdir(directory);
-        const name = names.find(name => name.startsWith("rollout-") && name.endsWith(`-${id}.jsonl`));
+        const name = ['.jsonl', '.jsonl.zst'].map(extension => names.find(name => name.startsWith('rollout-') && name.endsWith(`-${id}${extension}`))).find(Boolean);
         if (name) return path.join(directory, name);
       } catch (error) { if (error.code !== "ENOENT") throw error; }
     }
@@ -127,6 +129,17 @@ export class TokenTelemetry {
     this.pending.set(runDirectory, operation);
     try { return await operation; }
     finally { this.pending.delete(runDirectory); }
+  }
+
+  async comparisonUsage(runDirectory) {
+    const telemetry = await this.read(runDirectory);
+    const metadata = JSON.parse(safeReadFile(runDirectory, "run.json"));
+    const timeline = this.cache.get(runDirectory)?.timeline;
+    const records = [...(timeline?.usage_records || timeline?.requests || new Map()).values()];
+    const price = metadata.provider === 'prime-agent' ? await primePrice(metadata.model) : undefined;
+    return { records, metadata, telemetry, priceOptions: price === undefined ? {} : {
+      priceFor: (model, timestamp) => livePrice(model, timestamp, 'standard', 'prime') || price
+    } };
   }
 
   async readTimeline(runDirectory) {
@@ -144,7 +157,7 @@ export class TokenTelemetry {
     const limits = modelTokenLimits(model);
     let cached = this.cache.get(runDirectory);
     const messagesFile = isAntigravity ? "antigravity-events.jsonl" : metadata.provider === "grok-build" ? "grok-events.jsonl" : "claude-events.jsonl";
-    const file = cached?.file || (isPrime ? path.join(runDirectory, "agent-events.jsonl") : isKimi ? findKimiSession(metadata, runDirectory, this.kimiHomes) : isMuse ? await findMuseSession(metadata, this.museHomes) : isMessagesProvider ? path.join(runDirectory, messagesFile) : await this.findRollout(metadata));
+    const file = (isPrime ? path.join(runDirectory, "agent-events.jsonl") : isKimi ? findKimiSession(metadata, runDirectory, this.kimiHomes) : isMuse ? await findMuseSession(metadata, this.museHomes) : isMessagesProvider ? path.join(runDirectory, messagesFile) : await this.findRollout(metadata));
     if (isKimi && !file) return kimiTelemetry(createKimiTimeline(), metadata);
     if (isMuse && !file) return museTelemetry(createMuseTimeline());
     if (!file) return { available: false, ...limits, samples: [], compactions: [], reason: `Waiting for ${metadata.provider === "grok-build" ? "Grok Build" : "Codex"} token telemetry.` };
@@ -154,23 +167,46 @@ export class TokenTelemetry {
     try {
       const stat = await handle.stat();
       if (!stat.isFile() || stat.nlink !== 1) throw new Error("Invalid token telemetry file.");
-      if (!cached || cached.inode !== stat.ino || stat.size < cached.offset) {
-        cached = { file, inode: stat.ino, offset: 0, partial: "", decoder: new StringDecoder("utf8"), timeline: isPrime ? createPrimeTimeline() : isKimi ? createKimiTimeline() : isMuse ? createMuseTimeline() : isAntigravity ? createAntigravityTimeline() : isMessagesProvider ? createClaudeTimeline() : createTokenTimeline() };
+      const compressed = file.endsWith('.zst');
+      if (!cached || cached.file !== file || cached.inode !== stat.ino || stat.size < cached.offset
+        || compressed && (cached.offset !== stat.size || cached.mtimeMs !== stat.mtimeMs)) {
+        cached = { file, inode: stat.ino, mtimeMs: stat.mtimeMs, offset: 0, partial: "", decoder: new StringDecoder("utf8"), timeline: isPrime ? createPrimeTimeline() : isKimi ? createKimiTimeline() : isMuse ? createMuseTimeline() : isAntigravity ? createAntigravityTimeline() : isMessagesProvider ? createClaudeTimeline() : createTokenTimeline() };
         this.cache.set(runDirectory, cached);
         if (this.cache.size > 12) this.cache.delete(this.cache.keys().next().value);
       }
-      const buffer = Buffer.alloc(256 * 1024);
-      // Snapshot the current file size; leave incomplete final JSON for the next poll.
-      while (cached.offset < stat.size) {
-        const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, stat.size - cached.offset), cached.offset);
-        if (!bytesRead) break;
-        cached.offset += bytesRead;
-        const text = cached.partial + cached.decoder.write(buffer.subarray(0, bytesRead));
-        const lines = text.split("\n");
+      const consume = event => (isPrime ? consumePrimeEvent : isKimi ? consumeKimiEvent : isMuse ? consumeMuseEvent : isAntigravity ? consumeAntigravityEvent : isMessagesProvider ? consumeClaudeEvent : consumeTokenEvent)(cached.timeline, event);
+      const consumeLine = line => { try { consume(JSON.parse(line)); } catch { /* Malformed events are not token evidence. */ } };
+      const consumeChunk = chunk => {
+        const lines = (cached.partial + cached.decoder.write(chunk)).split('\n');
         cached.partial = lines.pop();
-        for (const line of lines) {
-          try { (isPrime ? consumePrimeEvent : isKimi ? consumeKimiEvent : isMuse ? consumeMuseEvent : isAntigravity ? consumeAntigravityEvent : isMessagesProvider ? consumeClaudeEvent : consumeTokenEvent)(cached.timeline, JSON.parse(line)); }
-          catch { /* A damaged or unrecognized event is not token evidence. */ }
+        for (const line of lines) consumeLine(line);
+      };
+      if (compressed && cached.offset !== stat.size) {
+        // Codex rotates old sessions into zstd archives. Decode as a stream;
+        // never expand multi-GB transcripts onto disk or load them all in RAM.
+        try {
+          let parts = [];
+          await pipeline(handle.createReadStream({ autoClose: true }), createZstdDecompress(), async source => {
+            for await (const chunk of source) {
+              const text = cached.decoder.write(chunk);
+              let start = 0, end;
+              while ((end = text.indexOf('\n', start)) !== -1) {
+                parts.push(text.slice(start, end)); consumeLine(parts.join('')); parts = []; start = end + 1;
+              }
+              if (start < text.length) parts.push(text.slice(start));
+            }
+          });
+          parts.push(cached.decoder.end());
+          if (parts.length) consumeLine(parts.join(''));
+          cached.partial = ''; cached.offset = stat.size;
+        } catch (error) { this.cache.delete(runDirectory); throw error; }
+      } else if (!compressed) {
+        const buffer = Buffer.alloc(256 * 1024);
+        // Leave a partial final JSON line for the next live poll.
+        while (cached.offset < stat.size) {
+          const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, stat.size - cached.offset), cached.offset);
+          if (!bytesRead) break;
+          cached.offset += bytesRead; consumeChunk(buffer.subarray(0, bytesRead));
         }
       }
     } finally { await handle.close(); }

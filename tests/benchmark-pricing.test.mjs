@@ -70,6 +70,9 @@ test('read-only report endpoint serves new pricing without owning or mutating ru
     const response = await fetch(`${origin}/api/benchmark/v1/runs/${id}/tokens`);
     assert.equal(response.status, 200); assert.equal((await response.json()).api_estimate.usd, .155);
     assert.deepEqual(calls, [[`/fixtures/${id}`, 'tokens']]);
+    assert.equal((await fetch(`${origin}/api/benchmark/v1/runs/${id}/comparison`)).status, 200);
+    assert.deepEqual(calls.at(-1), [`/fixtures/${id}`, 'comparison']);
+    assert.equal((await fetch(`${origin}/api/benchmark/v1/runs/${id}/comparison`, { method: 'POST' })).status, 405);
     assert.equal((await fetch(`${origin}/api/benchmark/v1/runs/${id}/tokens`, { method: 'POST' })).status, 405);
     assert.equal((await fetch(`${origin}/api/benchmark/v1/runs/bad-id/tokens`)).status, 404);
     assert.equal((await fetch(`${origin}/api/benchmark/v1/runs/${id}/tokens`, { headers: { Origin: 'https://untrusted.example' } })).status, 403);

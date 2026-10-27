@@ -31,10 +31,10 @@ const count = value => finite(value) ? value : 0;
 const usageKeys = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens"];
 export const createMuseTimeline = () => ({ requests: new Map(), seen: new Set(), samples: [], compactions: [], compaction_threshold: null });
 
-function recordUsage(timeline, id, usage) {
+function recordUsage(timeline, id, usage, timestamp) {
   if (!id || !finite(usage?.input_tokens) || !finite(usage?.output_tokens)) return false;
   // Muse input already includes cached tokens; reasoning is part of output.
-  timeline.requests.set(id, { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens,
+  timeline.requests.set(id, { timestamp, input_tokens: usage.input_tokens, output_tokens: usage.output_tokens,
     cached_input_tokens: count(usage.cache_read_tokens ?? usage.cached_tokens),
     cache_write_input_tokens: count(usage.cache_write_tokens), reasoning_output_tokens: count(usage.reasoning_tokens) });
   return true;
@@ -44,7 +44,7 @@ export function consumeMuseEvent(timeline, event) {
   const timestamp = museTimestamp(event), id = museRecordId(event), detail = museDetail(event);
   if (!Number.isFinite(timestamp) || !id || timeline.seen.has(id)) return;
   if (detail.kind === "model_completed") {
-    if (!recordUsage(timeline, id, detail.usage)) return;
+    if (!recordUsage(timeline, id, detail.usage, timestamp)) return;
     timeline.seen.add(id);
     timeline.samples.push({ timestamp, tokens: detail.usage.input_tokens + detail.usage.output_tokens });
     const compact = timeline.compactions.at(-1);
@@ -54,7 +54,7 @@ export function consumeMuseEvent(timeline, event) {
     if (finite(detail.strategy?.soft_threshold_tokens)) timeline.compaction_threshold = detail.strategy.soft_threshold_tokens;
   } else if (detail.kind === "context_compaction_installed") {
     timeline.seen.add(id);
-    recordUsage(timeline, id, detail.summarizer_usage);
+    recordUsage(timeline, id, detail.summarizer_usage, timestamp);
     timeline.compactions.push({ timestamp, before_tokens: finite(detail.budget_before?.estimated_prompt_tokens)
       ? detail.budget_before.estimated_prompt_tokens : timeline.samples.at(-1)?.tokens ?? null,
       // budget_after is a heuristic estimate. Wait for actual provider usage.

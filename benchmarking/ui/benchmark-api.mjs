@@ -55,7 +55,7 @@ export async function capabilitiesAvailable(){
   return capabilitiesPending;
 }
 export async function benchmarkFetch(url,options={}){
-  if ((!options.method || options.method.toUpperCase() === 'GET') && /^\/api\/benchmark\/v1\/(runs\/[^/]+\/tokens|pricing(?:\?.*)?)$/.test(url)) {
+  if ((!options.method || options.method.toUpperCase() === 'GET') && /^\/api\/benchmark\/v1\/(runs\/[^/]+\/(?:tokens|comparison)|pricing(?:\?.*)?)$/.test(url)) {
     try {
       const report = await nativeFetch(`http://${location.hostname}:8085${url}`, { ...options, signal: options.signal || AbortSignal.timeout(60000) });
       if (report.ok) return report;

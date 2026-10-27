@@ -2,7 +2,7 @@ import { benchmarkFetch } from "./benchmark-api.mjs";
 import { runCompany, runCardValues, selectRuns } from "./run-library.mjs";
 import { comparisonCondition } from "./heatmap-import.mjs";
 import { comparisonReport, comparisonBounds, croppedBounds, comparisonScale, defaultComparison, drawComparisonMap, displayModelName, tileAt, roomAt } from "./heatmap-comparison.mjs";
-import { modelLabel, modelSpeed } from "./model-label.mjs";
+import { modelSlug, modelSpeed } from "./model-label.mjs";
 import { createGemComparison } from "./gem-comparison.mjs";
 import { createHeatmapGifExport } from "./heatmap-gif-export.mjs";
 
@@ -12,6 +12,7 @@ const dates = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric
 const percent = value => `${new Intl.NumberFormat(undefined, { maximumSignificantDigits: 3 }).format(value)}%`;
 const params = new URLSearchParams(location.search);
 let runs = [], fullWorld = params.get("area") === "world", selectedTile = null, serial = 0, refreshing = false;
+let focusedRun = params.get("focus");
 let screenshotMode = false, previousScroll = 0, gemMode = params.get("view") === "gems", nextPanel = 0;
 const panels = [], cache = new Map(), pending = new Map();
 const labelKey = "mazebench-heatmap-labels-v1";
@@ -38,7 +39,7 @@ $("model-count").closest("label").remove();
 colorSelect.closest("label").hidden = true;
 const controls = document.createElement("div");
 controls.className = "comparison-controls";
-controls.innerHTML = `<div class="comparison-view-switch map-segments" role="group" aria-label="Comparison view"><button type="button" data-view="heatmaps">Heatmaps</button><button type="button" data-view="gems">Gems vs. moves</button></div>
+controls.innerHTML = `<div class="comparison-view-switch map-segments" role="group" aria-label="Comparison view"><button type="button" data-view="heatmaps">Heatmaps</button><button type="button" data-view="gems">Line chart</button></div>
   <div class="heatmap-controls"><button type="button" id="add-comparison">＋ Add run</button><details class="map-options"><summary>Map settings</summary><div class="map-options-content"><span>Area</span><div class="area-slot"></div><span>Color</span><div class="map-segments" role="group" aria-label="Color scale"><button type="button" data-scale="count">Visit count</button><button type="button" data-scale="share">Visit share</button></div></div></details></div>`;
 toolbar.before(controls);
 controls.querySelector(".area-slot").append(area);
@@ -49,7 +50,21 @@ const viewSwitch = controls.querySelector(".comparison-view-switch");
 const help = document.querySelector(".compare-details");
 help.querySelector("summary").textContent = "About these heatmaps";
 help.querySelector("p").textContent = "Compare text and vision runs on the same world coordinates and color scale. Visit share normalizes for run length. Hover or tap a tile to compare visits; arrow keys work with a map focused.";
-const gemComparison = createGemComparison({ onChange: () => { if (gemMode) $("screenshot-mode").disabled = !gemComparison.canScreenshot(); } });
+function focusRun(id) {
+  focusedRun=id || null;
+  for(const panel of panels) panel.element.classList.toggle('comparison-focused',panel.id===focusedRun);
+  gemComparison.setFocus(focusedRun); updateURL();
+}
+function replaceSelection(ids) {
+  const unique=[...new Set(ids)].filter(id=>runs.some(run=>run.id===id));
+  for(const panel of [...panels]) if(!unique.includes(panel.id)) { observer.unobserve(panel.canvas); panel.element.remove(); panels.splice(panels.indexOf(panel),1); }
+  for(const id of unique) if(!panels.some(panel=>panel.id===id)) createPanel(id);
+  panels.sort((a,b)=>unique.indexOf(a.id)-unique.indexOf(b.id));
+  for(const panel of panels) $('comparison-panels').append(panel.element);
+  if(!unique.includes(focusedRun)) { focusedRun=null; gemComparison.setFocus(null); }
+  syncPanels(); updateURL();
+}
+const gemComparison = createGemComparison({ onSelectionChange: replaceSelection, onFocus: focusRun, onChange: () => { if (gemMode) $("screenshot-mode").disabled = !gemComparison.canScreenshot(); } });
 function updateView() {
   document.documentElement.classList.toggle("gem-view", gemMode);
   for (const button of viewSwitch.querySelectorAll("button")) button.setAttribute("aria-pressed", String((button.dataset.view === "gems") === gemMode));
@@ -83,19 +98,20 @@ function addLogo(container, run) {
 function renderPicker() {
   const query = search.value.trim().toLowerCase();
   const list = picker.querySelector(".picker-runs"); list.replaceChildren();
-  const visible = runs.filter(run => (!query || `${run.model} ${modelLabel(run.model)} ${runCompany(run)} ${run.id}`.toLowerCase().includes(query))
+  const visible = runs.filter(run => (!query || `${run.model} ${modelSlug(run.model)} ${runCompany(run)} ${run.id}`.toLowerCase().includes(query))
     && (pickerMode === "all" || (run.observation_mode || "ascii") === pickerMode)
     && (pickerCoding === "all" || Boolean(run.tools_enabled) === (pickerCoding === "on")));
   for (const run of visible) {
     const button = document.createElement("button"); button.type = "button"; button.className = "picker-run"; button.dataset.id = run.id;
     button.setAttribute("aria-pressed", String(picking?.id === run.id));
+    button.disabled = !picking?.id && panels.some(panel => panel.id === run.id);
     addLogo(button, run);
     const body = document.createElement("span"), title = document.createElement("strong"), subtitle = document.createElement("small");
-    title.textContent = modelLabel(run.model); subtitle.textContent = details(run);
+    title.textContent = modelSlug(run.model); subtitle.textContent = details(run);
     body.append(title, subtitle);
     const stamp = document.createElement("span"); stamp.className = "picker-run-date";
     stamp.textContent = `${run.created_at ? dates.format(new Date(run.created_at)) : "Undated"}${run.source ? " · Imported" : ""}`;
-    button.title = `${modelLabel(run.model)} · ${details(run)} · ${run.status || "Imported"} · ${run.id}`;
+    button.title = `${modelSlug(run.model)} · ${details(run)} · ${run.status || "Imported"} · ${run.id}`;
     button.append(body, stamp); list.append(button);
   }
   if (!visible.length) { const empty = document.createElement("p"); empty.className = "picker-empty"; empty.textContent = "No matching runs."; list.append(empty); }
@@ -105,7 +121,11 @@ picker.querySelector(".picker-close").addEventListener("click", () => picker.clo
 picker.addEventListener("click", event => {
   if (event.target === picker) { const r = picker.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) picker.close(); }
   const choice = event.target.closest(".picker-run");
-  if (choice && picking) { picking.id = choice.dataset.id; picker.close(); loadSelection(); }
+  if (choice && picking) {
+    const other=panels.find(panel=>panel!==picking && panel.id===choice.dataset.id);
+    if(other) other.id=picking.id;
+    picking.id=choice.dataset.id; focusRun(picking.id); picker.close(); loadSelection();
+  }
   const filter = event.target.closest("[data-mode], [data-coding]");
   if (filter) {
     if (filter.dataset.mode) pickerMode = filter.dataset.mode; else pickerCoding = filter.dataset.coding;
@@ -114,22 +134,37 @@ picker.addEventListener("click", event => {
   }
 });
 search.addEventListener("input", renderPicker);
-picker.addEventListener("close", () => picking?.element.querySelector(".comparison-pick").focus({ preventScroll: true }));
+picker.addEventListener("close", () => {
+  if(picking && !picking.id) { observer.unobserve(picking.canvas); picking.element.remove(); panels.splice(panels.indexOf(picking),1); syncPanels(); updateURL(); $('add-comparison').focus(); }
+  else picking?.element.querySelector('.comparison-pick').focus({preventScroll:true});
+});
 
 const observer = new ResizeObserver(() => drawMaps());
 function createPanel(id = "") {
   const side = `map-${++nextPanel}`, element = document.createElement("section");
   element.className = "comparison-panel";
-  element.innerHTML = `<header class="comparison-panel-header"><button type="button" class="comparison-pick"><span class="comparison-pick-body"><strong></strong><small></small></span><span class="pick-chevron" aria-hidden="true">⌄</span></button><button type="button" class="remove-comparison" aria-label="Remove run">×</button></header>
+  element.innerHTML = `<header class="comparison-panel-header"><button type="button" class="comparison-pick"><span class="comparison-pick-body"><strong></strong><small></small></span><span class="pick-chevron" aria-hidden="true">⌄</span></button><span class="comparison-order"><button type="button" data-shift="-1" aria-label="Move heatmap left" title="Move left">←</button><button type="button" data-shift="1" aria-label="Move heatmap right" title="Move right">→</button></span><button type="button" class="remove-comparison" aria-label="Remove run">×</button></header>
     <dl class="comparison-stats"><div><dt>Moves</dt><dd data-stat="actions">—</dd></div><div><dt>Tiles</dt><dd data-stat="tiles">—</dd></div><div><dt>Rooms</dt><dd data-stat="rooms">—</dd></div><div><dt>Gems</dt><dd data-stat="gems">—</dd></div></dl>
     <div class="comparison-map"><canvas width="640" height="640" tabindex="0" role="img" aria-describedby="${side}-tile"></canvas><div class="map-message" role="status">Choose a run</div></div>
     <footer><output id="${side}-tile" class="tile-readout">Hover to inspect</output><a class="open-run" hidden aria-label="Open run details">↗</a></footer>
     <p class="screenshot-model-name" role="textbox" aria-multiline="false" spellcheck="false"></p>`;
   const panel = { id, element, canvas: element.querySelector("canvas"), message: element.querySelector(".map-message"), label: element.querySelector(".screenshot-model-name"), data: null, dataId: null, layout: null };
   panels.push(panel); $("comparison-panels").append(element); observer.observe(panel.canvas);
+  element.addEventListener('click',event=>{
+    const shift=event.target.closest('[data-shift]');
+    if(shift) {
+      const from=panels.indexOf(panel), to=from+Number(shift.dataset.shift);
+      if(to<0||to>=panels.length) return;
+      [panels[from],panels[to]]=[panels[to],panels[from]];
+      for(const item of panels) $('comparison-panels').append(item.element);
+      syncPanels(); gemComparison.setSelection(panels.map(p=>p.id)); updateURL(); drawMaps();
+      shift.focus({preventScroll:true});
+    }
+  });
+  panel.canvas.addEventListener('focus',()=>focusRun(panel.id));
+  panel.canvas.addEventListener('pointerdown',()=>focusRun(panel.id));
   element.querySelector(".comparison-pick").addEventListener("click", () => openPicker(panel));
   element.querySelector(".remove-comparison").addEventListener("click", () => {
-    if (panels.length === 1) return;
     observer.unobserve(panel.canvas); panels.splice(panels.indexOf(panel), 1); element.remove(); syncPanels(); loadSelection();
   });
   panel.label.addEventListener("input", () => {
@@ -157,8 +192,14 @@ function createPanel(id = "") {
   return panel;
 }
 function syncPanels() {
-  $("comparison-panels").style.setProperty("--comparison-count", panels.length);
-  for (const panel of panels) panel.element.querySelector(".remove-comparison").hidden = panels.length === 1;
+  $('comparison-panels').style.setProperty('--comparison-count',Math.max(1,panels.length));
+  panels.forEach((panel,index)=>{
+    panel.element.querySelector('.remove-comparison').hidden=false;
+    panel.element.querySelector('[data-shift="-1"]').disabled=index===0;
+    panel.element.querySelector('[data-shift="1"]').disabled=index===panels.length-1;
+    panel.element.classList.toggle('comparison-focused',panel.id===focusedRun);
+    panel.element.dataset.runId=panel.id;
+  });
 }
 const gifExport = createHeatmapGifExport({
   selection: () => ({ scale: colorSelect.value, panels: panels.map(panel => ({ run: runs.find(run => run.id === panel.id), name: labelFor(runs.find(run => run.id === panel.id)), map: panel.data?.map, actions: panel.data?.actions })) }),
@@ -194,8 +235,10 @@ function report(id) {
 }
 function updateURL() {
   const url = new URL(location.href);
-  for (const key of ["map", "left", "right", "third", "models"]) url.searchParams.delete(key);
-  for (const panel of panels) url.searchParams.append("map", panel.id);
+  for (const key of ["map", "run", "left", "right", "third", "models"]) url.searchParams.delete(key);
+  for (const panel of panels) if(panel.id) url.searchParams.append("map", panel.id);
+  url.searchParams.set('selection','1');
+  if(focusedRun) url.searchParams.set('focus',focusedRun); else url.searchParams.delete('focus');
   if (gemMode) url.searchParams.set("view", "gems"); else url.searchParams.delete("view");
   if (fullWorld) url.searchParams.set("area", "world"); else url.searchParams.delete("area");
   if (colorSelect.value === "share") url.searchParams.set("scale", "share"); else url.searchParams.delete("scale");
@@ -204,17 +247,17 @@ function updateURL() {
 function renderPanel(panel) {
   const run = runs.find(run => run.id === panel.id), data = panel.data;
   if (document.activeElement !== panel.label) panel.label.textContent = labelFor(run);
-  panel.label.setAttribute("aria-label", `Screenshot label for ${modelLabel(run?.model) || "run"}`);
+  panel.label.setAttribute("aria-label", `Screenshot label for ${modelSlug(run?.model) || "run"}`);
   const pick = panel.element.querySelector(".comparison-pick");
-  pick.querySelector("strong").textContent = modelLabel(run?.model) || "Choose a run";
+  pick.querySelector("strong").textContent = modelSlug(run?.model) || "Choose a run";
   pick.querySelector("small").textContent = run ? details(run) : "Text or vision";
-  pick.setAttribute("aria-label", `Choose run${run ? `: ${modelLabel(run.model)} · ${details(run)}` : ""}`);
+  pick.setAttribute("aria-label", `Choose run${run ? `: ${modelSlug(run.model)} · ${details(run)}` : ""}`);
   pick.querySelector("img")?.remove(); if (run) { const logo = document.createElement("span"); addLogo(logo, run); if (logo.firstChild) pick.prepend(logo.firstChild); }
   const link = panel.element.querySelector(".open-run"); link.hidden = !run;
   if (run) { link.href = run.source?.run_id ? new URL(`./archive.html?id=${encodeURIComponent(run.source.run_id)}`, import.meta.url).href : `./run.html?id=${encodeURIComponent(run.id)}`; link.title = `${run.source ? "Older run" : "Open run"} · ${run.created_at ? dates.format(new Date(run.created_at)) : "Undated"}`; }
   const stats = { actions: data?.actions, tiles: data?.map.points.length, rooms: data ? run?.rooms_visited : null, gems: data ? run?.gems_collected : null };
   for (const [key, value] of Object.entries(stats)) panel.element.querySelector(`[data-stat="${key}"]`).textContent = value == null ? "—" : number(value);
-  panel.canvas.setAttribute("aria-label", data ? `${modelLabel(run.model)} ${modeName(run)} heatmap: ${number(data.map.points.length)} tiles visited, ${number(data.map.total)} visits.` : "Heatmap unavailable");
+  panel.canvas.setAttribute("aria-label", data ? `${modelSlug(run.model)} ${modeName(run)} heatmap: ${number(data.map.points.length)} tiles visited, ${number(data.map.total)} visits.` : "Heatmap unavailable");
 }
 function fitScreenshotLabels() {
   for (const panel of panels) panel.label.style.removeProperty("font-size");
@@ -246,7 +289,7 @@ function drawMaps() {
   const format = scale === "share" ? percent : number;
   $("legend-min").textContent = format(colors.minimum); $("legend-max").textContent = format(colors.maximum);
   $("legend-label").textContent = scale === "share" ? "Share of visits" : "Visits per tile";
-  $("screenshot-mode").disabled = !panels.every(panel => panel.data?.map.points.length);
+  $("screenshot-mode").disabled = !panels.length || !panels.every(panel => panel.data?.map.points.length);
 }
 function setScreenshotMode(active) {
   if (active && $("screenshot-mode").disabled) return;
@@ -262,7 +305,9 @@ function setScreenshotMode(active) {
   drawMaps();
 }
 async function loadSelection() {
-  const generation = ++serial; selectedTile = null; updateURL();
+  const generation = ++serial; selectedTile = null;
+  if(!panels.some(panel=>panel.id===focusedRun)) focusedRun=null;
+  syncPanels(); gemComparison.setSelection(panels.map(panel=>panel.id)); gemComparison.setFocus(focusedRun); updateURL();
   if (gemMode) { await gemComparison.load(); return; }
   $("comparison-status").classList.remove("error"); $("comparison-status").textContent = "Loading…";
   let failed = false;
@@ -294,9 +339,9 @@ async function refresh(initial = false) {
     if (local.status === "rejected" && imported.status === "rejected") throw local.reason;
     runs = selectRuns([...(local.value?.runs || []), ...(imported.value?.runs || [])].filter(run => !run.world || run.world === "main-world"));
     if (initial) {
-      const requested = params.getAll("map");
-      const choices = requested.length ? requested : defaultComparison(runs, params.get("left"), params.get("right"), params.get("third"), params.get("models") === "3" || params.has("third") ? 3 : 2);
-      for (const id of choices) createPanel(runs.some(run => run.id === id) ? id : "");
+      const requested = params.getAll("map").length ? params.getAll("map") : params.getAll("run");
+      const choices = requested.length || params.has("selection") ? [...new Set(requested)] : defaultComparison(runs, params.get("left"), params.get("right"), params.get("third"), params.get("models") === "3" || params.has("third") ? 3 : 2);
+      for (const id of choices) if(runs.some(run=>run.id===id)) createPanel(id);
     }
     syncPanels(); cache.clear(); pending.clear();
     gemComparison.setRuns(runs, panels.map(panel => panel.id)); await loadSelection();

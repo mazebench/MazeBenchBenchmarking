@@ -87,3 +87,49 @@ test("live token telemetry reads appended events once, tolerates partial lines a
     assert.equal((await telemetry.read(run)).current_tokens, 50);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('Codex usage survives live-to-zstd rotation, archive relocation, and a new reader', async () => {
+  const {zstdCompressSync}=await import('node:zlib');
+  const {rename,unlink}=await import('node:fs/promises');
+  const root=await mkdtemp(path.join(os.tmpdir(),'mazebench-compressed-usage-'));
+  try {
+    const home=path.join(root,'codex'),run=path.join(root,'run');
+    const id='01a06de5-cf11-7883-9f85-b1197dd668f5', sessions=path.join(home,'sessions/2026/09/04');
+    await mkdir(sessions,{recursive:true}); await mkdir(run);
+    await writeFile(path.join(run,'run.json'),JSON.stringify({id:'run-test',model:'gpt-6-astra',codex_thread_id:id,created_at:'2026-09-04T19:29:31Z'}));
+    const event=(response,timestamp)=>({type:'token_usage_record',timestamp,payload:{response_id:response,usage:{input_tokens:100,cached_input_tokens:80,output_tokens:10}}});
+    const first=event('one','2026-09-04T19:30:00Z'),second=event('two','2026-09-04T19:31:00Z');
+    const plain=path.join(sessions,`rollout-local-${id}.jsonl`),compressed=plain+'.zst';
+    await writeFile(plain,JSON.stringify(first)+'\n');
+    const reader=new TokenTelemetry({codexHome:home});
+    assert.equal((await reader.comparisonUsage(run)).records.length,1);
+    // Include a large irrelevant line, Unicode split across decode buffers,
+    // repeated accounting evidence, and a valid last line without a newline.
+    const secret={type:'response_item',payload:{text:'private λ '.repeat(220000)}};
+    const archive=[first,secret,first,second,sample(110)].map(JSON.stringify).join('\n');
+    await writeFile(compressed,zstdCompressSync(Buffer.from(archive))); await unlink(plain);
+    for (const value of await Promise.all([reader.comparisonUsage(run),reader.comparisonUsage(run)])) {
+      assert.equal(value.records.length,2);assert.equal(value.telemetry.totals.input_tokens,200);
+      assert.equal(value.telemetry.totals.cached_input_tokens,160);assert.equal(value.telemetry.totals.output_tokens,20);
+      assert(!JSON.stringify(value).includes('private λ'));
+    }
+    await mkdir(path.join(home,'archived_sessions'));
+    await rename(compressed,path.join(home,'archived_sessions',path.basename(compressed)));
+    assert.equal((await reader.comparisonUsage(run)).records.length,2);
+    assert.equal((await new TokenTelemetry({codexHome:home}).comparisonUsage(run)).records.length,2);
+  } finally { await rm(root,{recursive:true,force:true}); }
+});
+
+test('corrupt compressed logs fail visibly and replacement archives can be read', async () => {
+  const {zstdCompressSync}=await import('node:zlib');
+  const root=await mkdtemp(path.join(os.tmpdir(),'mazebench-corrupt-usage-'));
+  try {
+    const id='01a06de5-cf11-7883-9f85-b1197dd668f5',run=path.join(root,'run'),folder=path.join(root,'sessions/2026/09/04');
+    await mkdir(run);await mkdir(folder,{recursive:true});
+    await writeFile(path.join(run,'run.json'),JSON.stringify({model:'gpt-6-astra',codex_thread_id:id,created_at:'2026-09-04T19:29:31Z'}));
+    const file=path.join(folder,`rollout-test-${id}.jsonl.zst`);await writeFile(file,'corrupt archive');
+    const reader=new TokenTelemetry({codexHome:root});await assert.rejects(reader.read(run));
+    await writeFile(file,zstdCompressSync(Buffer.from(JSON.stringify(sample(100))+'\n')));
+    assert.equal((await reader.read(run)).current_tokens,100);
+  } finally {await rm(root,{recursive:true,force:true});}
+});

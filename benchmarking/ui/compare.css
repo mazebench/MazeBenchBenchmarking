@@ -221,3 +221,95 @@ html.screenshot-mode, .screenshot-mode body { background: #000; }
   .gem-run-score { display: none; }
   .gem-chart-legend { gap: 18px; }
 }
+
+/* Shared with the MazeJam leaderboard chart. */
+      .progress-chart { position: relative; min-height: 330px; background: #0b0d14; border: 1px solid rgba(255,255,255,.065); border-radius: 20px; }
+      .progress-svg { display: block; width: 100%; overflow: visible; }
+      .progress-grid { stroke: rgba(187,196,221,.075); stroke-width: 1; }
+      .progress-baseline { stroke: rgba(187,196,221,.16); }
+      .progress-tick { fill: #858d9f; font: 11px var(--controls-font); font-variant-numeric: tabular-nums; }
+      .progress-axis-label { fill: #a8afbd; font-size: 12px; font-weight: 500; }
+      .progress-series { opacity: .8; transition: opacity 160ms ease; }
+      .progress-series[data-selected="true"], .progress-series[data-highlighted] { opacity: 1; }
+      .progress-svg[data-highlighting] .progress-series:not([data-highlighted]) { opacity: .22; }
+      .progress-line { stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; pointer-events: stroke; transition: stroke-width 160ms ease; }
+      .progress-series[data-selected="true"] .progress-line, .progress-series[data-highlighted] .progress-line { stroke-width: 3; }
+      .progress-hit { pointer-events: stroke; cursor: pointer; }
+      .progress-line, .progress-vertex { cursor: pointer; }
+      .progress-tooltip { position: absolute; pointer-events: none; min-width: 180px; max-width: min(310px,calc(100% - 16px)); box-sizing: border-box; padding: 13px 15px; color: #eef0f6; background: rgba(27,30,40,.98); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.3); font: 12px/1.4 var(--controls-font); z-index: 2; }
+      .progress-tooltip-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; margin-bottom: 10px; }
+      .progress-tooltip-values { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: baseline; gap: 7px 18px; margin: 0; }
+      .progress-tooltip-values dt { color: #a4aabb; }
+      .progress-tooltip-values dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+      .progress-tooltip-note { display: block; margin-top: 10px; color: #8b92a3; font-size: 10px; }
+      .progress-notice { color: #818a9e; font: 11px/1.5 var(--controls-font); margin: 12px 4px 0; }
+      .progress-empty { color: #929bad; min-height: 330px; display: grid; place-content: center; padding: 24px; margin: 0; box-sizing: border-box; text-align: center; font: 13px/1.5 var(--controls-font); }
+      .progress-legend { display: grid; grid-template-columns: repeat(auto-fill,minmax(260px,1fr)); gap: 8px; margin-top: 14px; }
+      .progress-legend-item { display: flex; align-items: center; justify-content: flex-start; gap: 9px; min-width: 0; min-height: 44px; color: #b5bccb; padding: 10px 12px; background: #101219; border: 1px solid rgba(255,255,255,.045); border-radius: 12px; box-shadow: none; font: 500 12px/1.3 var(--controls-font); letter-spacing: -.01em; text-align: left; cursor: pointer; }
+      .progress-legend-item:hover, .progress-legend-item:focus-visible, .progress-legend-item[data-highlighted] { color: #f4f5f8; background: #1a1d27; border-color: rgba(255,255,255,.12); box-shadow: none; transform: none; }
+      .progress-legend-item[aria-pressed="true"] { color: #edf2ff; background: color-mix(in srgb,var(--run-accent) 9%,#101219); border-color: color-mix(in srgb,var(--run-accent) 30%,transparent); }
+      .progress-legend-item:focus-visible { outline: 2px solid #82b6ff; outline-offset: 2px; }
+      .progress-legend-item:active { box-shadow: none; }
+      .progress-key { width: 28px; height: 20px; flex: 0 0 28px; }
+      .progress-legend-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+      .progress-version { flex-shrink: 0; color: #747d90; font-size: 10px; }
+      .progress-estimate { flex-shrink: 0; padding: 2px 5px; border-radius: 5px; background: rgba(177,186,219,.07); color: #9aa3b7; font-size: 9px; font-weight: 500; }
+      @media (max-width: 680px) { .progress-legend { grid-template-columns: 1fr; } .progress-chart { border-radius: 16px; } }
+      @media (prefers-reduced-motion: reduce) { .progress-series, .progress-line { transition: none; } }
+
+.gem-comparison { --controls-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.gem-comparison [hidden] { display: none !important; }
+.gem-controls { display:flex; align-items:center; gap:14px; justify-content:flex-start; }
+.comparison-filter-open { display:flex; gap:8px; align-items:center; font-size:13px; }
+.comparison-filter-summary { color:var(--muted); font-size:12px; }
+.chart-filters { width:min(720px,calc(100vw - 24px)); max-height:85svh; padding:22px; border:1px solid #ffffff22; border-radius:24px; background:#1c1c1f; color:var(--text); box-shadow:0 24px 90px #0009; }
+.chart-filters::backdrop { background:#0009; backdrop-filter:blur(6px); }
+.chart-filters>header { display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; }
+.chart-filters h2 { font-size:20px; margin:0; }
+.chart-filter-done { background:#3187e7; color:#fff; border:0; padding:8px 16px; min-height:36px; }
+.chart-filter-fields { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.chart-filter-fields fieldset { min-width:0; padding:0; margin:0; border:0; }
+.chart-filter-fields fieldset:has(.chart-axis-picker),.chart-filter-fields fieldset:has(.chart-companies),.chart-advanced { grid-column:1/-1; }
+.chart-filter-fields legend { font-size:11px; color:var(--muted); margin-bottom:7px; }
+.chart-filter-fields .map-segments { flex-wrap:wrap; }
+.chart-filter-fields .map-segments button { flex:1; min-height:36px; padding:8px 10px; white-space:nowrap; }
+.chart-companies { display:flex; gap:6px; flex-wrap:wrap; }
+.chart-companies button { display:flex; align-items:center; gap:7px; min-height:36px; padding:7px 11px; font-size:12px; border-radius:11px; background:#29292c; border:1px solid transparent; }
+.chart-companies button[aria-pressed=true] { border-color:#68b3ff60; background:#23476b66; color:#9dceff; }
+.chart-companies img { width:17px; height:17px; object-fit:contain; }
+.chart-companies .monochrome { filter:brightness(0) invert(1); }
+.chart-advanced summary { padding:8px 0; font-size:12px; color:var(--muted); }
+.chart-filters .gem-picker-toolbar { padding:18px 0 10px; display:flex; gap:7px; flex-wrap:wrap; }
+.chart-filters .gem-picker-toolbar input { flex:1; min-width:160px; }
+.chart-filters .gem-picker-toolbar button { font-size:12px; min-height:36px; padding:6px 10px; }
+.chart-filters .gem-run-list { max-height:280px; overflow:auto; padding:0; }
+.chart-filters .gem-run-option { padding:11px 4px; }
+.chart-filters .gem-picker-note { padding:0; margin:14px 0 0; }
+.gem-chart-card { background:#0b0d14; padding:22px; }
+.gem-chart-heading { margin-bottom:8px; }
+.gem-chart-heading>div>span { display:none; }
+.gem-chart-heading h2 { font-size:18px; font-weight:550; }
+.progress-chart { border:0; border-radius:0; }
+.progress-legend-name strong,.progress-legend-name small { display:block; overflow:hidden; text-overflow:ellipsis; }
+.progress-legend-name strong { font-weight:550; }
+.progress-legend-name small { margin-top:5px; color:#8993a6; font-size:10px; }
+.progress-notice { margin:12px 0 0; }
+.progress-missing { opacity:.65; }
+.progress-end-label { font-family:var(--controls-font); font-weight:550; paint-order:stroke; stroke:#0b0d14; stroke-width:4px; stroke-linejoin:round; cursor:pointer; }
+.progress-end-connector { stroke-width:1; opacity:.65; pointer-events:none; }
+.screenshot-mode.gem-view .progress-end-label { stroke:#02040c; }
+.gem-edit-controls { margin:0 0 10px; }
+.gem-edit-controls button { min-height:28px; padding:4px 9px; font-size:11px; }
+.gem-edit-help { display:none; }
+.gem-grid-vertical,.gem-crosshair { stroke-dasharray:none; }
+.gem-comparison-point { fill:#000; }
+.comparison-panel-header { flex-wrap:wrap; align-items:center; }
+.comparison-pick { flex-basis:calc(100% - 40px); }
+.comparison-order { display:flex; gap:4px; margin-left:8px; order:3; }
+.comparison-order button { min-height:28px; min-width:32px; padding:2px 8px; background:#ffffff06; color:var(--muted); font-size:16px; }
+.comparison-order button:disabled { opacity:.25; }
+.comparison-focused { border-color:#6bb8ff80; box-shadow:0 0 0 1px #6bb8ff22; }
+.screenshot-mode .comparison-focused { box-shadow:none; }
+.screenshot-mode.gem-view .progress-chart { background:transparent; }
+.screenshot-mode.gem-view .progress-tooltip { display:none; }
+@media(max-width:600px) { .chart-filters { padding:16px; } .chart-filter-fields { grid-template-columns:1fr; } .gem-chart-card { padding:14px 8px; } .gem-controls { align-items:flex-start; } }

@@ -1,3 +1,4 @@
+import { comparisonSeries } from './comparison-report.mjs';
 import { parentPort } from "node:worker_threads";
 import { readCheckpointJson } from "./v1/checkpoint-json.mjs";
 import { isIncremental, verifyJournal, readJournalSummary } from "./storage/journal.mjs";
@@ -41,11 +42,16 @@ parentPort.on("message", message => {
   queue = queue.catch(() => {}).then(async () => {
     const { id, directory, kind, runnerActive } = message;
     try {
-      if (kind === 'tokens' || kind === 'charts') await loadPricingCache();
+      if (kind === 'tokens' || kind === 'charts' || kind === 'comparison') await loadPricingCache();
       let value;
       if (kind === "analysis") value = await analysis(directory, runnerActive);
       else if (kind === "tokens") value = await tokens.read(directory);
-      else if (kind === "charts") {
+      else if (kind === "comparison") {
+        const usage = await tokens.comparisonUsage(directory).catch(() => ({ records: [], metadata: {}, priceOptions: {}, telemetry: {} }));
+        const summary = await readCheckpointJson(directory, 'summary.json');
+        value = { series: comparisonSeries(summary, usage.records, usage.metadata, usage.priceOptions),
+          totals: usage.telemetry.totals };
+      } else if (kind === "charts") {
         const telemetry = await tokens.read(directory).catch(() => null);
         value = await charts.read(directory, { runnerActive, compactions: telemetry?.compactions || [] });
       } else throw new Error("Unknown report view.");

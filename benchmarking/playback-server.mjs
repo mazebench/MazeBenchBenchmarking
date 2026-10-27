@@ -85,7 +85,7 @@ export function createPlaybackServer(root, options = {}) {
     }
     // Read-only reports can be updated independently of processes owning agents.
     const match = /^\/api\/benchmark\/playback\/runs\/(run-[\dTZ-]+-[a-f0-9]{6})\/(movie|chunk)$/.exec(url.pathname)
-      || /^\/api\/benchmark\/v1\/runs\/(run-[\dTZ-]+-[a-f0-9]{6})\/(tokens)$/.exec(url.pathname);
+      || /^\/api\/benchmark\/v1\/runs\/(run-[\dTZ-]+-[a-f0-9]{6})\/(tokens|comparison)$/.exec(url.pathname);
     if (!match) return reply(404, { error: 'Unknown playback path.' });
     try {
       let directory = path.join(recordsRoot, match[1]);
@@ -94,7 +94,7 @@ export function createPlaybackServer(root, options = {}) {
         for (const root of recordsRoots) { const candidate=path.join(root,match[1]);try{await access(path.join(candidate,'run.json'));directory=candidate;break;}catch(error){if(error.code!=='ENOENT')throw error;} }
         if (!directory) return reply(404,{error:'Run not found.'});
       }
-      return reply(200, match[2] === 'tokens' ? await reports.read(directory, 'tokens')
+      return reply(200, ['tokens', 'comparison'].includes(match[2]) ? await reports.read(directory, match[2])
         : match[2]==='chunk' ? await replays.chunk(directory,Object.fromEntries(url.searchParams)) : await replays.movie(directory));
     } catch (error) { reply(400, { error: error.message }); }
   });

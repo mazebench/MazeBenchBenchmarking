@@ -1,6 +1,8 @@
+import { renderProgressChart } from './comparison-chart.mjs';
+import { X_AXES, progressSeries } from './comparison-chart-data.mjs';
 import { codingLabel, codingMode } from "../capabilities.mjs";
 import { benchmarkFetch } from "./benchmark-api.mjs";
-import { runCompany, selectRuns } from "./run-library.mjs";
+import { runCompany, runCardValues, selectRuns } from "./run-library.mjs";
 import { displayModelName } from "./heatmap-comparison.mjs";
 import { gemSeries, gemsAt, gemLinePath, axisExtent, layoutEndLabels, limitGemSeries } from "./gem-comparison-data.mjs";
 import { comparisonGemCount, correctedGemSeries, editedGemSeries, moveGemPoint } from "./gem-comparison-edits.mjs";
@@ -9,37 +11,55 @@ import { gemMarker } from "./gem-comparison-markers.mjs";
 const escape = value => String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const number = value => value.toLocaleString();
 const score = value => `${(value.collected / value.total * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
-const colors = ["#5ee7ff", "#a88bff", "#ffcc66", "#65e3a5", "#ff8b7b", "#72a7ff", "#f49ce0", "#c9e976"];
+const familyColors = { claude:'#ff9b45', gemini:'#b18cff', gemma:'#b18cff', gpt:'#72c7ff', grok:'#ff7db8', kimi:'#67d88b' };
+const familyFallbacks = ['#4fd6c8','#ff7db8','#f3c05f','#7ea6ff','#ff8a72','#cf8cff','#d8dd6b'];
+function modelColor(run) {
+  const family=displayModelName(run.model).split('-')[0].replace(/[^a-z0-9]/g,'');
+  let hash=0; for(const char of family) hash=(hash*31+char.charCodeAt(0))>>>0;
+  return familyColors[family] || familyFallbacks[hash%familyFallbacks.length];
+}
 const dates = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-export function createGemComparison({ onChange }) {
+export function createGemComparison({ onChange, onSelectionChange, onFocus }) {
   const root = document.createElement("section");
   root.className = "gem-comparison";
   root.hidden = true;
   root.innerHTML = `
-    <div class="gem-controls">
-      <details class="gem-picker"><summary>Choose runs <span class="gem-selection-count">0 selected</span></summary>
-        <div class="gem-picker-toolbar"><input type="search" placeholder="Search models or companies" aria-label="Search runs">
-          <select aria-label="Filter runs by coding"><option value="all">All runs</option><option value="off">Coding off</option><option value="python">Python only</option><option value="any">Any language</option></select>
-          <button type="button" class="gem-select-visible">Select visible</button><button type="button" class="gem-clear">Clear</button></div>
-        <div class="gem-run-list"></div><p class="gem-picker-note">Choose any number of runs. Imported heatmap-only snapshots have no move history.</p>
-      </details>
-      <div class="gem-axis-controls">
-        <div class="gem-max-control"><label class="scale-control">Max moves <input class="gem-max-moves" type="number" min="1" step="1" placeholder="Auto" inputmode="numeric"></label><button type="button" class="gem-max-auto">Auto</button></div>
-        <label class="scale-control gem-range-control">Gem axis <select class="gem-range"><option value="auto">Auto</option><option value="100">0–100 gems</option></select></label>
+    <div class="gem-controls"><button type="button" class="comparison-filter-open">☷ Filters & runs <span class="gem-selection-count"></span></button><span class="comparison-filter-summary"></span></div>
+    <dialog class="chart-filters" aria-labelledby="chart-filter-title"><header><h2 id="chart-filter-title">Comparison</h2><button class="chart-filter-done" type="button">Done</button></header>
+      <div class="chart-filter-fields">
+        <fieldset><legend>Score</legend><div class="map-segments" data-setting="metric"><button data-value="gems">Gems</button><button data-value="rooms">Rooms</button></div></fieldset>
+        <fieldset><legend>Compare by</legend><div class="map-segments chart-axis-picker" data-setting="axis">${Object.entries(X_AXES).map(([key,label]) => `<button data-value="${key}">${label}</button>`).join("")}</div></fieldset>
+        <fieldset><legend>Observations</legend><div class="map-segments" data-setting="mode"><button data-value="all">All</button><button data-value="ascii">ASCII</button><button data-value="vision">Vision</button></div></fieldset>
+        <fieldset><legend>Coding tools</legend><div class="map-segments" data-setting="coding"><button data-value="all">All</button><button data-value="off">Off</button><button data-value="on">On</button></div></fieldset>
+        <fieldset><legend>Sort by</legend><div class="map-segments" data-setting="sort"><button data-value="score">Best score</button><button data-value="recent">Most recent</button></div></fieldset>
+        <fieldset><legend>Companies</legend><div class="chart-companies"></div></fieldset>
+        <details class="chart-advanced"><summary>Chart options</summary><div class="gem-axis-controls"><div class="gem-max-control"><label class="scale-control">Max moves <input class="gem-max-moves" type="number" min="1" step="1" placeholder="Auto" inputmode="numeric"></label><button type="button" class="gem-max-auto">Auto</button></div>
+        <div class="map-segments" data-setting="range"><button data-value="auto">Auto scale</button><button data-value="full">Full scale</button></div><select class="gem-range" hidden><option value="auto">Auto</option><option value="100">Full</option></select></div></details>
       </div>
-    </div>
+      <div class="gem-picker-toolbar"><input type="search" placeholder="Search models or companies" aria-label="Search runs"><button type="button" class="gem-select-visible">Select matching</button><button type="button" class="gem-clear">Clear</button></div>
+      <div class="gem-run-list"></div><p class="gem-picker-note">The same selected runs appear in both views.</p>
+    </dialog>
     <div class="gem-edit-controls"><button type="button" class="gem-edit-toggle" aria-pressed="false">Edit curve</button><button type="button" class="gem-edit-reset" disabled>Reset curve edits</button><span class="gem-edit-help">Drag points to reshape a curve. Edits are saved in this browser.</span><span class="gem-edit-status" role="status"></span></div>
     <article class="gem-chart-card">
       <header class="gem-chart-heading"><div><span>MAZEBENCH · MAIN WORLD</span><h2>Gems collected by move</h2></div><span class="gem-chart-count"></span></header>
-      <div class="gem-plot"><svg class="gem-chart" role="img" tabindex="0" aria-label="Gems collected by move"></svg><output class="gem-tooltip" hidden></output></div>
+      <div class="progress-chart"></div><div class="progress-legend"></div><p class="progress-notice" hidden></p><div class="gem-plot"><svg class="gem-chart" role="img" tabindex="0" aria-label="Gems collected by move"></svg><output class="gem-tooltip" hidden></output></div>
       <div class="gem-chart-legend"></div>
       <p class="gem-adjustment-note" hidden></p>
     </article>
     <p class="gem-chart-note">Lines connect collection milestones. Curve edits affect this comparison only. Max moves limits the chart and scores to that move. Moves include all recorded actions, including undo, reset and camera actions. Refresh to update.</p>`;
   document.getElementById("comparison-panels").before(root);
   const $ = selector => root.querySelector(selector);
-  let runs = [], active = false, generation = 0, plot = null, loading = false, initialized = false;
+  let runs = [], active = false, generation = 0, plot = null, loading = false, focusedId = null;
+  const params = new URLSearchParams(location.search);
+  const settings = { metric: params.get('metric') === 'rooms' ? 'rooms' : 'gems', axis: Object.hasOwn(X_AXES,params.get('axis')) ? params.get('axis') : 'moves', mode:'all', coding:'all', sort:'score', range:'auto' };
+  const companies = new Set(), histories = new Map();
+  const markerIds = new Map();
+  function markerIndex(id) { if (!markerIds.has(id)) markerIds.set(id,markerIds.size); return markerIds.get(id); }
+  const filters = $('.chart-filters');
+  $('.comparison-filter-open').addEventListener('click',()=>{ renderPicker(); filters.showModal(); });
+  $('.chart-filter-done').addEventListener('click',()=>filters.close());
+  filters.addEventListener('click',event=>{ if(event.target===filters) {const r=filters.getBoundingClientRect(); if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom) filters.close();} });
   const selected = new Set(new URLSearchParams(location.search).getAll("run"));
   const savedMax = Number(new URLSearchParams(location.search).get("maxMoves"));
   let maxMoves = Number.isSafeInteger(savedMax) && savedMax > 0 ? savedMax : null;
@@ -58,32 +78,50 @@ export function createGemComparison({ onChange }) {
       $(".gem-edit-status").textContent = "Saved in this browser.";
     } catch { $(".gem-edit-status").textContent = "Browser storage unavailable; edits last until reload."; }
   }
-  const filtered = () => runs.filter(run => {
-    const query = $('input[type="search"]').value.toLowerCase();
-    const tools = $('select[aria-label="Filter runs by coding"]').value;
-    return `${displayModelName(run.model)} ${runCompany(run)} ${run.id}`.toLowerCase().includes(query)
-      && (tools === "all" || codingMode(run) === tools);
+  const matches = run => (settings.mode === 'all' || (run.observation_mode || 'ascii') === settings.mode)
+    && (settings.coding === 'all' || (codingMode(run) === 'off' ? 'off' : 'on') === settings.coding)
+    && (!companies.size || companies.has(runCompany(run)));
+  const sorted = list => list.sort((a,b) => settings.sort === 'recent' ? String(b.created_at||'').localeCompare(a.created_at||'') : (settings.metric === 'rooms' ? (b.rooms_visited||0)-(a.rooms_visited||0) : comparisonGemCount(b)-comparisonGemCount(a)) || String(b.created_at||'').localeCompare(a.created_at||''));
+  const filtered = () => sorted(runs.filter(run => matches(run) && `${displayModelName(run.model)} ${runCompany(run)} ${run.id}`.toLowerCase().includes($('input[type="search"]').value.toLowerCase())));
+  function filterSelection() {
+    // Applying a filter updates the shared comparison, including the heatmaps.
+    selected.clear(); for (const run of filtered()) selected.add(run.id);
+    changed();
+  }
+  filters.addEventListener('click', event => {
+    const button=event.target.closest('[data-setting] [data-value]');
+    if (button) {
+      const key=button.closest('[data-setting]').dataset.setting; settings[key]=button.dataset.value;
+      if (['mode','coding'].includes(key)) filterSelection();
+      else if(key==='sort') {const ids=sorted(selectedRuns()).map(run=>run.id);selected.clear();ids.forEach(id=>selected.add(id));changed();}
+      else { if (settings.metric !== 'gems' || settings.axis !== 'moves') editing=false; $('.gem-range').value=settings.range==='full'?'100':'auto'; syncURL(); renderPicker(); draw(); }
+    }
+    const company=event.target.closest('[data-company]');
+    if(company) { const key=company.dataset.company; if(!key) companies.clear(); else if(companies.has(key)) companies.delete(key); else companies.add(key); filterSelection(); }
   });
   const selectedRuns = () => [...selected].map(id => runs.find(run => run.id === id)).filter(Boolean);
-  const color = index => colors[index] || `hsl(${(index * 137.508) % 360} 78% 72%)`;
-  const detail = run => `${run.effort || "Default"} · ${codingLabel(run)} · ${run.observation_mode === "vision" ? "Vision" : "ASCII"}`;
+  const detail = run => `${run.effort || 'Default'} · ${codingLabel(run)} · ${run.observation_mode === 'vision' ? 'Vision' : 'ASCII'} · ${run.id.slice(-6)}`;
   function syncURL() {
     const url = new URL(location.href);
-    url.searchParams.delete("run");
-    for (const id of selected) url.searchParams.append("run", id);
+    url.searchParams.set('axis',settings.axis); url.searchParams.set('metric',settings.metric);
     if (maxMoves === null) url.searchParams.delete("maxMoves"); else url.searchParams.set("maxMoves", maxMoves);
     history.replaceState(null, "", url);
   }
   function renderPicker() {
     $(".gem-selection-count").textContent = `${selected.size} selected`;
+    for (const button of filters.querySelectorAll('[data-setting] [data-value]')) button.setAttribute('aria-pressed',String(settings[button.closest('[data-setting]').dataset.setting]===button.dataset.value));
+    const companyNames=[...new Set(runs.map(runCompany))].sort();
+    $('.chart-companies').innerHTML=`<button data-company="" aria-pressed="${!companies.size}">All</button>`+companyNames.map(company=>{ const values=runCardValues(runs.find(run=>runCompany(run)===company)); return `<button data-company="${escape(company)}" aria-pressed="${companies.has(company)}">${values.logo?`<img src="${escape(values.logo)}" class="${values.monochromeLogo?'monochrome':''}" alt="">`:''}${escape(company)}</button>`; }).join('');
+    $('.comparison-filter-summary').textContent=`${settings.metric==='gems'?'Gems':'Rooms'} · ${X_AXES[settings.axis]}`;
+    $('.gem-max-control').hidden=settings.axis!=='moves';
     const visible = filtered();
     $(".gem-run-list").innerHTML = visible.length ? visible.map(run => `
       <label class="gem-run-option"><input type="checkbox" value="${escape(run.id)}" ${selected.has(run.id) ? "checked" : ""}>
         <span><strong>${escape(displayModelName(run.model))}</strong><small>${escape(detail(run))} · ${run.created_at ? escape(dates.format(new Date(run.created_at))) : "Undated"} · ${escape(run.id.slice(-6))}</small></span>
-        <span class="gem-run-score">${number(fullSeries(run)?.collected ?? comparisonGemCount(run))} gems</span></label>`).join("") : '<p class="gem-empty-list">No matching runs.</p>';
+        <span class="gem-run-score">${number(settings.metric==='rooms' ? (run.rooms_visited||0) : fullSeries(run)?.collected ?? comparisonGemCount(run))} ${settings.metric}</span></label>`).join("") : '<p class="gem-empty-list">No matching runs.</p>';
   }
   function changed() {
-    syncURL(); renderPicker(); load();
+    syncURL(); renderPicker(); onSelectionChange?.([...selected]); load();
   }
   $(".gem-run-list").addEventListener("change", event => {
     if (!event.target.matches('input[type="checkbox"]')) return;
@@ -91,7 +129,7 @@ export function createGemComparison({ onChange }) {
     changed();
   });
   $('input[type="search"]').addEventListener("input", renderPicker);
-  $('select[aria-label="Filter runs by coding"]').addEventListener("change", renderPicker);
+
   $(".gem-select-visible").addEventListener("click", () => { for (const run of filtered()) selected.add(run.id); changed(); });
   $(".gem-clear").addEventListener("click", () => { selected.clear(); changed(); });
   $(".gem-range").addEventListener("change", draw);
@@ -126,11 +164,20 @@ export function createGemComparison({ onChange }) {
     if (data.has(run.id)) return data.get(run.id);
     if (requests.has(run.id)) return requests.get(run.id);
     const request = (async () => {
-      const response = await benchmarkFetch(`/api/benchmark/v1/runs/${encodeURIComponent(run.id)}/charts`, { signal: AbortSignal.timeout(60000) });
-      if (!response.ok) throw new Error(`Couldn’t load history (${response.status})`);
-      const result = correctedGemSeries(gemSeries((await response.json()).gems), run.id);
-      if (!result) throw new Error("Gem history unavailable");
-      data.set(run.id, result); errors.delete(run.id);
+      let value;
+      if (run.source) {
+        const response=await fetch(new URL(`../imports/${encodeURIComponent(run.id)}.json`,import.meta.url));
+        if(!response.ok) throw new Error(`Couldn’t load history (${response.status})`);
+        value=await response.json();
+      } else {
+        const response=await benchmarkFetch(`/api/benchmark/v1/runs/${encodeURIComponent(run.id)}/comparison`,{signal:AbortSignal.timeout(60000)});
+        if(!response.ok) throw new Error(`Couldn’t load history (${response.status})`);
+        value=await response.json();
+      }
+      histories.set(run.id,value.series || {});
+      const progress=value.series?.progress || [];
+      const result=correctedGemSeries(gemSeries({available:progress.length>0,points:progress.map(p=>({move:p.moves,gems:p.gems})),moves:progress.at(-1)?.moves,total:run.gems_total||100}),run.id);
+      data.set(run.id,result); errors.delete(run.id);
       return result;
     })().finally(() => requests.delete(run.id));
     requests.set(run.id, request);
@@ -152,10 +199,45 @@ export function createGemComparison({ onChange }) {
     if (token !== generation) return;
     loading = false; renderPicker(); draw();
   }
+  function drawProgress() {
+    const chosen=selectedRuns();
+    const entries=chosen.map(run=>{
+      const series={...histories.get(run.id)};
+      const exclusion=fullSeries(run)?.exclusion;
+      if(exclusion) for(const key of ['progress','performance']) series[key]=series[key]?.map(p=>({...p,gems:p.gems===null?null:Math.max(0,p.gems-(p.moves>=exclusion.move?1:0))}));
+      if(settings.axis==='moves' && settings.metric==='gems') {
+        const value=limitGemSeries(fullSeries(run),maxMoves);
+        series.progress=value?.points.map(p=>({moves:p.move,gems:p.gems})) || [];
+      } else if(settings.axis==='moves' && maxMoves!==null) {
+        const points=(series.progress||[]).filter(p=>p.moves<=maxMoves);
+        if(points.length && points.at(-1).moves<maxMoves && maxMoves<(series.progress.at(-1)?.moves||0)) points.push({...points.at(-1),moves:maxMoves});
+        series.progress=points;
+      }
+      return {...run,series};
+    });
+    renderProgressChart({host:$('.progress-chart'),legend:$('.progress-legend'),notice:$('.progress-notice'),entries,axis:settings.axis,metric:settings.metric,
+      selectedIds:new Set(focusedId?[focusedId]:[]), name:displayModelName, detail, markerIndex, fullRange:settings.range==='full', color:modelColor,onSelect:id=>{focusedId=id;onFocus?.(id);draw();}});
+    $('.gem-chart-heading h2').textContent=settings.metric==='gems'?'Gems collected':'Rooms visited';
+    $('.gem-chart-count').textContent=loading?`Loading ${chosen.filter(run=>histories.has(run.id)).length} / ${chosen.length}`:'';
+    const status=document.getElementById('comparison-status');status.classList.toggle('error',chosen.some(run=>errors.has(run.id)));
+    status.textContent=loading?'Loading run history…':chosen.some(run=>errors.has(run.id))?'Some histories couldn’t load · Refresh to retry':'';
+    if(loading) { $('.progress-notice').hidden=false; $('.progress-notice').textContent='Loading recorded history…'; }
+    $('.gem-chart-note').textContent='Lines connect recorded milestones. Token and cost comparisons use recorded responses, including retries; unreported usage is excluded.';
+    const edited=chosen.some(run=>fullSeries(run)?.edited);
+    $('.gem-adjustment-note').textContent=[settings.axis==='moves'&&settings.metric==='gems'&&edited?'Edited curves shown. Reset curve edits to return to recorded history.':'',...chosen.filter(run=>fullSeries(run)?.exclusion).map(run=>`${displayModelName(run.model)}: ${fullSeries(run).exclusion.room} gem excluded.`)].filter(Boolean).join(' ');
+    $('.gem-adjustment-note').hidden=!$('.gem-adjustment-note').textContent;
+    $('.gem-edit-reset').disabled=!edited;
+    $('.gem-edit-toggle').textContent='Edit curve'; $('.gem-edit-toggle').setAttribute('aria-pressed','false');
+    onChange();
+  }
   function draw() {
     if (!active) return;
+    $('.progress-chart').hidden=editing; $('.progress-legend').hidden=editing; $('.progress-notice').hidden=editing;
+    $('.gem-plot').hidden=!editing; $('.gem-chart-legend').hidden=!editing;
+    $('.gem-edit-controls').hidden=settings.axis!=='moves'||settings.metric!=='gems';
+    if(!editing) { plot=null; drawProgress(); return; }
     const chosen = selectedRuns();
-    const series = chosen.map((run, i) => ({ run, data: limitGemSeries(fullSeries(run), maxMoves), color: color(i), marker: i })).filter(item => item.data);
+    const series = chosen.map(run => ({ run, data: limitGemSeries(fullSeries(run), maxMoves), color: modelColor(run), marker: markerIndex(run.id) })).filter(item => item.data);
     const screenshot = document.documentElement.classList.contains("screenshot-mode");
     const handles = editing && !screenshot;
     const svg = $(".gem-chart"), width = Math.max(360, svg.clientWidth || 1000);
@@ -190,7 +272,7 @@ export function createGemComparison({ onChange }) {
     markup += `<text class="gem-axis-label" x="${left}" y="16">Gems collected</text><text class="gem-axis-label" x="${(left + right) / 2}" y="${height - 8}" text-anchor="middle">Moves</text>`;
     for (const item of series) {
       const points = item.data.points;
-      markup += `<g style="--series:${item.color}"><path class="gem-comparison-line" ${item.run.tools_enabled ? 'stroke-dasharray="8 5"' : ""} d="${gemLinePath(points, x, y)}"/>`;
+      markup += `<g style="--series:${item.color}"><path class="gem-comparison-line" d="${gemLinePath(points, x, y)}"/>`;
       for (let i = 0; i < points.length; i++) if (i === points.length - 1 || (i > 0 && (handles || points[i].gems !== points[i - 1].gems))) {
         const point = points[i], editable = handles && i > 0 && point.key;
         const focused = selectedPoint?.runId === item.run.id && selectedPoint?.key === point.key;
@@ -216,10 +298,10 @@ export function createGemComparison({ onChange }) {
     svg.innerHTML = markup;
     $(".gem-tooltip").hidden = true;
     $(".gem-chart-count").textContent = `${series.length} ${series.length === 1 ? "run" : "runs"}${maxMoves === null ? "" : ` · through move ${number(maxMoves)}`}`;
-    $(".gem-chart-legend").innerHTML = chosen.map((run, i) => {
+    $(".gem-chart-legend").innerHTML = chosen.map(run => {
       const full = fullSeries(run), value = limitGemSeries(full, maxMoves), duplicate = chosen.filter(item => item.model === run.model).length > 1;
-      const marker = gemMarker(i, 5);
-      return `<div class="gem-legend-item" style="--series:${color(i)}"><svg class="gem-legend-marker" viewBox="0 0 28 20" role="img" aria-label="${marker.name} markers"><path class="gem-marker-line" d="M0,10H28"${run.tools_enabled ? ' stroke-dasharray="4 3"' : ""}/><g class="gem-comparison-point" transform="translate(14,10)">${marker.body}</g></svg><div><strong>${escape(displayModelName(run.model))}</strong><small>${escape(detail(run))}${duplicate ? ` · ${escape(run.id.slice(-6))}` : ""}${full?.edited ? " · Edited curve" : ""}</small><span>${value ? `${score(value)} · ${number(value.moves)}${value.moves < full.moves ? ` / ${number(full.moves)}` : ""} moves` : escape(errors.get(run.id) || (full ? "No history in this range" : "Loading…"))}</span></div><button type="button" data-remove="${escape(run.id)}" aria-label="Remove ${escape(displayModelName(run.model))} ${escape(run.id.slice(-6))}">×</button></div>`;
+      const marker = gemMarker(markerIndex(run.id), 5);
+      return `<div class="gem-legend-item" style="--series:${modelColor(run)}"><svg class="gem-legend-marker" viewBox="0 0 28 20" role="img" aria-label="${marker.name} markers"><path class="gem-marker-line" d="M0,10H28"/><g class="gem-comparison-point" transform="translate(14,10)">${marker.body}</g></svg><div><strong>${escape(displayModelName(run.model))}</strong><small>${escape(detail(run))}${duplicate ? ` · ${escape(run.id.slice(-6))}` : ""}${full?.edited ? " · Edited curve" : ""}</small><span>${value ? `${score(value)} · ${number(value.moves)}${value.moves < full.moves ? ` / ${number(full.moves)}` : ""} moves` : escape(errors.get(run.id) || (full ? "No history in this range" : "Loading…"))}</span></div><button type="button" data-remove="${escape(run.id)}" aria-label="Remove ${escape(displayModelName(run.model))} ${escape(run.id.slice(-6))}">×</button></div>`;
     }).join("");
     const notes = series.filter(item => item.data.exclusion).map(item => `${displayModelName(item.run.model)}: ${item.data.exclusion.room} gem excluded.`);
     if (series.some(item => item.data.edited)) notes.push("Edited curves shown.");
@@ -313,18 +395,16 @@ export function createGemComparison({ onChange }) {
   new ResizeObserver(draw).observe($(".gem-plot"));
   return {
     draw, load,
-    canScreenshot: () => !loading && selectedRuns().some(run => data.has(run.id)),
+    canScreenshot: () => !loading && selectedRuns().some(run => progressSeries({series:histories.get(run.id)},settings.axis,settings.metric).points.length),
     setActive(value) { if (!value) finishDrag(true); active = value; root.hidden = !value; if (!value) { generation++; loading = false; } },
+    setFocus(id) { focusedId=id; draw(); },
+    setSelection(ids) { selected.clear(); for(const id of ids) if(runs.some(run=>run.id===id)) selected.add(id); renderPicker(); },
     setRuns(value, defaults) {
       finishDrag(true);
-      runs = selectRuns(value.filter(run => !run.source), { sort: "company" });
-      if (!initialized) {
-        initialized = true;
-        if (!selected.size) for (const id of defaults) if (runs.some(run => run.id === id)) selected.add(id);
-        if (!selected.size) for (const run of value.filter(run => !run.source).slice(0, 3)) selected.add(run.id);
-      }
-      for (const id of selected) if (!runs.some(run => run.id === id)) selected.delete(id);
-      data.clear(); errors.clear(); renderPicker();
+      runs=selectRuns(value,{sort:'company'});
+      for(const run of runs) markerIndex(run.id);
+      selected.clear(); for(const id of defaults) if(runs.some(run=>run.id===id)) selected.add(id);
+      data.clear(); histories.clear(); errors.clear(); renderPicker();
     }
   };
 }
