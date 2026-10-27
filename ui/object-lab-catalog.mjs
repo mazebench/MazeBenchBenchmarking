@@ -54,6 +54,18 @@ export function objectCatalog(blocks) {
 
 const at = (blockId, x, y, z = 0, extra = {}) => ({ blockId, x, y, z, ...extra });
 
+// Separate bodies, spaced apart so each ID can be inspected without occlusion.
+// These fixtures exist only in memory; they never become authored world rooms.
+export function makeGenericLabRoom(entry, { count = 20, orientation = entry.orientations[0] } = {}) {
+  if (!entry.numbered) throw new Error(`${entry.id} does not use numbered bodies.`);
+  if (!Number.isInteger(count) || count < 1 || count > 40) throw new Error('Choose 1–40 bodies.');
+  const columns = Math.ceil(Math.sqrt(count)), width = columns * 2 + 1, height = Math.ceil(count / columns) * 2 + 1;
+  const objects = Array.from({ length: width * height }, (_, index) => at('floor', index % width, Math.floor(index / width)));
+  for (let id = 0; id < count; id++) objects.push(at(entry.id, (id % columns) * 2 + 1,
+    Math.floor(id / columns) * 2 + 1, 0, { genericId: id, groupId: id, ...(orientation ? { orientation } : {}) }));
+  return { width, height, position: ['Lab', 'Lab'], fileName: `lab-${entry.id}-bodies.json`, objects };
+}
+
 export function makeLabRoom(entry, { orientation = entry.orientations[0], state = 0, bodyId = 0, play = false } = {}) {
   const size = play ? 7 : 3, center = Math.floor(size / 2);
   const objects = Array.from({ length: size * size }, (_, index) => at('floor', index % size, Math.floor(index / size)));

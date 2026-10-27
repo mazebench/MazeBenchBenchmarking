@@ -19,7 +19,7 @@
       <div id="loading" role="status"><progress id="load-progress" max="3" value="0"></progress><span>Preparing the object lab…</span></div>
       <div id="lab" hidden>
         <header class="object-heading">
-          <h1><button id="choose-object" class="object-picker-button" aria-haspopup="dialog" aria-controls="object-picker" title="Choose an object"><span id="selected-object-dot" class="object-dot" aria-hidden="true"></span><span id="object-name">Choose an object</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></button></h1>
+          <div class="object-title"><button id="choose-object" class="object-picker-button" aria-haspopup="dialog" aria-controls="object-picker"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="12" y="3" width="5" height="5" rx="1"/><rect x="3" y="12" width="5" height="5" rx="1"/><rect x="12" y="12" width="5" height="5" rx="1"/></svg>Choose object<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></button><h1><span id="selected-object-dot" class="object-dot" aria-hidden="true"></span><span id="object-name">Object lab</span></h1></div>
           <div class="segments" aria-label="Lab mode"><button id="inspect-mode" aria-pressed="true">Inspect</button><button id="play-mode" aria-pressed="false">Play room</button></div>
         </header>
         <p id="object-description" class="description"></p>
@@ -42,12 +42,22 @@
           <div class="play-actions"><div class="dpad" aria-label="Movement"><button data-move="up" aria-label="Move up">↑</button><button data-move="left" aria-label="Move left">←</button><button data-move="down" aria-label="Move down">↓</button><button data-move="right" aria-label="Move right">→</button></div><button id="undo">Undo</button><button id="reset">Reset</button></div>
         </section>
         </div>
+        <section id="generic-reference" class="generic-reference" hidden aria-labelledby="generic-heading">
+          <header><h2 id="generic-heading">Numbered objects</h2><button id="view-bodies" aria-pressed="false">View all together</button></header>
+          <p id="generic-description"></p>
+          <div id="generic-gallery" class="generic-gallery" aria-label="Choose a body ID"></div>
+          <p id="generic-world-usage" class="world-usage" role="status"></p>
+        </section>
         <details class="reference disclosure">
           <summary>All rotations<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></summary>
           <div class="reference-content">
           <div id="rotation-gallery" class="rotation-gallery" aria-label="Rotations in text"></div>
           <p id="render-note"></p>
           </div>
+        </details>
+        <details id="symbol-review" class="disclosure">
+          <summary>Symbol review<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></summary>
+          <div class="audit-content"><p id="audit-status" role="status">Check object symbols and numbered bodies in Main World.</p><div id="audit-results"></div></div>
         </details>
         <details class="guide disclosure"><summary>How it works<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg></summary><div><p>Use WASD or the camera pad to look around. In Play room, use the arrow keys or movement pad to move. Undo goes back one move; Reset restores your setup.</p><p>The text view uses the benchmark’s actual renderer. Each tile has a 4 × 4 character face; tilting changes how much of its top and side you see. Character size stays fixed.</p><p>Actors can hide buttons and other fixtures. Retracted orange walls reveal the surface covering them. Clone and weightless-body symbols can change with the identities present in a room.</p></div></details>
         <output id="notice" class="notice" role="status"></output>

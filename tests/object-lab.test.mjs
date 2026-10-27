@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { objectCatalog, makeLabRoom } from '../ui/object-lab-catalog.mjs';
+import { objectCatalog, makeLabRoom, makeGenericLabRoom } from '../ui/object-lab-catalog.mjs';
+import { auditObjectSymbols, inventoryGenericBodies } from '../ui/object-lab-audit.mjs';
 import { instantiateMazeBenchEngineV1 } from '../engine/v1/engine.mjs';
 import { renderAsciiFrameV1 } from '../render-ascii/v1/ascii-scene.mjs';
 
@@ -79,4 +80,46 @@ test('raised lifts have a usable approach and lower in all five mounting directi
     const player = named(result.final, 'player');
     assert.deepEqual([player.x, player.y, player.z], [3, 3, 0], orientation);
   }
+});
+
+test('numbered lab rooms retain 20 separate body IDs through engine readback', () => {
+  for (const entry of entries.filter(item => item.numbered)) {
+    const room = makeGenericLabRoom(entry);
+    const restored = engine.roomFromState(engine.createState(room), room);
+    const bodies = restored.objects.filter(object => object.blockId === entry.id);
+    assert.equal(bodies.length, 20, entry.id);
+    assert.deepEqual(bodies.map(object => object.groupId).sort((a, b) => a - b), Array.from({ length: 20 }, (_, id) => id));
+    assert.equal(new Set(bodies.map(object => `${object.x},${object.y},${object.z}`)).size, 20);
+  }
+});
+
+test('world inventory counts bodies rather than voxels and distinguishes highest ID from count', () => {
+  const inventory = inventoryGenericBodies([
+    { position: ['A', 'B'], objects: [
+      { blockId: 'weightless-box', genericId: 0 },
+      { blockId: 'weightless-box', genericId: 0 },
+      { blockId: 'weightless-box', genericId: 25 },
+      { blockId: 'clone', genericId: 9, groupId: 2 }
+    ] },
+    { position: ['C', 'D'], objects: [0, 1, 2].map(genericId => ({ blockId: 'weightless-box', genericId })) }
+  ], blocks);
+  const boxes = inventory.types.find(type => type.id === 'weightless-box');
+  assert.equal(boxes.highestId, 25);
+  assert.deepEqual(boxes.highestIdRooms, ['A×B']);
+  assert.equal(boxes.mostBodies, 3);
+  assert.deepEqual(boxes.mostBodiesRooms, ['C×D']);
+  assert.equal(inventory.types.find(type => type.id === 'clone').highestId, 2);
+  assert.equal(inventory.types.find(type => type.id === 'clone-slope').highestId, null);
+});
+
+test('symbol review exposes the signed renderer’s top-down collisions without hiding scenery reuse', async () => {
+  const audit = await auditObjectSymbols(blocks);
+  assert.equal(audit.objects, blocks.length);
+  assert.ok(audit.viewsChecked > 5000);
+  assert.deepEqual(audit.collisions.filter(item => item.kind === 'gameplay').map(item => item.glyph).sort(), [';', '{']);
+  assert.deepEqual(audit.collisions.filter(item => item.kind === 'mixed'), []);
+  assert.deepEqual(audit.collisions.filter(item => item.kind === 'scenery').map(item => item.glyph).sort(), ['T', 't']);
+  assert.deepEqual(audit.topDownMismatches.find(item => item.id === 'weightless-box').bodyIds, Array.from({ length: 15 }, (_, id) => id + 5));
+  assert.equal(audit.topDownMismatches.find(item => item.id === 'clone').bodyIds[0], 3);
+  assert.equal(audit.topDownMismatches.find(item => item.id === 'clone-slope').bodyIds.length, 20);
 });
