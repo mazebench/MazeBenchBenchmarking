@@ -5,10 +5,14 @@ import { ReplayView } from "./view.mjs";
 import { installTruncateControls } from "../../ui/truncate-controls.mjs";
 import { ReplayMarkers } from "./markers.mjs";
 import { ImportEstimate } from "./progress.mjs";
+import { ReplayAsciiView, replayAsciiFrame } from "./ascii.mjs";
+import { installFlyoverControls } from "../../ui/flyover-controls.mjs";
 
 const $ = id => document.getElementById(id);
 const dialog = $("import-dialog");
 let world, view, movie, worker, busy = false, generation = 0, playing = false, time = 0, lastFrame = 0, frameId = 0, noticeTimer;
+let viewMode = "3d", asciiView, asciiGemsChanged = false;
+let playbackSpeed = 1;
 const count = value => value.toLocaleString();
 let roomLabels;
 const roomLabel = id => (roomLabels ||= new Map(world.rooms.map(room => [room.fileName, room.position.join("×")]))).get(id) || id;
@@ -49,7 +53,7 @@ function updateTransport(location) {
   $("seek").setAttribute("aria-valuetext", `${formatTime(time, true)} of ${formatTime(movie.duration, true)}, action ${index + 1} of ${movie.clips.length}`);
   text("timecode", `${formatTime(time, !playing)} / ${formatTime(movie.duration, movie.duration < 10000)}`);
   text("progress-summary", `${count(index + 1)} / ${count(movie.clips.length)} actions · ${view.gemState.cursor} gems`);
-  text("room-name", roomLabel(local >= clip.settledAt ? clip.to : clip.room));
+  text("room-name", roomLabel(viewMode === "ascii" ? replayAsciiFrame(clip, local).room : local >= clip.settledAt ? clip.to : clip.room));
   text("action-label", clip.label);
   attribute("toggle-play", "aria-label", playing ? "Pause" : time >= movie.duration ? "Replay" : "Play");
   attribute("play-icon", "d", playing ? "M6 5h4v14H6zM14 5h4v14h-4z" : "m8 5 11 7-11 7z");
@@ -59,7 +63,11 @@ function updateTransport(location) {
 
 function draw(nextTime) {
   if (!movie) return;
-  const location = view.show(nextTime);
+  const location = viewMode === "ascii" ? locateReplay(movie, nextTime) : view.show(nextTime);
+  if (viewMode === "ascii") {
+    asciiGemsChanged = view.updateGems(location.time) || asciiGemsChanged;
+    void asciiView.show(movie, location).catch(error => { pause(); announce(error.message); });
+  }
   time = location.time;
   updateTransport(location);
 }
@@ -67,7 +75,7 @@ function draw(nextTime) {
 function tick(now) {
   frameId = 0;
   if (!playing) return;
-  const next = time + Math.max(0, now - lastFrame) * Number($("speed").value);
+  const next = time + Math.max(0, now - lastFrame) * playbackSpeed;
   lastFrame = now;
   if (next >= movie.duration) playing = false;
   draw(next);
@@ -92,6 +100,38 @@ function togglePlay() {
 }
 
 function seek(value) { pause(); draw(value); }
+function setViewMode(mode) {
+  if (!view || mode === viewMode) return;
+  view.renderer.disposeFlyoverControls?.();
+  view.renderer.disposeFlyoverControls = null;
+  viewMode = mode;
+  if (mode === "3d") {
+    view.renderer.disposeFlyoverControls = installFlyoverControls(view.renderer);
+    view.gemsReset ||= asciiGemsChanged;
+    asciiGemsChanged = false;
+  }
+  $("replay-canvas").hidden = mode !== "3d";
+  $("stage").dataset.view = mode;
+  $("player").dataset.view = mode;
+  $("ascii-stage").hidden = mode !== "ascii";
+  $("cutaway-panel").hidden = mode !== "3d";
+  attribute("view-3d", "aria-pressed", String(mode === "3d"));
+  attribute("view-ascii", "aria-pressed", String(mode === "ascii"));
+  $("camera-help").textContent = mode === "ascii" ? "A / D rotate · W / S tilt · Q / E zoom" : "Drag to orbit · WASD to turn · Q / E zoom";
+  if (mode === "3d") view.renderer.resize();
+  draw(time);
+  lastFrame = performance.now();
+}
+function asciiCamera(key) {
+  if (key === "a" || key === "d") asciiView.renderer.yaw = (asciiView.renderer.yaw + (key === "a" ? 3 : 1)) % 4;
+  else if (key === "w" || key === "s") asciiView.renderer.pitch = Math.max(0, Math.min(4, asciiView.renderer.pitch + (key === "w" ? 1 : -1)));
+  else if (key === "q" || key === "e") asciiView.zoomBy(key === "q" ? 1.2 : 1 / 1.2);
+  else if (key === "/") {
+    asciiView.renderer.yaw = 0; asciiView.renderer.pitch = 1; asciiView.zoomBy(1 / asciiView.zoom);
+    $("ascii-stage").scrollTo(0, 0);
+  }
+  draw(time);
+}
 function step(direction) {
   if (!movie) return;
   const { index, clip } = locateReplay(movie, time);
@@ -146,10 +186,13 @@ async function buildReplay(text, name = "Pasted sequence") {
     if (job !== generation) return;
     if (!view) {
       view = new ReplayView($("replay-canvas"), world, imported);
+      asciiView = new ReplayAsciiView($("ascii-board"), world);
       installTruncateControls($("cutaway-controls"), view.renderer, { ghosts: true });
-      new ResizeObserver(() => view.renderer.resize()).observe($("stage"));
-      bindCameraHold($("zoom-in"), { getRenderer: () => view.renderer, key: "q", tap: () => view.renderer.zoomBy(.8) });
-      bindCameraHold($("zoom-out"), { getRenderer: () => view.renderer, key: "e", tap: () => view.renderer.zoomBy(1.25) });
+      new ResizeObserver(() => { if (viewMode === "3d") view.renderer.resize(); }).observe($("stage"));
+      for (const [id, key, factor] of [["zoom-in", "q", .8], ["zoom-out", "e", 1.25]]) {
+        bindCameraHold($(id), { getRenderer: () => view.renderer, key, tap: () => view.renderer.zoomBy(factor),
+          discreteStep: () => { if (viewMode !== "ascii") return false; asciiCamera(key); return true; } });
+      }
     } else view.setMovie(imported);
     while (Number(view.renderer.canvas.dataset.cachedRoomCount) < world.rooms.length && job === generation) {
       progress(Number(view.renderer.canvas.dataset.cachedRoomCount) || 0, world.rooms.length, "Drawing world");
@@ -166,11 +209,11 @@ async function buildReplay(text, name = "Pasted sequence") {
     $("movie-name").title = movie.name;
     $("seek").max = String(movie.duration);
     markers.setMovie(movie);
-    for (const id of ["scene-info", "camera-tools", "transport", "open-import", "close-import"]) $(id).hidden = false;
+    for (const id of ["scene-info", "camera-tools", "transport", "open-import", "close-import", "replay-views"]) $(id).hidden = false;
     draw(0);
     setBusy(false);
     dialog.close();
-    view.renderer.resize();
+    if (viewMode === "3d") view.renderer.resize();
     announce(movie.notice);
     $("toggle-play").focus();
   } catch (error) {
@@ -218,19 +261,32 @@ $("seek").onpointermove = event => {
   $("seek-preview").hidden = false;
 };
 $("seek").onpointerleave = () => { $("seek-preview").hidden = true; };
-$("center-camera").onclick = () => view?.center();
-$("speed").onchange = () => { lastFrame = performance.now(); };
+$("center-camera").onclick = () => { if (viewMode === "ascii") asciiCamera("/"); else view?.center(); };
+$("view-3d").onclick = () => setViewMode("3d");
+$("view-ascii").onclick = () => setViewMode("ascii");
+$("speed").onclick = event => {
+  const button = event.target.closest("button[data-rate]");
+  if (!button) return;
+  playbackSpeed = Number(button.dataset.rate);
+  lastFrame = performance.now();
+  for (const option of $("speed").querySelectorAll("button")) option.setAttribute("aria-pressed", String(option === button));
+};
 $("fullscreen").onclick = async () => {
   try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); }
   catch { announce("Fullscreen is unavailable in this browser."); }
 };
 document.addEventListener("fullscreenchange", () => {
   $("fullscreen").setAttribute("aria-label", document.fullscreenElement ? "Exit fullscreen" : "Fullscreen");
-  view?.renderer.resize();
+  if (viewMode === "3d") view?.renderer.resize();
 });
 window.addEventListener("keydown", event => {
   if (!movie || dialog.open || event.metaKey || event.ctrlKey || event.altKey || event.target.isContentEditable || event.target.closest("input,textarea,select,summary")) return;
   const key = event.key.toLowerCase();
+  if (viewMode === "ascii" && ["a", "d", "w", "s", "q", "e", "/"].includes(key)) {
+    event.preventDefault(); event.stopPropagation();
+    if (!event.repeat) asciiCamera(key);
+    return;
+  }
   if (![" ", "k", "j", "l", "arrowleft", "arrowright", ",", ".", "home", "end"].includes(key)) return;
   if (key === " " && event.target.closest("button") && event.target !== $("toggle-play")) return;
   event.preventDefault(); event.stopPropagation();

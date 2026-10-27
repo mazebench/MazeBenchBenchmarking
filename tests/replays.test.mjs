@@ -9,6 +9,7 @@ import { V2_BLOCK_CATALOG } from "../render/v1/voxel-world-v2.mjs";
 import { SolutionsModel } from "../solutions/v1/model.mjs";
 import { compileFullSolution } from "../solutions/v1/full-solution.mjs";
 import { groupMarkers } from "../replays/v1/markers.mjs";
+import { replayAsciiFrame, replayAsciiRoom } from "../replays/v1/ascii.mjs";
 
 const cell = (blockId, x, y = 1, z = 0) => ({ blockId, x, y, z });
 const floor = () => Array.from({ length: 32 }, (_, i) => cell("floor", i % 8, Math.floor(i / 8)));
@@ -66,6 +67,41 @@ test("scrubbing samples actual engine tweens identically in both directions and 
   assert.equal(locateReplay(movie, Infinity).time, 800);
   assert.equal(locateReplay(movie, 100).index, 1);
   assert.equal(locateReplay(movie, 800).local, 100);
+});
+
+test("imported ASCII replays stay on exact ticks while seeking forward and backward", async () => {
+  const source = world([room([...floor(), cell("player", 2), { ...cell("lift", 3), orientation: "top", stateId: 0 }])]);
+  const movie = await compileReplay(engine, source, parseReplay("R")), clip = movie.clips[0];
+  const shown = time => replayAsciiRoom(movie, source, clip, replayAsciiFrame(clip, time));
+  const initial = shown(0);
+  assert.deepEqual(shown(clip.asciiFrames[1].at - 1), initial, "does not display a rounded fractional tween");
+  const simulation = await engine.simulateCommand(engine.createState(source.rooms[0]), "right", source.blockDefinitions);
+  const values = objects => objects.filter(o => ["player", "lift"].includes(o.blockId))
+    .map(({ blockId, x, y, z, stateId }) => ({ blockId, x, y, z, stateId: stateId || 0 }));
+  assert.deepEqual(values(shown(clip.duration).objects), values(simulation.final.objects));
+  assert.deepEqual(shown(0), initial, "seeking backward restores the same objects and mechanism states");
+});
+
+test("ASCII follows the player through slide crossings and explicit room resets", async () => {
+  const source = world([room([...floor(), cell("player", 6), cell("ice-floor", 7)]),
+    room([...floor(), cell("ice-floor", 0), cell("player", 4), cell("gem", 1)], 1)]);
+  const movie = await compileReplay(engine, source, parseReplay("R room HxI room IxI"));
+  const shown = (clip, time) => replayAsciiRoom(movie, source, clip, replayAsciiFrame(clip, time));
+  const slide = movie.clips[0];
+  for (const frame of slide.asciiFrames) {
+    const snapshot = shown(slide, frame.at), players = snapshot.objects.filter(o => o.blockId === "player");
+    assert.equal(players.length, 1, "never includes the neighboring room's authored player");
+    assert(players[0].x >= 0 && players[0].x < snapshot.width);
+  }
+  assert.equal(shown(slide, slide.duration).fileName, "1.json");
+  assert.equal(shown(slide, slide.duration).objects.find(o => o.blockId === "player").x, 1);
+  for (const clip of movie.clips.slice(1)) {
+    assert.equal(shown(clip, 0).fileName, clip.from);
+    assert.equal(shown(clip, clip.duration).fileName, clip.to);
+    assert.equal(shown(clip, clip.duration).objects.filter(o => o.blockId === "player").length, 1);
+  }
+  const last = movie.clips.at(-1);
+  assert(!shown(last, last.duration).objects.some(o => o.blockId === "gem"), "room jumps preserve collected gems");
 });
 
 test("room commands restore the authored player, preserve collected gems, and tween the camera", async () => {

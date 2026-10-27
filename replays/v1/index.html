@@ -5,22 +5,28 @@
   <title>Replays · MazeBench</title>
   <link rel="icon" href="../../favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../../render/v1/visual-effects.css">
+  <link rel="stylesheet" href="../../ui/ascii-font.css">
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="../../render/v1/cutaway-controls.css">
 </head>
 <body>
   <header class="topbar">
     <div class="identity"><a class="back" href="../../" aria-label="Back to home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg>Back</a><strong>Replays</strong><span id="movie-name"></span></div>
-    <button id="open-import" hidden>Import replay</button>
+    <div class="topbar-actions">
+      <div id="replay-views" class="view-switch" role="group" aria-label="Replay view" hidden>
+        <button id="view-3d" aria-pressed="true">3D</button><button id="view-ascii" aria-pressed="false">ASCII</button>
+      </div>
+      <button id="open-import" hidden>Import replay</button>
+    </div>
   </header>
   <main id="player" class="player" aria-label="Replay player">
-    <div id="stage" class="stage" hidden><canvas id="replay-canvas" aria-label="Replay world. Drag to orbit. W and S tilt, A and D rotate, Q and E zoom."></canvas></div>
+    <div id="stage" class="stage" hidden><canvas id="replay-canvas" aria-label="Replay world. Drag to orbit. W and S tilt, A and D rotate, Q and E zoom."></canvas><div id="ascii-stage" hidden><pre id="ascii-board" class="ascii-board" aria-label="ASCII replay. W and S tilt, A and D rotate, Q and E zoom."></pre></div></div>
     <div id="scene-info" class="scene-info" hidden><strong id="room-name"></strong><span id="action-label"></span></div>
-    <details class="cutaway-panel"><summary>Truncate</summary><div id="cutaway-controls" class="cutaway-controls" role="group" aria-label="Truncate room" hidden></div></details>
+    <details id="cutaway-panel" class="cutaway-panel"><summary>Truncate</summary><div id="cutaway-controls" class="cutaway-controls" role="group" aria-label="Truncate room" hidden></div></details>
     <div id="camera-tools" class="camera-tools" hidden>
       <details id="view-menu"><summary>View</summary><div class="view-panel">
         <button id="center-camera">Center camera <kbd>/</kbd></button>
-        <p>Drag to orbit · WASD to turn<br>Q / E to zoom</p>
+        <p id="camera-help">Drag to orbit · WASD to turn<br>Q / E to zoom</p>
       </div></details>
       <button id="zoom-out" class="icon-button" aria-label="Zoom out" title="Zoom out (E)">−</button>
       <button id="zoom-in" class="icon-button" aria-label="Zoom in" title="Zoom in (Q)">+</button>
@@ -50,7 +56,15 @@
         <button id="next" class="icon-button step-button" aria-label="Next action" title="Next action (.)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5v14M6 6l9 6-9 6z"/></svg></button>
         <output id="timecode">0:00 / 0:00</output>
       </div>
-      <div class="playback-meta"><output id="progress-summary"></output><select id="speed" aria-label="Playback speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select><button id="fullscreen" class="icon-button" aria-label="Fullscreen" title="Fullscreen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4"/></svg></button></div>
+      <div id="speed" class="playback-rates" role="group" aria-label="Playback speed">
+        <button data-rate="0.25" aria-pressed="false">0.25×</button>
+        <button data-rate="0.5" aria-pressed="false">0.5×</button>
+        <button data-rate="1" aria-pressed="true">1×</button>
+        <button data-rate="2" aria-pressed="false">2×</button>
+        <button data-rate="4" aria-pressed="false">4×</button>
+        <button data-rate="10" aria-pressed="false">10×</button>
+      </div>
+      <div class="playback-meta"><output id="progress-summary"></output><button id="fullscreen" class="icon-button" aria-label="Fullscreen" title="Fullscreen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4"/></svg></button></div>
     </div>
   </footer>
   <dialog id="import-dialog" aria-labelledby="import-title">

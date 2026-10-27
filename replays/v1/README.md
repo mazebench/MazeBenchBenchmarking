@@ -17,6 +17,11 @@ motion curves rather than every engine frame. The viewer samples the same
 `animations/v1` curves as Play, including slides, mechanisms, fades, resets on
 leaving a room, and camera/room lighting. Seeking does not rerun the engine.
 Imports do not write to Solutions storage or change authored rooms.
+The top-row 3D / ASCII switch keeps the current time and playback state. ASCII
+uses the canonical browser glyphs and exact physics ticks on the same timeline,
+including room crossings and mechanisms. WASD rotates/tilts the text view;
+Q/E and the zoom buttons resize it explicitly. Camera rotation never changes
+the character size. The 3D orbit is preserved when switching back.
 During import, a live minutes:seconds estimate tracks the current step using its
 observed throughput. It recalculates between loading, route verification,
 replay preparation and drawing, and stays cancellable throughout.

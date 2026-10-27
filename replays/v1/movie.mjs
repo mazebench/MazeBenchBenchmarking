@@ -98,7 +98,10 @@ export async function compileReplay(engine, sourceWorld, imported, { onProgress 
       gem.at = duration + (fade?.end ?? settledAt);
       gem.room = gem.id.slice(0, gem.id.lastIndexOf(":"));
     }
-    const clip = { ...pool.pack(timeline), start: duration, duration: timeline.duration, settledAt, center,
+    const asciiFrames = command.type === "room"
+      ? [{ at: 0, room: from.fileName }, { at: timeline.duration, room: finalRoom.fileName }]
+      : timeline.times.map((at, index) => ({ at, room: (timeline.frameRooms[timeline.ticks[index]] || from).fileName }));
+    const clip = { ...pool.pack(timeline), asciiFrames, start: duration, duration: timeline.duration, settledAt, center,
       room: command.type === "room" ? finalRoom.fileName : from.fileName, from: from.fileName, to: finalRoom.fileName,
       label, type: command.type, gemsBefore, gemsAfter: physics.collected.size };
     clips.push(clip);
