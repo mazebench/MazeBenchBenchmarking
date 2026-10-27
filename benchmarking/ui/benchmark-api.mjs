@@ -1,4 +1,15 @@
 const nativeFetch=window.fetch.bind(window);
+const releaseOrigin=`http://${location.hostname}:8090`;
+let releaseAt=0,releaseReady=false,releasePending;
+async function releaseAvailable(){
+  if(Date.now()-releaseAt<15000)return releaseReady;
+  releasePending ||= (async()=>{
+    try{const response=await nativeFetch(releaseOrigin+'/api/benchmark/release/status',{signal:AbortSignal.timeout(700)});releaseReady=response.ok&&(await response.json()).ascii_renderer===2;}
+    catch{releaseReady=false;}
+    releaseAt=Date.now();releasePending=null;return releaseReady;
+  })();
+  return releasePending;
+}
 const currentCodexOrigin=`http://${location.hostname}:8088`;
 let currentCodexAt=0,currentCodexReady=false,currentCodexPending;
 async function currentCodexAvailable(){
@@ -61,6 +72,8 @@ export async function benchmarkFetch(url,options={}){
       if (report.ok) return report;
     } catch { /* Older installations retain the existing owner route. */ }
   }
+  if(await releaseAvailable())return nativeFetch(releaseOrigin+url,options);
+  if(options.method?.toUpperCase()==='POST'&&/\/api\/benchmark\/v1\/runs$/.test(url))throw new Error('Versioned benchmark runner is unavailable. Start npm run start:releases; no run was launched.');
   if(await currentCodexAvailable())return nativeFetch(currentCodexOrigin+url,options);
   if(await recoveryAvailable())return nativeFetch(recoveryOrigin+url,options);
   if(await providerVisionAvailable())return nativeFetch(providerVisionOrigin+url,options);

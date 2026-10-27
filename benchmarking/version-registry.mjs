@@ -1032,6 +1032,24 @@ export const versions = [
     "generation": "1.1",
     "engine": "94597010ca7390b85a685fad34b1868cda66dbad0e1facbd44d986cfa29b9d3d",
     "world": "31f72f356a4508b45ccd5f1255dbed3cb1ac5959ad4cd71a73b1d9b3df140c59"
+  },
+  {
+    "version": "1.1.84",
+    "generation": "1.1",
+    "engine": "114e5b0113515a9960da2c1a6e6095981e51aeaa2d138bf15bad3c01ab151fc3",
+    "world": "b1eef27b4347ca2a77f7a82ee21fb6f436b92d8e0d8d92eee558c2847e6e4844"
+  },
+  {
+    "version": "1.1.85",
+    "generation": "1.1",
+    "engine": "8ff91060b177f2a59dd4ebba454c3863ec640079f318049545c9a3cdddde3280",
+    "world": "b1eef27b4347ca2a77f7a82ee21fb6f436b92d8e0d8d92eee558c2847e6e4844"
+  },
+  {
+    "version": "1.1.86",
+    "generation": "1.1",
+    "engine": "748637bd1dee365a84b0b3af69e60d5981607dc67fed849fa9bb2094a70db1bb",
+    "world": "b1eef27b4347ca2a77f7a82ee21fb6f436b92d8e0d8d92eee558c2847e6e4844"
   }
 ];
 export const manifestVersions = {

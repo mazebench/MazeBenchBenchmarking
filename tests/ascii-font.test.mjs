@@ -3,6 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {inflateSync} from 'node:zlib';
 import test from 'node:test';
 import {hiddenAsciiGlyphMap} from '../render-ascii/v1/glyph-contract.mjs';
+import {hiddenAsciiGlyphMap as canonicalMap} from '../render-ascii/v2/glyph-contract.mjs';
 
 // Read the shipped WOFF metrics directly so the check needs no font tooling
 // and catches missing glyphs, system-font fallback, and double-width letters.
@@ -44,7 +45,8 @@ async function fontMetrics(filename) {
 test('every normal and seeded ASCII glyph has a real, equal-width bundled glyph',async()=>{
   const fonts=await Promise.all(['mazebench-ascii.woff','mazebench-ascii-coptic.woff'].map(fontMetrics));
   const map=await hiddenAsciiGlyphMap('1');
-  const glyphs=new Set([' ','P','p','G','g',...map.keys(),...map.values()]);
+  const current=await canonicalMap('1');
+  const glyphs=new Set([' ','P','p','G','g',...map.keys(),...map.values(),...current.keys(),...current.values()]);
   for(const glyph of glyphs){
     assert.equal(Array.from(glyph).length,1);
     const font=fonts.find(font=>font.width(glyph)!==null);

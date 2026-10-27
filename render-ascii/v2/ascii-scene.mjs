@@ -12,13 +12,14 @@ import {
   PLAYER_LIFT_GLYPHS,
   PUNCHER_DIRECTION_GLYPHS,
   TERRAIN_GLYPHS,
+  TREE_GLYPHS,
   UNKNOWN_GLYPHS,
   WEIGHTLESS_BOX_GLYPHS,
   createDynamicGlyphCatalog,
   hiddenAsciiGlyphMap,
   hiddenGlyph,
   glyphPair
-} from "../v1/glyph-contract.mjs";
+} from "./glyph-contract.mjs";
 
 export const ASCII_TILE_SIZE = 4;
 export const ASCII_MAX_PITCH = 4;
@@ -171,6 +172,12 @@ export function glyphCatalogForRoom(room) {
   });
 }
 
+function allocatedGlyph(catalog, family, identity) {
+  const pair = catalog?.pairFor(family, identity);
+  if (!pair) throw new Error(`Missing unique ASCII symbol allocation for ${identity}.`);
+  return pair;
+}
+
 export function glyphForObject(object, definition, yaw = 0, catalog = null) {
   const screenDirection = cameraRelativeDirection(normalizeObjectDirection(object), yaw);
   switch (object.blockId) {
@@ -199,23 +206,19 @@ export function glyphForObject(object, definition, yaw = 0, catalog = null) {
     case "crate": return ACTOR_GLYPHS.box;
     case "floating-floor": return ACTOR_GLYPHS.floating_floor;
     case "clone": return CLONE_GLYPHS[cloneVariant(object)] ||
-      catalog?.pairFor("clone", dynamicIdentity(object)) || ACTOR_GLYPHS.clone;
-    case "clone-slope": return catalog?.pairFor("clone", dynamicIdentity(object, screenDirection)) ||
-      ACTOR_GLYPHS.clone;
+      allocatedGlyph(catalog, "clone", dynamicIdentity(object));
+    case "clone-slope": return allocatedGlyph(catalog, "clone", dynamicIdentity(object, screenDirection));
     case "weightless-box": return WEIGHTLESS_BOX_GLYPHS[weightlessVariant(object)] ||
-      catalog?.pairFor("weightless_box", dynamicIdentity(object)) || ACTOR_GLYPHS.weightless_box;
-    case "weightless-slope": return catalog?.pairFor(
-      "weightless_box",
-      dynamicIdentity(object, screenDirection)
-    ) || ACTOR_GLYPHS.weightless_box;
+      allocatedGlyph(catalog, "weightless_box", dynamicIdentity(object));
+    case "weightless-slope": return allocatedGlyph(catalog, "weightless_box", dynamicIdentity(object, screenDirection));
     case "t1": case "t2": case "t3": case "t4":
-    case "st1": case "st3": case "st4": return TERRAIN_GLYPHS.tree;
+    case "st1": case "st3": case "st4": return TREE_GLYPHS[object.blockId];
     case "sh": return TERRAIN_GLYPHS.shrub;
     case "b1": return BLOCK_ASSET_GLYPHS[1];
     case "b2": return BLOCK_ASSET_GLYPHS[2];
     case "b3": return BLOCK_ASSET_GLYPHS[3];
     case "b4": return BLOCK_ASSET_GLYPHS[4];
-    default: return definition?.category === "actor" ? UNKNOWN_GLYPHS.actor : UNKNOWN_GLYPHS.terrain;
+    default: throw new Error(`No canonical ASCII symbols for object ${object.blockId}.`);
   }
 }
 
@@ -582,7 +585,7 @@ function trimPixelCanvas(canvas, footprint) {
   return canvas.slice(top, bottom + 1).map((row) => row.slice(left, right + 1));
 }
 
-function topPixels(room, yaw, layers) {
+function topPixels(room, yaw, layers, catalog) {
   const dimensions = displayDimensions(room, yaw);
   const canvas = blankCanvas(
     dimensions.width * ASCII_TILE_SIZE,
@@ -596,7 +599,7 @@ function topPixels(room, yaw, layers) {
       const left = displayX * ASCII_TILE_SIZE;
       const top = displayY * ASCII_TILE_SIZE;
       if (layer.base) {
-        const pair = glyphForObject(layer.base.object, layer.base.definition, yaw);
+        const pair = glyphForObject(layer.base.object, layer.base.definition, yaw, catalog);
         drawRect(canvas, left, top, ASCII_TILE_SIZE, ASCII_TILE_SIZE, {
           color: observationColor(layer.base.object, layer.base.definition),
           glyph: pair.top,
@@ -842,7 +845,7 @@ export async function renderAsciiFrameV2(room, definitions, options = {}) {
   }
 
   const canonicalPixels = pitch === 0
-    ? topPixels(renderRoom, yaw, topLayers)
+    ? topPixels(renderRoom, yaw, topLayers, catalog)
     : pitch === ASCII_MAX_PITCH
       ? sidePixels(renderRoom, blocks, yaw, catalog)
       : layeredPixels(renderRoom, blocks, yaw, pitch, catalog);

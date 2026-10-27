@@ -516,6 +516,22 @@ settings. Do not silently reseal unrelated prior engine or level drift.
 
 ## Automatic engine/world versioning
 
+New Main World launches use the versioned owner on port 8090, started with
+`npm run start:releases` or by the main server. It creates content-addressed
+private runtime/world installations; never edit an installation after a run
+has used it. The canonical ASCII source is `render-ascii/v2`, installed under
+the old import paths only inside a new private release. Its hash marker enters
+the release engine inventory. The historical source trees remain unchanged.
+Old requests still go to their original owners. Release records live outside
+Git, and report/replay readers resolve each run's recorded installation.
+
+The user requested existing worlds stay pinned. `scripts/pin-existing-worlds.mjs`
+detaches their editor publication via an appended authenticated world revision,
+without rewriting checkpoints or history. Inactive runs keep the last observed
+revision; active runs keep the already-published head because an in-flight move
+may be using it. Never undo recorded actions to disguise an edit already used.
+New release worlds are private snapshots and receive no live editor publication.
+
 The tracked `benchmarking/version-registry.mjs` is append-only. Its `v1.1.N`
 labels identify engine/Play-adapter plus world inventories. Never renumber an
 existing fingerprint or choose N manually. Use `updateVersionRegistry` from

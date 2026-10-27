@@ -1,6 +1,7 @@
 import { unpackTimeline } from '../../replays/v1/movie.mjs';
 import { sampleTrack } from '../../animations/v1/timeline.mjs';
 import { renderAsciiFrameV1 } from '../../render-ascii/v1/ascii-scene.mjs';
+import { renderAsciiFrameV2 } from '../../render-ascii/v2/ascii-scene.mjs';
 
 export function asciiFrameAt(clip, local) {
   const frames = clip.asciiFrames || [{at:0,room:clip.room,camera:clip.agentCamera?.from}];
@@ -17,5 +18,6 @@ export async function replayAscii(movie, world, clip, local) {
     return [{...track.object,x,y,z:Math.round(pose.z),engineHidden:false,
       ...(['gate','lift','puncher'].includes(track.block.visual?.kind) ? {stateId:Math.round(pose.phase)} : {})}];
   });
-  return renderAsciiFrameV1({...room,objects},world.blocks,frame.camera || {yaw:0,pitch:1});
+  const render = world.asciiRenderer === 2 ? renderAsciiFrameV2 : renderAsciiFrameV1;
+  return render({...room,objects},world.blocks,frame.camera || {yaw:0,pitch:1});
 }

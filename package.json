@@ -6,6 +6,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "start:releases": "node benchmarking/runtime-release-server.mjs",
     "start:codex-current": "node benchmarking/codex-current-server.mjs",
     "start:recovery": "node benchmarking/recovery-server.mjs",
     "start:vision-providers": "node benchmarking/vision-providers/server.mjs",

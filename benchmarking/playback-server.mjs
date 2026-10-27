@@ -12,12 +12,14 @@ import { PricingService } from './pricing-service.mjs';
 import { RunLibrary } from './run-library.mjs';
 import { setImmediate as yieldToIO } from 'node:timers/promises';
 import { LegacyArchive, videoRange } from './legacy-archive.mjs';
+import { releaseOwner, releaseRecordRoots } from './runtime-release-store.mjs';
 
 export function createPlaybackServer(root, options = {}) {
   const port = options.port ?? 8085, mainPort = options.mainPort || 8080;
   const recordsRoot = options.recordsRoot || process.env.MAZEBENCH_VISION_RECORDS_ROOT || path.join(os.homedir(), 'records/mazebench-vision');
   const recordsRoots = options.recordsRoots || [recordsRoot, process.env.MAZEBENCH_RECORDS_ROOT || path.join(os.homedir(),'records/mazebench-benchmark'),path.join(os.homedir(),'records/mazebench-prime-benchmark')];
   const replays = options.replays || new PlaybackReplay(root);
+  const releasedReplays = new Map();
   const reports = options.reports || new ReportReader();
   const pricing = options.pricing || new PricingService();
   const library = options.library || new RunLibrary();
@@ -68,7 +70,7 @@ export function createPlaybackServer(root, options = {}) {
       res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
       res.flushHeaders();
       try {
-        for await (const event of library.stream(recordsRoots, controller.signal)) {
+        for await (const event of library.stream([...recordsRoots, ...releaseRecordRoots()], controller.signal)) {
           if (res.destroyed) return;
           if (autoVersions && event.run?.benchmark_version) event.run.benchmark_version = versions.registerRun(event.run.benchmark_version);
           res.write(JSON.stringify(event) + '\n');
@@ -91,11 +93,14 @@ export function createPlaybackServer(root, options = {}) {
       let directory = path.join(recordsRoot, match[1]);
       if (!options.replays) {
         directory = null;
-        for (const root of recordsRoots) { const candidate=path.join(root,match[1]);try{await access(path.join(candidate,'run.json'));directory=candidate;break;}catch(error){if(error.code!=='ENOENT')throw error;} }
+        for (const root of [...recordsRoots, ...releaseRecordRoots()]) { const candidate=path.join(root,match[1]);try{await access(path.join(candidate,'run.json'));directory=candidate;break;}catch(error){if(error.code!=='ENOENT')throw error;} }
         if (!directory) return reply(404,{error:'Run not found.'});
       }
+      const owner = releaseOwner(match[1]);
+      if (owner && !releasedReplays.has(owner.root)) releasedReplays.set(owner.root, new PlaybackReplay(owner.root));
+      const player = owner ? releasedReplays.get(owner.root) : replays;
       return reply(200, ['tokens', 'comparison'].includes(match[2]) ? await reports.read(directory, match[2])
-        : match[2]==='chunk' ? await replays.chunk(directory,Object.fromEntries(url.searchParams)) : await replays.movie(directory));
+        : match[2]==='chunk' ? await player.chunk(directory,Object.fromEntries(url.searchParams)) : await player.movie(directory));
     } catch (error) { reply(400, { error: error.message }); }
   });
   server.on('close', () => { reports.close(); pricing.close(); versions.close(); });

@@ -32,7 +32,8 @@ const descriptions = {
 };
 
 export function objectCatalog(blocks) {
-  return blocks.map(block => {
+  // Exit is retired; its E/e glyphs remain reserved for historical data.
+  return blocks.filter(block => block.id !== 'exit').map(block => {
     const slope = block.visual?.kind === 'slope';
     const orientations = slope || block.id === 'puncher' ? DIRECTIONS
       : block.id === 'lift' ? FACES

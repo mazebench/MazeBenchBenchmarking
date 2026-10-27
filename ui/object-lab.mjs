@@ -1,7 +1,7 @@
 import { JoinedMazeRenderer } from './joined-maze-renderer.mjs';
 import { prepareBrowserModels } from './browser-world.mjs';
-import { AsciiMazeRendererV1 } from '../render-ascii/v1/ascii-renderer.mjs';
-import { renderAsciiFrameV1, glyphCatalogForRoom } from '../render-ascii/v1/ascii-scene.mjs';
+import { AsciiMazeRendererV2 } from '../render-ascii/v2/ascii-renderer.mjs';
+import { renderAsciiFrameV2 as renderAsciiFrameV1, glyphCatalogForRoom } from '../render-ascii/v2/ascii-scene.mjs';
 import { loadMazeBenchEngineV1 } from '../engine/v1/engine.mjs';
 import { PlaySessionV1 } from '../play/v1/play-session.mjs';
 import { cameraRelativeMoveDirection } from '../play/v1/camera-relative-input.mjs';
@@ -40,7 +40,7 @@ function renderList() {
   const query = $('search').value.trim().toLowerCase();
   const matches = entries.filter(item => `${item.name} ${item.id} ${item.group} ${item.roleId}`.toLowerCase().includes(query));
   const fragment = document.createDocumentFragment();
-  for (const group of ['Mechanisms', 'Slopes', 'Actors', 'Terrain', 'Scenery']) {
+  for (const group of ['Actors', 'Terrain', 'Mechanisms', 'Slopes', 'Scenery']) {
     const members = matches.filter(item => item.group === group);
     if (!members.length) continue;
     const section = document.createElement('div'); section.className = 'object-group';
@@ -193,14 +193,14 @@ async function showSymbolReview() {
     $('audit-status').textContent = `${audit.objects} object types · ${audit.viewsChecked.toLocaleString()} views checked · ${inventory.roomCount} rooms scanned`;
     const result = document.createDocumentFragment();
     const message = text => { const p = document.createElement('p'); p.textContent = text; result.append(p); };
-    message(`${gameplay.length} shared gameplay symbols; ${mixed.length} shared between gameplay objects and scenery. Amber tiles above mark repeated top-down symbols.`);
+    message(`${gameplay.length} shared gameplay symbols; ${mixed.length} shared between gameplay objects and scenery; ${audit.collisions.filter(item => item.kind === 'scenery').length} shared scenery symbols. Greek and Latin lookalikes are different Unicode characters.`);
     for (const collision of audit.collisions) {
       const row = document.createElement('p'); row.className = 'audit-collision';
       const code = document.createElement('code'); code.textContent = collision.glyph;
       const names = [...new Set(collision.owners.map(owner => owner.name))];
       row.append(code, document.createTextNode(`${names.join(' · ')}${collision.kind === 'scenery' ? ' (scenery only)' : ` · ${collision.owners.length} object identities`}`)); result.append(row);
     }
-    message('Top-down rendering skips the dynamic catalogue: clones from ID 3 and weightless boxes from ID 5 repeat; numbered slopes lose both ID and direction. Tilted views use the catalogue. Symbols have not been reassigned.');
+    message(audit.topDownMismatches.length ? 'Some top-down symbols differ from their catalogue entries.' : 'Every visible top-down symbol matches its catalogue entry. Exit is retired; E and e remain reserved.');
     const table = document.createElement('table'); table.className = 'inventory-table';
     const heading = table.createTHead().insertRow();
     for (const title of ['Type', 'Highest ID', 'Most IDs / room']) { const th = document.createElement('th'); th.scope = 'col'; th.textContent = title; heading.append(th); }
@@ -390,7 +390,7 @@ async function start() {
   blocks = manifest.blocks.map(block => ({ ...block, visual: { ...block.visual,
     ...(block.visual?.modelUrl ? { modelUrl: new URL(block.visual.modelUrl, new URL('../level-data/v2/main-world/world.json', import.meta.url)).href } : {}) } }));
   entries = objectCatalog(blocks);
-  painter = new AsciiMazeRendererV1($('ascii'), null, blocks);
+  painter = new AsciiMazeRendererV2($('ascii'), null, blocks);
   session = new PlaySessionV1(engine, blocks, {
     frameDelay: 100,
     onFrame(engineState, room) {

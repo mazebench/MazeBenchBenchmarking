@@ -1,6 +1,6 @@
-// Audit the actual signed observation renderer, without redefining its symbols.
+// Audit the current observation renderer, without redefining its symbols.
 import { objectCatalog, makeLabRoom, makeGenericLabRoom } from './object-lab-catalog.mjs';
-import { glyphCatalogForRoom, glyphForObject, renderAsciiFrameV1 } from '../render-ascii/v1/ascii-scene.mjs';
+import { glyphCatalogForRoom, glyphForObject, renderAsciiFrameV2 as renderAsciiFrameV1 } from '../render-ascii/v2/ascii-scene.mjs';
 
 export const bodyIdentity = object => Number.isInteger(object.groupId) ? object.groupId
   : Number.isInteger(object.genericId) ? object.genericId : 0;
@@ -82,7 +82,7 @@ export async function auditObjectSymbols(blocks, { inventory, yieldProgress = as
       'Exact non-space characters are compared across all five camera pitches, four camera turns, mounts and states. Different states or directions of the same body are not counted as different objects.',
       'Scenery means the tree, shrub and bridge models; these are still solid gameplay obstacles.',
       'Dynamic symbols depend on the identities present in a room. Matching symbols in different rooms do not imply matching IDs.',
-      'Puncher resting/sprung states share symbols. The top-down fallback also loses slope direction. These remain separate issues from collisions between objects.',
+      'States of one object can share a character (for example, puncher resting/sprung); distinct object types and numbered bodies cannot. Slope directions have separate glyphs.',
       'The audit uses one combined sample catalogue. It does not prove uniqueness for every possible future room or every Unicode font.'
     ] };
 }

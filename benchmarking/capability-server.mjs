@@ -40,7 +40,7 @@ export function createCapabilityServer(root, options = {}) {
     return sandbox;
   };
   const upstreamPort = async () => {
-    if (options.upstreamPort) return options.upstreamPort;
+    if (options.upstreamPort) return typeof options.upstreamPort === 'function' ? options.upstreamPort() : options.upstreamPort;
     if (Date.now() - visionAt > 15000) {
       try { const r = await fetch('http://127.0.0.1:8082/api/benchmark/vision/status', { signal: AbortSignal.timeout(500) }); vision = r.ok; }
       catch { vision = false; }

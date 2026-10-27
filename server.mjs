@@ -7,6 +7,7 @@ import { createPlaybackServer } from "./benchmarking/playback-server.mjs";
 import { createProviderVisionServer } from "./benchmarking/vision-providers/server.mjs";
 import { createRecoveryServer } from "./benchmarking/recovery-server.mjs";
 import "./benchmarking/codex-releases.mjs";
+import { createRuntimeReleaseServer } from "./benchmarking/runtime-release-server.mjs";
 import { publishEditorRoom } from "./benchmarking/storage/live-world.mjs";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
@@ -394,4 +395,10 @@ if (process.env.MAZEBENCH_DISABLE_CAPABILITIES !== "1" && (Number(port) === 8080
   const { server: catalogServer } = createCatalogServer(root, { port: Number(process.env.MAZEBENCH_CATALOG_PORT || 8084), mainPort: Number(port), upstreamPort: Number(process.env.MAZEBENCH_CAPABILITY_PORT || 8083) });
   catalogServer.on("error", error => { if (error.code !== "EADDRINUSE") console.error("Model catalog server:", error.message); });
   catalogServer.listen(Number(process.env.MAZEBENCH_CATALOG_PORT || 8084), "127.0.0.1");
+}
+
+if (process.env.MAZEBENCH_DISABLE_CAPABILITIES !== "1" && Number(port) === 8080) {
+  const releases = createRuntimeReleaseServer(root);
+  releases.server.on('error', error => { if (error.code !== 'EADDRINUSE') console.error('Versioned benchmark runner:', error.message); });
+  releases.ready.then(() => releases.server.listen(8090, '127.0.0.1'));
 }

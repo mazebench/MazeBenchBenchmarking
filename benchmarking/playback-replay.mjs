@@ -28,6 +28,7 @@ export class PlaybackReplay {
   async build(directory, limit = Infinity) {
     const incremental = isIncremental(directory), head = incremental ? verifyJournal(directory) : (verifyCheckpoint(directory), null);
     const metadata = JSON.parse(await readFile(path.join(directory,'run.json'),'utf8'));
+    const manifest = JSON.parse(await readFile(path.join(directory,'integrity.json'),'utf8'));
     const epoch = head ? `${head.generation}:${head.historyEpoch || head.generation}` : `legacy:${metadata.created_at || directory}`;
     const summary = head?.summary || await readCheckpointJson(directory,'summary.json');
     const count = summary.action_count;
@@ -41,7 +42,8 @@ export class PlaybackReplay {
       const runtime = vision ? await VisionRuntime.open(this.root,directory) : source.runtime, assets = runtime.assets;
       const rooms = assets.rooms.map(room => assets.liveWorld?.room(room.fileName,0) || room);
       const world = {storageFormat:V2_WORLD_FORMAT,columns:[...new Set(rooms.map(room=>room.position[0]))].sort(),rows:[...new Set(rooms.map(room=>room.position[1]))].sort(),
-        roomWidth:assets.roomWidth,roomHeight:assets.roomHeight,rooms,blocks:assets.blocks};
+        roomWidth:assets.roomWidth,roomHeight:assets.roomHeight,rooms,blocks:assets.blocks,
+        asciiRenderer: manifest.files?.['engine/v1/ascii-v2.json'] ? 2 : 1};
       entry = {source,runtime,world,builder:new RecordedReplayBuilder(world),value:{epoch,action_count:-1}};
     } else if (vision && entry.runtime.internal.actionCount !== count) entry.runtime = await VisionRuntime.open(this.root,directory);
     else if (!vision && entry.source.saved.actionCount !== count) entry.source.saved = await readCheckpointJson(directory);

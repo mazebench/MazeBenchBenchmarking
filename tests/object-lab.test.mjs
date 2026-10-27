@@ -4,7 +4,7 @@ import test from 'node:test';
 import { objectCatalog, makeLabRoom, makeGenericLabRoom } from '../ui/object-lab-catalog.mjs';
 import { auditObjectSymbols, inventoryGenericBodies } from '../ui/object-lab-audit.mjs';
 import { instantiateMazeBenchEngineV1 } from '../engine/v1/engine.mjs';
-import { renderAsciiFrameV1 } from '../render-ascii/v1/ascii-scene.mjs';
+import { renderAsciiFrameV2 as renderAsciiFrameV1 } from '../render-ascii/v2/ascii-scene.mjs';
 
 const { blocks } = JSON.parse(await readFile(new URL('../level-data/v2/main-world/world.json', import.meta.url), 'utf8'));
 const entries = objectCatalog(blocks);
@@ -17,7 +17,8 @@ const approach = room => {
 const symbols = (frame, id) => [...new Set(frame.pixels.flat().filter(pixel => pixel.name === id).map(pixel => pixel.glyph))];
 
 test('every authored object and lab rotation/state can render through the benchmark text renderer', async () => {
-  assert.equal(entries.length, blocks.length);
+  assert.equal(entries.length, blocks.length - 1);
+  assert.ok(!entries.some(entry => entry.id === 'exit'));
   for (const entry of entries) for (const orientation of entry.orientations.length ? entry.orientations : [undefined]) {
     for (let state = 0; state < Math.max(1, entry.states.length); state++) {
       const room = makeLabRoom(entry, { orientation, state });
@@ -112,14 +113,10 @@ test('world inventory counts bodies rather than voxels and distinguishes highest
   assert.equal(inventory.types.find(type => type.id === 'clone-slope').highestId, null);
 });
 
-test('symbol review exposes the signed renderer’s top-down collisions without hiding scenery reuse', async () => {
+test('canonical symbol review has no collisions or incorrect top faces', async () => {
   const audit = await auditObjectSymbols(blocks);
-  assert.equal(audit.objects, blocks.length);
+  assert.equal(audit.objects, entries.length);
   assert.ok(audit.viewsChecked > 5000);
-  assert.deepEqual(audit.collisions.filter(item => item.kind === 'gameplay').map(item => item.glyph).sort(), [';', '{']);
-  assert.deepEqual(audit.collisions.filter(item => item.kind === 'mixed'), []);
-  assert.deepEqual(audit.collisions.filter(item => item.kind === 'scenery').map(item => item.glyph).sort(), ['T', 't']);
-  assert.deepEqual(audit.topDownMismatches.find(item => item.id === 'weightless-box').bodyIds, Array.from({ length: 15 }, (_, id) => id + 5));
-  assert.equal(audit.topDownMismatches.find(item => item.id === 'clone').bodyIds[0], 3);
-  assert.equal(audit.topDownMismatches.find(item => item.id === 'clone-slope').bodyIds.length, 20);
+  assert.deepEqual(audit.collisions, []);
+  assert.deepEqual(audit.topDownMismatches, []);
 });
