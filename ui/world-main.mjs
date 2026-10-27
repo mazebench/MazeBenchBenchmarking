@@ -1,3 +1,4 @@
+import { setupCurrentVersionBadge } from './current-version.mjs';
 // Browser entry point; retain render/v1/main.mjs for signed historical runs.
 import { bindCameraHold } from "../render/v1/camera-controls.mjs";
 import { RENDERER_VERSION } from "../render/v1/world-renderer.mjs";
@@ -6,6 +7,8 @@ import { loadBrowserWorld, updateLoadProgress, paintLoadProgress } from "./brows
 import { prepareWorldSurfaces } from "./prepared-world-surfaces.mjs";
 import { installFlyoverGamepadControls } from "./play-gamepad.mjs";
 import { installGamepadPresentation } from "./gamepad-presentation.mjs";
+
+setupCurrentVersionBadge(document.querySelector('.identity'), { benchmark: true });
 
 const elements = {
   canvas: document.getElementById("world"),

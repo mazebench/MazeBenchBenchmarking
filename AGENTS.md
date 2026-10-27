@@ -513,3 +513,26 @@ never rewrite historical replay frames to reflect later gem collection.
 Existing runs require the exact-hash, paused operator migration in
 `scripts/enable-live-world-updates.mjs`. Preserve all preexisting game state and
 settings. Do not silently reseal unrelated prior engine or level drift.
+
+## Automatic engine/world versioning
+
+The tracked `benchmarking/version-registry.mjs` is append-only. Its `v1.1.N`
+labels identify engine/Play-adapter plus world inventories. Never renumber an
+existing fingerprint or choose N manually. Use `updateVersionRegistry` from
+`benchmarking/version-store.mjs`; it serializes concurrent writers and atomically
+merges new identities. The historical catalogue uses this same writer.
+
+`benchmarking/current-version.mjs` registers the live Play and frozen benchmark
+inventories independently. Site/report-server startup and five-second checks
+notice authored-world and adapter edits; editor saves register after publishing.
+The physics build registers its completed binary and compiled C++ source hashes.
+Unbuilt C++ edits are reported as pending, never claimed as active physics.
+Identical rebuilds and reverting to known content reuse the existing number.
+UI, harness, model, effort, and speed edits do not create engine/world versions.
+
+The main and Benchmark header badges use `/api/versions/current` and refresh
+without reloading. Both display the AI benchmark engine/world version, not the
+manual Play version. The main page shows Main World; the Benchmark page follows
+the selected world. Run labels resolve recorded manifests and observed room revisions;
+never relabel a paused run from the current authored world or modify/reseal a run
+just to update its label. Commit the run-free registry with engine/world changes.

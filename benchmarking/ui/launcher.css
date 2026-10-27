@@ -283,3 +283,11 @@ details[open] > summary::after { transform: rotate(90deg); }
   .compact-launch .launch-segments button { font-size: 11px; padding: 0 5px; }
   .compact-launch .prompt-context { width: auto; order: initial; margin-left: auto; text-align: right; }
 }
+
+.current-version { display: inline-flex; align-items: center; flex: 0 0 auto; padding: 3px 8px; border: 1px solid #ffffff0c; border-radius: 7px; background: #ffffff05; color: #92959d; font: 500 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; letter-spacing: 0; }
+.current-version[hidden] { display: none; }
+
+@media (max-width: 540px) {
+  .topbar nav { flex: 1 1 auto; flex-wrap: wrap; gap: 8px 10px; }
+  .topbar .connection-status { flex: 0 0 auto; max-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}

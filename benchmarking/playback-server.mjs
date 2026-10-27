@@ -1,3 +1,4 @@
+import { CurrentVersions } from './current-version.mjs';
 import { createServer } from 'node:http';
 import { access, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
@@ -21,6 +22,8 @@ export function createPlaybackServer(root, options = {}) {
   const pricing = options.pricing || new PricingService();
   const library = options.library || new RunLibrary();
   const archive = options.archive || new LegacyArchive(root);
+  const versions = options.versions || new CurrentVersions(root);
+  const autoVersions = options.watchVersions ?? (!options.replays && !options.reports && !options.library && !options.archive);
   const server = createServer(async (req, res) => {
     const reply = (status, value, type = 'application/json') => {
       if (res.destroyed) return;
@@ -33,6 +36,9 @@ export function createPlaybackServer(root, options = {}) {
     if (req.method === 'OPTIONS') { res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS'); return reply(204, ''); }
     if (req.method !== 'GET') return reply(405, { error: 'Playback is read-only.' });
     const url = new URL(req.url, 'http://' + req.headers.host);
+    if (url.pathname === '/api/versions/current') {
+      try { return reply(200, versions.read()); } catch (error) { return reply(503, { error: error.message }); }
+    }
     if (url.pathname.startsWith('/api/benchmark/archive/')) {
       try {
         if (url.pathname === '/api/benchmark/archive/runs') return reply(200, await archive.list());
@@ -64,6 +70,7 @@ export function createPlaybackServer(root, options = {}) {
       try {
         for await (const event of library.stream(recordsRoots, controller.signal)) {
           if (res.destroyed) return;
+          if (autoVersions && event.run?.benchmark_version) event.run.benchmark_version = versions.registerRun(event.run.benchmark_version);
           res.write(JSON.stringify(event) + '\n');
           // Flush each real completion before the next synchronous verification.
           await yieldToIO();
@@ -91,8 +98,8 @@ export function createPlaybackServer(root, options = {}) {
         : match[2]==='chunk' ? await replays.chunk(directory,Object.fromEntries(url.searchParams)) : await replays.movie(directory));
     } catch (error) { reply(400, { error: error.message }); }
   });
-  server.on('close', () => { reports.close(); pricing.close(); });
-  server.on('listening', () => { if (options.refreshPricing ?? (!options.replays && !options.reports)) pricing.start(); });
+  server.on('close', () => { reports.close(); pricing.close(); versions.close(); });
+  server.on('listening', () => { if (autoVersions) versions.start(); if (options.refreshPricing ?? (!options.replays && !options.reports)) pricing.start(); });
   return { server, replays, reports, pricing };
 }
 if (process.argv[1] === import.meta.filename) {

@@ -1,3 +1,4 @@
+import { setupCurrentVersionBadge } from '../../ui/current-version.mjs';
 import { groupModels, sortedEfforts, variantEfforts, resolveSelection } from "../model-catalog/normalize.mjs";
 import { supportsAnyLanguage } from "../capabilities.mjs";
 import { benchmarkFetch, visionAvailable, visionUrl } from "./benchmark-api.mjs";
@@ -7,6 +8,8 @@ import { setupLauncherLayout } from "./launcher-layout.mjs";
 import { setupPromptPreview } from "./prompt-preview.mjs";
 import { cachedRuns, cacheRuns, setupRunLoading, loadRunsWithProgress } from "./run-loading.mjs";
 import './pricing-link.mjs';
+setupCurrentVersionBadge(document.querySelector('.topbar nav'), { benchmark: true });
+
 const elements = Object.fromEntries([
   "world", "world-description", "world-objective", "connection-status", "launch-form", "provider", "model", "effort", "action-limit", "run-options-summary",
   "coding-mode", "launch-note", "sequence-option", "sequence-enabled", "observation-option", "observation-mode", "vision-preview", "vision-preview-image", "vision-preview-status", "vision-room", "vision-left", "vision-right", "vision-tilt", "launch-single",
@@ -104,6 +107,7 @@ const runList = new RunListView(elements["run-list"]);
 const runLoading = setupRunLoading(elements["run-list"]);
 const updatePrompt = setupPromptPreview(document.getElementById("agent-prompts"), launchPayload);
 let latestRuns = [];
+document.addEventListener('mazebench:versions-updated', () => { if (latestRuns.length) renderRuns(latestRuns); });
 let hasRunData = false, runsAreCached = false, pendingRuns;
 let pollTimer;
 

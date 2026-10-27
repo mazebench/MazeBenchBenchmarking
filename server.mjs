@@ -1,3 +1,4 @@
+import { CurrentVersions } from "./benchmarking/current-version.mjs";
 import { createCatalogServer } from "./benchmarking/catalog-server.mjs";
 import { createLocalProjectHandler } from "./scripts/lib/local-project-http.mjs";
 import { createCapabilityServer } from "./benchmarking/capability-server.mjs";
@@ -39,6 +40,7 @@ const runLibrary = new RunLibrary({ markInterrupted: true });
 const runDashboard = new RunDashboard(runLibrary);
 const reportReader = new ReportReader();
 const tokenTelemetry = new TokenTelemetry();
+const versions = new CurrentVersions(root);
 const localProject = createLocalProjectHandler(path.join(root, "project-data"));
 
 const contentTypes = new Map([
@@ -120,8 +122,10 @@ async function saveV2Level(request, response, fileName) {
       const temp = path.join(v2LevelRoot, `.${fileName}-${randomUUID()}.tmp`);
       try { await writeFile(temp,source,{flag:'wx'}); await rename(temp,path.join(v2LevelRoot,fileName)); }
       finally { await rm(temp,{force:true}); }
-      return publishEditorRoom(root,[benchmarkSupervisor.recordsRoot,
+      const published = await publishEditorRoom(root,[benchmarkSupervisor.recordsRoot,
         process.env.MAZEBENCH_VISION_RECORDS_ROOT || path.join(os.homedir(),'records','mazebench-vision')],fileName,source);
+      try { versions.read(); } catch (error) { console.error(`Version registration: ${error.message}`); }
+      return published;
     });
     editorSaveQueue = save;
     const updates = await save;
@@ -321,6 +325,10 @@ const server = createServer(async (request, response) => {
     return;
   }
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+  if (request.method === "GET" && url.pathname === "/api/versions/current") {
+    try { sendJson(response, 200, versions.read()); } catch (error) { sendJson(response, 503, { error: error.message }); }
+    return;
+  }
   if (await localProject(request, response)) return;
   if (url.pathname.startsWith("/api/benchmark/v1/") &&
       await benchmarkApi(request, response, url)) return;
@@ -343,7 +351,9 @@ const server = createServer(async (request, response) => {
   await serveStatic(request, response, labAsset ? `/apps/web/public${url.pathname}` : url.pathname);
 });
 
+server.on("close", () => versions.close());
 server.listen(port, host, () => {
+  versions.start();
   console.log(`MazeBenchBenchmarking running at http://localhost:${port}`);
 });
 

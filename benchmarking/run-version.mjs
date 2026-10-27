@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { safeReadFile } from './v1/safe-files.mjs';
 import { readLiveWorld, readWorldRevision } from './storage/live-world.mjs';
 import { repositoryRunVersion } from './run-version-label.mjs';
+import { readVersionRegistry } from './version-store.mjs';
 import { snapshotIdentity } from './version-catalogue.mjs';
 const releases = JSON.parse(readFileSync(new URL('./benchmark-releases.json', import.meta.url), 'utf8'));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -62,7 +63,7 @@ export function readRunVersion(directory, metadata, summary = {}) {
       world.sha256 = identity.world; world.available_sha256 = identity.world;
     }
     const result = { schema_version: 1, evidence: 'manifest', manifest_sha256: hash(encoded), engine, world };
-    return repositoryRunVersion(result);
+    return repositoryRunVersion(result, 'current', readVersionRegistry().versions);
   } catch (error) {
     // Bad or absent provenance must stay visible without hiding the run itself.
     return repositoryRunVersion({ evidence: 'unavailable' });

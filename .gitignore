@@ -23,3 +23,7 @@ environments/mazebench/mazebench/runtime/
 /records/
 /.mazebench/
 run-[0-9][0-9][0-9][0-9]-*/
+
+# Transient locks for the tracked append-only version catalogue.
+/benchmarking/version-registry.mjs.lock
+/benchmarking/version-registry.mjs.*.tmp

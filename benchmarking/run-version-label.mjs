@@ -2,10 +2,19 @@ import { versions, manifestVersions } from './version-registry.mjs';
 import { legacyVersions } from './legacy-version-registry.mjs';
 
 const exact = new Map(versions.map(v => [`${v.generation}:${v.engine}:${v.world}`, v.version]));
+export function registerPresentationVersions(rows) {
+  for (const row of rows) {
+    if (row.generation !== '1.1' || !/^1\.1\.\d+$/.test(row.version) || ![row.engine, row.world].every(hash => /^[a-f0-9]{64}$/.test(hash))) continue;
+    const key = `${row.generation}:${row.engine}:${row.world}`;
+    if (exact.has(key) && exact.get(key) !== row.version) throw new Error('Conflicting version identity');
+    exact.set(key, row.version);
+  }
+}
 const legacy = new Map(legacyVersions.map(v => [v.version, v.engine]));
 // Current versions use pinned inventories. Historical releases use the owner's
 // explicit Git/date reconstruction policy, with that provenance retained.
-export function versionPresentation(value = {}) {
+export function versionPresentation(value = {}, registry = null) {
+  const known = registry ? new Map(registry.map(row => [`${row.generation}:${row.engine}:${row.world}`, row.version])) : exact;
   const release = String(value?.benchmark_release || (value?.evidence === 'legacy-archive' ? '1.0' : '1.1')).split('.').slice(0, 2).join('.');
   const engine = value?.engine?.runtime_sha256;
   const world = value?.world?.available_sha256 || value?.world?.sha256;
@@ -17,7 +26,7 @@ export function versionPresentation(value = {}) {
       `Commit date: ${assignment.commit_at}`, `Engine inventory SHA-256: ${engine}`, `World inventory SHA-256: ${world}`].join('\n');
     return { label: `v${value.assigned_version}`, detail, assigned_version: value.assigned_version, exact_version: null };
   }
-  const version = (release !== '1.0' && exact.get(`${release}:${engine}:${world}`)) ||
+  const version = (release !== '1.0' && known.get(`${release}:${engine}:${world}`)) ||
     (!engine && value.evidence === 'manifest' ? manifestVersions[value.manifest_sha256] : null) || null;
   const detail = [
     `Benchmark v${version || release + '.?'}`,
@@ -32,9 +41,9 @@ export function versionPresentation(value = {}) {
   return { label: `v${version || release + '.?'}`, detail, exact_version: version };
 }
 
-export function repositoryRunVersion(value = {}, origin = 'current') {
+export function repositoryRunVersion(value = {}, origin = 'current', registry = null) {
   const result = { ...value, schema_version: 1, benchmark_release: origin === 'legacy' ? '1.0' : '1.1' };
-  const presentation = versionPresentation(result);
+  const presentation = versionPresentation(result, registry);
   return { ...result, ...presentation, classification: presentation.assigned_version ? 'historical-reconstruction' : presentation.exact_version ? 'catalogued-snapshot' : 'uncatalogued-snapshot' };
 }
 
