@@ -156,3 +156,81 @@ For a shorter development loop, `npm run test:quick` runs the lab, engine/WASM,
 and site unit checks against the current built engine. `npm run test:integration`
 runs the slower vision/browser integrations. `npm test` still rebuilds and runs
 every native, WASM, app, and integration check.
+
+### Exact run version catalogue
+
+`v1.1.N` identifies a recorded engine/play-adapter and world inventory from this
+repository. Its append-only snapshot registry is `benchmarking/version-registry.mjs`.
+`v1.0.N` groups legacy runs by their reconstructed engine/adapter inventory,
+numbered by first run date: the first engine used is `v1.0.0`, the next distinct
+engine is `v1.0.1`, and so on. Runs assigned the same engine share a number;
+world-only changes remain in provenance. The public legacy release registry is
+`benchmarking/legacy-version-registry.mjs`. The old registry's `1.0` entries are
+research snapshot IDs, displayed as `snapshot-N`, not public release labels.
+Model, effort, speed and harness versions remain separate dimensions.
+
+To refresh the read-only inventory and register newly discovered snapshots:
+
+```sh
+node scripts/catalogue-run-versions.mjs \
+  "$HOME/records/mazebench-benchmark" outputs/version-audit/catalogue.json \
+  "$HOME/records/mazebench-vision" \
+  --legacy-repo /path/to/MazeBenchEngine --register
+```
+
+Open `/outputs/version-audit/catalogue.html` on the local site for the searchable
+version/run inventory. The JSON includes full fingerprints, linked repair archives,
+observed world revisions and action boundaries. Unobserved room edits published
+after a run stopped do not become that run's version. Older actions keep their
+pre-repair engine identity. Pinned and archived manifests are distinguished from
+world revisions observed by actions; a run can span several versions. Git snapshots
+from all legacy branches during the saved-run era support the chronological
+assignment. A catalogue is an inventory of the supplied roots, not a claim to
+recover deleted or unsaved source bytes.
+
+The HTML/JSON reports stay under ignored `outputs/`. The registry contains only
+version identities and fingerprint aliases, not run records. This command never
+modifies, reseals, pauses or resumes a run.
+
+Older recordings are browsable at `/benchmarking/ui/archive.html`, linked as
+**Older runs** in Benchmark navigation. The read-only report service on port 8085
+serves paged original ASCII/JSON observations, preserved MP4s with byte-range
+seeking, and imported heatmaps. It does not resimulate old records with today's
+engine. `MAZEBENCH_LEGACY_RECORDS_ROOT` overrides the legacy run directory. Run
+records, research caches, and generated reports remain Git-ignored.
+
+Historical matching is reproducible with:
+
+```sh
+node scripts/match-legacy-run-versions.mjs \
+  outputs/version-audit/catalogue.json /path/to/MazeBenchEngine
+```
+
+This extracts historical Git runtimes into ignored `.mazebench/`, compares
+initial board hashes and recorded world gem totals, and checks every saved
+`goto_level` state with hash format 3 (which excludes already-collected gems).
+It never launches an agent. The output is `outputs/version-audit/legacy-matches.json`.
+Then assign concrete legacy releases:
+
+```sh
+node scripts/assign-legacy-run-versions.mjs
+```
+
+The owner explicitly authorized Git history and run-date reconstruction. Select
+the latest preceding state-compatible snapshot when possible; otherwise select
+the latest preceding Git snapshot. A future commit is never used when an earlier
+snapshot exists. Number distinct selected engine inventories in first-run order.
+Each assignment retains the source commit, GitHub link, date, world fingerprint,
+and method in `outputs/version-audit/legacy-assignments.json` and the ignored
+import index. The original legacy run files and signed runs remain unchanged.
+The command preserves a GitHub-ref history log and an import-index backup.
+Rerun the catalogue command to refresh its HTML/JSON with the assignments.
+Cards and heatmap comparisons show concrete release numbers; provenance identifies
+historical reconstruction rather than claiming old runs had signed manifests.
+
+`scripts/recover-archived-manifests.mjs <catalogue.json> <successor-plan.json>`
+reverses a recorded migration plan against its verified successor backup. It
+writes only to `.mazebench/recovered-manifests/`, and only when the reconstructed
+bytes match an original manifest SHA-256 recorded in the run. Provenance receipts
+retain the source/plan hashes. The catalogue automatically discovers these
+recovered files; executing run manifests and checkpoints are never rewritten.

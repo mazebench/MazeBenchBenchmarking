@@ -24,7 +24,7 @@ export function runCompany(run) {
   // Historical imports record the same hosted models under provider "prime".
   if (["prime-agent", "prime"].includes(run.provider) && model.includes("/")) {
     const vendor = model.split("/")[0];
-    return ({openai: "OpenAI", anthropic: "Anthropic (Claude)", google: "Google", meta: "Meta", "meta-llama": "Meta", xai: "xAI", deepseek: "DeepSeek", alibaba: "Alibaba", qwen: "Alibaba", nvidia: "NVIDIA", mistral: "Mistral"})[vendor] || vendor;
+    return ({openai: "OpenAI", anthropic: "Anthropic (Claude)", google: "Google", meta: "Meta", "meta-llama": "Meta", xai: "xAI", deepseek: "DeepSeek", alibaba: "Alibaba", qwen: "Alibaba", nvidia: "NVIDIA", mistral: "Mistral", moonshotai: "Moonshot AI"})[vendor] || vendor;
   }
   if (model.startsWith("claude")) return "Anthropic (Claude)";
   if (model.startsWith("gemini")) return "Google";
@@ -82,7 +82,7 @@ export function runCardValues(run, { now = Date.now() } = {}) {
   const rateLimited = Boolean(run.rate_limit && run.status === "failed");
   const recovery = recoveryPresentation(run);
   return {
-    version: run.benchmark_version?.label ? run.benchmark_version : versionPresentation(run.benchmark_version),
+    version: versionPresentation(run.benchmark_version),
     href: `./run.html?id=${encodeURIComponent(run.id)}`,
     company,
     logo: logo ? new URL(`./assets/model-logos/${logo}.svg`, import.meta.url).href : null,

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { safeReadFile } from './v1/safe-files.mjs';
 import { readLiveWorld, readWorldRevision } from './storage/live-world.mjs';
 import { repositoryRunVersion } from './run-version-label.mjs';
+import { snapshotIdentity } from './version-catalogue.mjs';
 const releases = JSON.parse(readFileSync(new URL('./benchmark-releases.json', import.meta.url), 'utf8'));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const worldPrefix = 'level-data/v2/main-world/';
@@ -31,7 +32,7 @@ export function readRunVersion(directory, metadata, summary = {}) {
         ? [{ action: repair.action_count, before_sha256: change.before, after_sha256: change.after }] : [];
     });
     if (history.length) engine.history = history;
-    const kind = metadata.world || config.world || 'main-world';
+    const kind = config.world || metadata.world || 'main-world';
     const world = { name: { 'main-world': 'Main World', 'ice-maze': 'Ice Maze', slotski: 'Slotski' }[kind] || kind,
       version: null, sha256: null, policy: config.world_updates || 'frozen', edited: false };
     if (kind === 'main-world') {
@@ -55,7 +56,11 @@ export function readRunVersion(directory, metadata, summary = {}) {
       world.edited = release?.edited || Boolean(world.available_sha256 && world.available_sha256 !== world.sha256);
       world.parent_sha256 = release?.parent_sha256 ?? null;
     }
-    if (kind !== 'main-world') { engine.version = null; engine.sha256 = null; engine.runtime_sha256 = null; engine.source_commit = null; delete engine.history; }
+    if (kind !== 'main-world') {
+      const identity = snapshotIdentity(files, null, { ...config, world: kind });
+      engine.version = null; engine.sha256 = null; engine.runtime_sha256 = identity.engine; engine.source_commit = null; delete engine.history;
+      world.sha256 = identity.world; world.available_sha256 = identity.world;
+    }
     const result = { schema_version: 1, evidence: 'manifest', manifest_sha256: hash(encoded), engine, world };
     return repositoryRunVersion(result);
   } catch (error) {

@@ -31,13 +31,13 @@ async function fixture(t, {live = false, wasm = known} = {}) {
   await writeFile(path.join(root,'integrity.json'),bytes);
   return {root,metadata:{world:'main-world',integrity:{manifest_sha256:hash(bytes)}}};
 }
-test('engine fingerprints remain recorded while all native runs display v1.1',async t=>{
+test('engine fingerprints remain recorded while uncatalogued snapshots remain explicit',async t=>{
   const {root,metadata}=await fixture(t);
   assert.equal(readRunVersion(root,metadata).engine.version,'1.1');
-  assert.equal(readRunVersion(root,metadata).label,'v1.1');
+  assert.equal(readRunVersion(root,metadata).label,'v1.1.?');
   const unknown=await fixture(t,{wasm:'4'.repeat(64)});
   assert.equal(readRunVersion(unknown.root,unknown.metadata).engine.version,null);
-  assert.equal(readRunVersion(unknown.root,unknown.metadata).label,'v1.1');
+  assert.equal(readRunVersion(unknown.root,unknown.metadata).label,'v1.1.?');
   assert.equal(readRunVersion(root,{...metadata,world:'slotski'}).world.version,null);
 });
 test('edits published after the last recorded action do not relabel a paused world',async t=>{
@@ -53,7 +53,7 @@ test('edits published after the last recorded action do not relabel a paused wor
 test('missing and altered evidence stays unknown without dropping the run',async t=>{
   const {root,metadata}=await fixture(t);
   await writeFile(path.join(root,'integrity.json'),(await readFile(path.join(root,'integrity.json'),'utf8'))+' ');
-  assert.equal(readRunVersion(root,metadata).label,'v1.1');
+  assert.equal(readRunVersion(root,metadata).label,'v1.1.?');
   assert.equal(readRunVersion(root,{}).evidence,'unavailable');
 });
 test('in-run engine changes are disclosed and bounded to the snapshot action',async t=>{
@@ -61,12 +61,12 @@ test('in-run engine changes are disclosed and bounded to the snapshot action',as
   metadata.runtime_repairs=[{action_count:20,files:{'engine/v1/voxel_physics.wasm':{before:'7'.repeat(64),after:known}}}];
   assert.equal(readRunVersion(root,metadata,{action_count:19}).engine.history,undefined);
   const value=readRunVersion(root,metadata,{action_count:21});
-  assert.equal(value.label,'v1.1'); assert.equal(value.engine.history[0].action,20);
+  assert.equal(value.label,'v1.1.?'); assert.equal(value.engine.history[0].action,20);
 });
-test('all prior imports use v1.0 regardless of missing or changed metadata',async t=>{
+test('prior imports retain an unknown patch version without exact evidence',async t=>{
   const {root}=await fixture(t);
-  assert.equal(versionPresentation(legacyRunVersion()).label,'v1.0');
-  assert.equal(readLegacyRunVersion(root).label,'v1.0');
+  assert.equal(versionPresentation(legacyRunVersion()).label,'v1.0.?');
+  assert.equal(readLegacyRunVersion(root).label,'v1.0.?');
   await writeFile(path.join(root,'run.json'),JSON.stringify({id:'prior-run',game_id:'maze',level_id:'level_HxI'}));
-  assert.equal(readLegacyRunVersion(root).label,'v1.0');
+  assert.equal(readLegacyRunVersion(root).label,'v1.0.?');
 });

@@ -20,7 +20,7 @@ try { const saved = JSON.parse(localStorage.getItem(labelKey)); if (saved && typ
 const labelFor = run => typeof labels[run?.id] === "string" && labels[run.id].trim() ? labels[run.id] : displayModelName(run?.model);
 function saveLabels() { try { localStorage.setItem(labelKey, JSON.stringify(labels)); } catch { /* Keep edits for this page session. */ } }
 const modeName = run => run?.observation_mode === "vision" ? "Vision" : "Text";
-const details = run => `${modeName(run)} · ${comparisonCondition(run)}${run.effort ? ` · ${run.effort}` : ""}${modelSpeed(run) === "fast" ? " · Fast" : ""}${run.benchmark_version?.label ? ` · ${run.benchmark_version.label}` : ""}`;
+const details = run => `${modeName(run)} · ${comparisonCondition(run)}${run.effort ? ` · ${run.effort}` : ""}${modelSpeed(run) === "fast" ? " · Fast" : ""} · ${runCardValues(run).version.label}`;
 if (params.get("scale") === "share") $("color-scale").value = "share";
 
 // The historical HTML is signed. Modern controls live in this presentation module.
@@ -211,7 +211,7 @@ function renderPanel(panel) {
   pick.setAttribute("aria-label", `Choose run${run ? `: ${modelLabel(run.model)} · ${details(run)}` : ""}`);
   pick.querySelector("img")?.remove(); if (run) { const logo = document.createElement("span"); addLogo(logo, run); if (logo.firstChild) pick.prepend(logo.firstChild); }
   const link = panel.element.querySelector(".open-run"); link.hidden = !run;
-  if (run) { link.href = run.source?.url || `./run.html?id=${encodeURIComponent(run.id)}`; link.title = `${run.source ? "Source" : "Open run"} · ${run.created_at ? dates.format(new Date(run.created_at)) : "Undated"}`; }
+  if (run) { link.href = run.source?.run_id ? new URL(`./archive.html?id=${encodeURIComponent(run.source.run_id)}`, import.meta.url).href : `./run.html?id=${encodeURIComponent(run.id)}`; link.title = `${run.source ? "Older run" : "Open run"} · ${run.created_at ? dates.format(new Date(run.created_at)) : "Undated"}`; }
   const stats = { actions: data?.actions, tiles: data?.map.points.length, rooms: data ? run?.rooms_visited : null, gems: data ? run?.gems_collected : null };
   for (const [key, value] of Object.entries(stats)) panel.element.querySelector(`[data-stat="${key}"]`).textContent = value == null ? "—" : number(value);
   panel.canvas.setAttribute("aria-label", data ? `${modelLabel(run.model)} ${modeName(run)} heatmap: ${number(data.map.points.length)} tiles visited, ${number(data.map.total)} visits.` : "Heatmap unavailable");

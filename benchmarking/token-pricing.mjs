@@ -78,7 +78,7 @@ export function livePrice(model, timestamp = Date.now(), tier = 'standard', rout
   return { ...price, rates };
 }
 export function pricingGap(model) {
-  if (/^muse-wonder-.*(?:full|contributor)|^muse-wonder-full/.test(model)) return { source: sources.muse, checked_at: '2026-10-26', reason: 'This Muse Code variant has no published Model API price. Subscription quota is not a per-token API rate.' };
+  if (/^muse-wonder-.*(?:full|contributor)|^muse-wonder-full/.test(model)) return { source: 'https://dev.meta.ai/models/muse-wonder', checked_at: '2026-10-26', reason: 'Meta lists Muse Wonder Full as subscription-only, with no API input, cached input or output rate. Standard Muse Wonder is a different model.' };
   if (model === 'kimi-for-coding') return { source: 'https://www.kimi.com/en/help/kimi-code/models', checked_at: '2026-10-26', reason: 'K2.8 Preview is a Kimi Code subscription model; no public API token price is published.' };
   if (/^(gpt-reserve|codex-auto-review)$/.test(model)) return { source: sources.openai, checked_at: '2026-10-26', reason: 'No public API price is listed for this internal Codex model ID.' };
   if (/^gpt-oss-120b/.test(model)) return { source: 'https://ai.google.dev/gemini-api/docs/pricing', checked_at: '2026-10-26', reason: 'No API price is published for this Antigravity route. Other hosts have different prices.' };

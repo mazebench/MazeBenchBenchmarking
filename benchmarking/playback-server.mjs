@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
-import { access } from 'node:fs/promises';
+import { access, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { trustedVisionRequest } from './vision/server.mjs';
@@ -9,6 +10,7 @@ import { gzipSync } from 'node:zlib';
 import { PricingService } from './pricing-service.mjs';
 import { RunLibrary } from './run-library.mjs';
 import { setImmediate as yieldToIO } from 'node:timers/promises';
+import { LegacyArchive, videoRange } from './legacy-archive.mjs';
 
 export function createPlaybackServer(root, options = {}) {
   const port = options.port ?? 8085, mainPort = options.mainPort || 8080;
@@ -18,6 +20,7 @@ export function createPlaybackServer(root, options = {}) {
   const reports = options.reports || new ReportReader();
   const pricing = options.pricing || new PricingService();
   const library = options.library || new RunLibrary();
+  const archive = options.archive || new LegacyArchive(root);
   const server = createServer(async (req, res) => {
     const reply = (status, value, type = 'application/json') => {
       if (res.destroyed) return;
@@ -30,6 +33,28 @@ export function createPlaybackServer(root, options = {}) {
     if (req.method === 'OPTIONS') { res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS'); return reply(204, ''); }
     if (req.method !== 'GET') return reply(405, { error: 'Playback is read-only.' });
     const url = new URL(req.url, 'http://' + req.headers.host);
+    if (url.pathname.startsWith('/api/benchmark/archive/')) {
+      try {
+        if (url.pathname === '/api/benchmark/archive/runs') return reply(200, await archive.list());
+        const archived = /^\/api\/benchmark\/archive\/runs\/([\dT-]+-[a-f0-9]{6})(?:\/(frames|heatmap|video))?$/.exec(url.pathname);
+        if (!archived) return reply(404, { error: 'Unknown archive path.' });
+        const [, id, kind] = archived;
+        if (kind === 'video') {
+          const file = await archive.file(id, 'maze_replay.mp4'), { size } = await stat(file);
+          if (!size) return reply(404, { error: 'Recorded video is empty.' });
+          let range;
+          try { range = videoRange(req.headers.range, size); }
+          catch { res.setHeader('Content-Range', `bytes */${size}`); return reply(416, { error: 'Invalid video byte range.' }); }
+          res.writeHead(range.partial ? 206 : 200, { 'Content-Type': 'video/mp4', 'Content-Length': range.end - range.start + 1,
+            'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff',
+            ...(range.partial ? { 'Content-Range': `bytes ${range.start}-${range.end}/${size}` } : {}) });
+          const stream = createReadStream(file, { start: range.start, end: range.end });
+          stream.on('error', () => res.destroy()); res.once('close', () => stream.destroy()); stream.pipe(res); return;
+        }
+        return reply(200, kind === 'frames' ? await archive.frames(id, Number(url.searchParams.get('from') || 0), Number(url.searchParams.get('limit') || 64))
+          : kind === 'heatmap' ? await archive.heatmap(id) : await archive.detail(id));
+      } catch (error) { return reply(error.code === 'ENOENT' ? 404 : 400, { error: error.message }); }
+    }
     if (url.pathname === '/api/benchmark/playback/status') return reply(200, { available: true, token_pricing: true });
     if (url.pathname === '/api/benchmark/playback/library') {
       const controller = new AbortController();
