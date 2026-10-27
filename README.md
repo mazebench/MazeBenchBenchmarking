@@ -1,236 +1,317 @@
-# MazeBenchBenchmarking
+<div align="center">
 
-A local site for exploring MazeBench, playing puzzles, editing rooms, and running AI benchmarks.
+<img src="favicon.svg" width="64" height="64" alt="">
 
-With **Node.js** installed, open a terminal in this repository and start the site:
+# MazeBench
 
-```sh
+**An open-world puzzle benchmark for AI agents.**<br>
+256 connected rooms · 100 gems · one long episode, played only through game tools.
+
+<img src="docs/media/world-map.gif" width="760" alt="A slow flight over the full 16 × 16 room MazeBench world">
+
+[Quick start](#quick-start) ·
+[Play](#play-it-yourself) ·
+[What agents see](#what-agents-see) ·
+[Run a benchmark](#run-a-benchmark) ·
+[Watch runs](#watch-and-compare-runs) ·
+[Versions](#versions-and-integrity) ·
+[Develop](#develop-the-engine)
+
+</div>
+
+---
+
+## What is MazeBench?
+
+MazeBench drops an agent into one connected world: a 16 × 16 grid of rooms, each
+16 × 16 tiles, holding 100 gems. The agent sees only the room it is standing in.
+Walking off an edge enters the neighbouring room, and every room is a small physics
+puzzle: ice that keeps you sliding, slopes, crates, buttons that lower orange walls,
+lifts, punchers, clones and pits.
+
+Agents are told the controls and little else. They must learn the mechanics by
+playing, remember what they found across hundreds of rooms, and keep a plan going
+for tens of thousands of moves. A verified 100-gem route takes about 40,500 commands.
+
+|                  |                                                                                         |
+| ---------------- | --------------------------------------------------------------------------------------- |
+| **Goal**         | Collect all 100 gems. Gems are tracked by identity and never respawn.                   |
+| **Start**        | Room H×I                                                                                |
+| **Actions**      | `up` `down` `left` `right`, UDLR sequences, `undo`, `reset`, `camera …`, `room X×Y`     |
+| **Observations** | The current room as ASCII text, or as a rendered PNG in Vision mode                     |
+| **Conditions**   | Coding off, Python only, or Any language (sandboxed)                                    |
+| **Telemetry**    | Gems, rooms visited, distinct cells, novelty, tokens and API-equivalent cost            |
+
+## Quick start
+
+You need [Node.js](https://nodejs.org) 22.13 or newer.
+
+```bash
 node server.mjs
 ```
 
-Open **[http://localhost:8080](http://localhost:8080)** in your browser. No dependency install or build step is required.
+Open **http://localhost:8080**. The site itself needs no install or build step. Keep
+the terminal open, and press <kbd>Ctrl</kbd>+<kbd>C</kbd> to stop.
 
-Keep the terminal open while using the site. Press **Ctrl+C** to stop the server.
+`npm start` does the same and also builds the Unit tests page. Run `npm ci` once
+before using Vision runs, the Any-language sandbox, or the development tools.
 
-The default site startup also starts the vision runner on port 8082. If the
-main server is already running, `npm run start:vision` adds it without
-interrupting existing runs. Vision launches require that service and fail with
-an error if it is offline; they never fall back to ASCII. Image rendering uses
-Playwright and Chrome as described in [the vision setup](benchmarking/vision/README.md).
+Every tool is one click from the world map:
 
-Gemini/Antigravity, Grok Build, Kimi Code, and Muse Code vision runs with Coding
-off use the additional owner on port 8086, also started by the site. Use
-`npm run start:vision-providers` to add it to an already-running site. The
-launcher detects it automatically. Grok, Kimi, and Muse receive native MCP
-images; Gemini's CLI uses a restricted viewer that can read only authenticated
-observation PNGs. Shell, Python, arbitrary file reads, and writes stay disabled.
-Run `npm ci` once for this integration's pinned Playwright dependency; it resolves
-independently of isolated agent homes and requires the local Chrome installation.
-Existing ASCII and Codex/Claude vision owners and signed runtimes are preserved.
+| Page           | Path                   | What it's for                                         |
+| -------------- | ---------------------- | ----------------------------------------------------- |
+| **World map**  | `/`                    | Fly over all 256 rooms and pick one to play or edit   |
+| **Play**       | `/play/v1/?room=HxI`   | Play the world yourself, in 3D or ASCII               |
+| **Benchmark**  | `/benchmarking/v1/`    | Launch agent runs and follow them live                |
+| **Replays**    | `/replays/v1/`         | Turn UDLR move lists into smooth replay movies        |
+| **Solutions**  | `/solutions/v1/`       | Search for and store routes through the world         |
+| **Editor**     | `/editor/v1/?room=HxI` | Build and adjust rooms                                |
+| **Object lab** | `/object-lab/`         | Preview individual blocks and objects in 3D           |
+| **Unit tests** | `/unit-tests/`         | Step through the physics test suite                   |
 
-Codex vision runs automatically recover from unfinished `list_mcp_resources`
-and `list_mcp_resource_templates` calls that returned no result. The recovery
-companion (port 8087, `npm run start:recovery`) verifies the pinned runtime and
-checkpoint, backs up the session, removes only the unfinished final call, and
-resumes the same conversation. Valid game moves, settings, and agent-event logs
-remain unchanged. Active and newly launched runs are enrolled automatically;
-historical failures and intentionally paused/stopped runs stay stopped. Pause
-and Stop cancel pending retries. Repeated failures have retry limits, and any
-completed/other forbidden tool call or changed checkpoint still needs review.
+## Play it yourself
 
-The same companion covers Gemini vision runs when Antigravity returns its
-"This request was blocked by Gemini's filters" response. It uses the original
-owner's normal Resume operation with the same conversation, prompt, model and
-settings; it does not roll back moves, remove provider messages or change filters.
-Retries wait 15 seconds, 1 minute, then 3 minutes, stopping after three retries
-without new moves or eight per hour. The dashboard shows **Auto-resuming** while
-waiting and **Needs attention** if retries are exhausted. Pause/Stop cancels the
-retry, including across companion restarts. Attempts are recorded in
-`~/.mazebench/gemini-vision-recovery/retry-audit.jsonl`. Other errors and integrity
-violations still require review; a successful Resume does not guarantee the
-provider will accept its next request.
+<img src="docs/media/play-3d.gif" width="760" alt="The player walks through the start room, pushes a box aside and crosses into the room to the north">
 
-Grok vision runs also use bounded recovery on port 8087. The controller checks
-the recorded result for a matching-session HTTP execution error, then resumes
-the preserved conversation with the same 15-second/1-minute/3-minute limits.
-Grok 1.0.41 can advertise its three existing maze MCP catalog keys on reconnect;
-an audited, per-run compatibility extension accepts those keys while retaining
-the original gateway-only invocation checks. Adoption pins the added harness
-sources in the run manifest and saves a backup under the run's `repairs/` folder.
-Every original runtime hash, game checkpoint, model, effort and coding condition
-is retained. The CLI's conversation forks are recorded in `grok_session_lineage`.
-The recovery companion owns adopted Grok agents, so shutting it down pauses
-those agents; it does not stop the other provider owners. Its retry audit is in
-`~/.mazebench/grok-vision-recovery/retry-audit.jsonl`.
+Start at **Play from beginning**. Arrow keys move relative to the camera, so "up"
+always means away from you.
 
-Main-world run cards share a **3D / ASCII** replay switch, independent of what the
-agent received. The **Agent** label shows the original observation mode. 3D uses
-the Replays renderer and tween curves for smooth playback and seeking. A read-only
-companion on port 8085 authenticates saved vision frames; for text runs it replays
-commands in memory with the pinned engine and checks every saved state hash. It
-never changes run records or agent observations. Long text histories can take a
-few seconds to prepare the first time. Verified moves arrive in batches, so you
-can play before the whole history finishes loading. The scrubber shows played
-moves in purple, buffered moves in gray, and unloaded moves on the dark track.
-Playback waits at the buffer edge and continues when more moves arrive; seeking
-ahead waits for that part of the history. A loading bar and percentage show real
-move progress. Subsequent updates compile and transfer only new moves.
-The companion starts with the main site, or use `npm run start:playback` to add it
-to an already-running site.
+| Action                  | Keyboard                       | Controller          |
+| ----------------------- | ------------------------------ | ------------------- |
+| Move                    | <kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd> | Left stick or D-pad |
+| Rotate / tilt camera    | <kbd>A</kbd> <kbd>D</kbd> / <kbd>W</kbd> <kbd>S</kbd> | Right stick         |
+| Zoom                    | <kbd>Q</kbd> / <kbd>E</kbd>    | ZL / ZR             |
+| Switch 3D ↔ ASCII       | <kbd>M</kbd>                   |                     |
+| Undo                    | <kbd>Z</kbd>                   | Any right face button |
+| Reset the room          | <kbd>R</kbd>                   |                     |
 
-New moves load automatically without replacing the player or interrupting playback.
-**Live** starts enabled for active runs and follows incoming moves. Scrubbing back
-or playing history turns following off while the timeline keeps updating; click
-**Live** to return to the latest move. Switching **3D / ASCII** preserves your place.
-In 3D, the **ⓘ** menu contains **Agent camera**, checked by default to follow the
-recorded yaw/pitch; uncheck it to orbit, pan, and zoom freely. **Show neighboring
-rooms** is a separate checkbox, off by default.
+A few rules worth knowing:
 
-The download menu exports either **3D** or **ASCII** as a **GIF** or **Video**.
-Each export captures the whole run recorded so far at the selected playback
-speed, using the current camera and neighboring-room options. ASCII retains its
-fixed letter size and original font. Exports have progress and cancellation and
-use a separate renderer, leaving the viewer and active runners alone. Videos
-use MP4 when the browser supports it, otherwise WebM, and record in real time;
-keep the tab open during creation. GIFs loop with a short final hold and reduce
-their frame rate for very long histories to keep encoding bounded.
+- **Edges are doors.** Walk off a room's edge to enter its neighbour. Rooms you leave
+  are restored when you come back.
+- **Death is undoable.** Falling into a pit or getting crushed can always be undone.
+- **Reset** restores the room as it was when you entered it.
+- **Sequences.** Paste a UDLR string such as `RRUULD` into *Move sequence* to play it
+  back. The *Room moves* panel records your moves in the same format.
+- **Tweens** (smooth motion) can be switched off under *Playback settings*.
 
-Once the server is running, you can go directly to:
+## What agents see
 
-- Benchmarks: Run eval with Codex / Claude Code / Grok / Antigravity / [Meta Muse Code](benchmarking/muse/README.md) / [Kimi Code](benchmarking/kimi/README.md) / [Prime Agent](benchmarking/prime/README.md)
-- Play: Explore the world for yourself
-- Room editor: Edit and save levels in MazeBench
+<img align="right" src="docs/media/play-ascii.gif" width="360" alt="The same walk rendered as ASCII text">
 
+In ASCII mode, each tile is a 4 × 4 block of characters, so a room is at most
+64 × 64 characters. Upper-case letters are top faces. Lower-case letters are the
+sides you see when the camera is tilted.
 
-All harnesses offer **Any language** for their supported ASCII worlds. Start Docker
-first; the pinned toolchain is installed with `npm run setup:code-sandbox`. Prime
-keeps its native Python transport and adds the same isolated `code_exec` tool.
-The Analysis tab shows live input, cached input, output and estimated API cost.
-These are API-equivalent token estimates, not subscription charges.
+Agents are told only that `P` is the player and `G` is a gem. Everything else must
+be worked out by playing. For humans, here is the key to the common glyphs:
 
-The site also starts a localhost capability service on port 8083. To add the
-updated reporting and new coding modes while the main server owns active runs,
-run `npm run start:capabilities`; refresh the browser without restarting the main
-server. Existing runs keep their original runtime and owner. Do not stop the
-capability service while it owns an active Any language run.
+| Glyph | Meaning      | Glyph | Meaning          |
+| :---: | ------------ | :---: | ---------------- |
+| `P`   | Player       | `B`   | Crate            |
+| `G`   | Gem          | `U`   | Weightless box   |
+| `A`   | Floor        | `O`   | Orange wall      |
+| `W`   | Wall         | `8`   | Orange button    |
+| `I`   | Ice          | blank | Drop / pit       |
 
----
+<br clear="right">
 
-This repository also contains the canonical C++ engine, visual physics test
-editor, and every authored/native/WASM test imported from MazeBenchEngineUnitTest.
-All future engine and rendering development happens here.
+Agents act through a small MCP tool set:
 
-For the test lab and development tools:
+| Tool            | What it does                                                                 |
+| --------------- | ---------------------------------------------------------------------------- |
+| `maze_observe`  | Returns the board and game state, or reads an earlier move's frames. Free.   |
+| `maze_action`   | Applies one action, including `undo`, `reset`, `camera …` and `room X×Y`.    |
+| `maze_sequence` | Applies a UDLR string or an explicit list. Each step counts as one action.   |
+| `python_exec`   | *Python only:* runs code in an isolated, network-free workspace.             |
+| `code_exec`     | *Any language:* runs code in a Docker sandbox.                               |
 
-```sh
-npm ci
-npm run dev:lab       # http://localhost:3001
-npm run build         # lab, canonical engine, and solver accelerators
-npm test              # native engine + lab/WASM + site integration tests
-npm run test:parity   # shared renderer identity and live engine equivalence
-```
+Every action records its full animation. Agents can read those frames at no cost,
+which matters when one press sends the player sliding across a room of ice.
 
-The main site still runs with `node server.mjs` on port 8080. Physics source
-lives in `engine/src` and `engine/include`; authored test data is in
-`project-data`; the test editor is in `apps/web`. See [the test-lab guide](docs/test-lab.md)
-and [the consolidation notes](docs/consolidation.md).
+In **Vision** mode the board is a PNG of the 3D render instead, with no ASCII, object
+list or coordinates. See [the vision setup](benchmarking/vision/README.md).
 
-Both live browser applications use the same built WASM and rendering geometry
-module. Scene/coordinate adapters and camera controls remain specific to their
-interfaces. Signed historical benchmark runtimes remain frozen under their
-versioned paths; moving repositories does not upgrade or reseal recorded runs.
+The exact prompts live in [`benchmarking/v1/EVAL-PROMPT.md`](benchmarking/v1/EVAL-PROMPT.md)
+and [`benchmarking/vision/EVAL-PROMPT.md`](benchmarking/vision/EVAL-PROMPT.md).
 
----
+## Run a benchmark
 
-## What the Model Sees
+<img src="docs/media/benchmark-launcher.png" width="760" alt="The New run panel: agent, model, reasoning, view, coding tools and speed">
 
-In "ASCII" Mode the tiles are represented by text. Each tile type has a unique character symbol picked by a random seed. When the camera is in a top down position tiles take up 4x4 characters. Since each room is 16x16 tiles, rooms will not take up more than 64x64 characters. Agents do not see previews of neighboring rooms, and must understand that crossing the edge of the room will transport the character into another room.
+1. Install and sign in to the agent CLI you want to evaluate (see the table below).
+2. Open **Benchmark** and choose the agent, model, reasoning effort, view (ASCII or
+   Vision), coding tools and speed.
+3. Under **Options**, pick the world (Main World, Ice Maze or Slotski) and an action
+   limit. The default is unlimited.
+4. Press **Launch run**. A live card appears; open it to watch.
 
-After each move agents are always told the current board state. If a move generated a long action sequence (like sliding over ice, up ramps, or off a cliff) agents can examine the full action sequence. Agents also have access to the entire action history and can refer to any previous board state.
+| Agent              | Runs models through                    | Setup                                                    |
+| ------------------ | -------------------------------------- | -------------------------------------------------------- |
+| **Codex**          | OpenAI Codex CLI                       | Signed-in `codex`. A Fast speed tier is optional.        |
+| **Claude Code**    | Anthropic Claude Code                  | `claude auth login`                                      |
+| **Grok Build**     | xAI Grok Build                         | grok.com sign-in                                         |
+| **Antigravity**    | Google Antigravity (Gemini)            | [Antigravity notes](benchmarking/antigravity/README.md)  |
+| **Meta Muse Code** | Muse Code                              | [Muse notes](benchmarking/muse/README.md)                |
+| **Kimi Code**      | Kimi Code                              | `npm run setup:kimi` · [Kimi notes](benchmarking/kimi/README.md) |
+| **Prime Agent**    | Prime Intellect inference (open models) | [Prime notes](benchmarking/prime/README.md)             |
 
-<img width="352" height="435" alt="orange-box-level-demo" src="https://github.com/user-attachments/assets/6a298e2e-e3ff-4f51-9639-f39a97eab7ed" />
+**Coding tools.** *Any language* needs Docker. Build its pinned toolchain once with
+`npm run setup:code-sandbox`. *Python only* is the older, restricted Python condition.
 
+**Isolation.** Every harness is locked down to the MazeBench tools. Shell, file access,
+web, plugins, memory, personal settings and sub-agents are switched off, and any other
+tool call invalidates the run. The prompt, model, effort, CLI binary hash and every
+runtime file are pinned in a signed manifest that is re-verified throughout the run.
+The full threat model is in [`benchmarking/v1/SECURITY.md`](benchmarking/v1/SECURITY.md).
 
+<details>
+<summary><b>Background services and ports</b></summary>
 
-For a shorter development loop, `npm run test:quick` runs the lab, engine/WASM,
-and site unit checks against the current built engine. `npm run test:integration`
-runs the slower vision/browser integrations. `npm test` still rebuilds and runs
-every native, WASM, app, and integration check.
+<br>
 
-### Exact run version catalogue
+Most of these start with the site. Use the script to add one to a site that is
+already running, without interrupting active runs.
 
-`v1.1.N` identifies a recorded engine/play-adapter and world inventory from this
-repository. Its append-only snapshot registry is `benchmarking/version-registry.mjs`.
-`v1.0.N` groups legacy runs by their reconstructed engine/adapter inventory,
-numbered by first run date: the first engine used is `v1.0.0`, the next distinct
-engine is `v1.0.1`, and so on. Runs assigned the same engine share a number;
-world-only changes remain in provenance. The public legacy release registry is
-`benchmarking/legacy-version-registry.mjs`. The old registry's `1.0` entries are
-research snapshot IDs, displayed as `snapshot-N`, not public release labels.
-Model, effort, speed and harness versions remain separate dimensions.
+| Port | Service                                          | Script                           |
+| ---- | ------------------------------------------------ | -------------------------------- |
+| 8080 | Main site and benchmark owner                    | `node server.mjs`                |
+| 8082 | Vision runner (Codex, Claude Code)               | `npm run start:vision`           |
+| 8083 | Capability service (Any language, newer modes)   | `npm run start:capabilities`     |
+| 8084 | Model catalogs                                   | `npm run start:catalogs`         |
+| 8085 | Read-only playback and reports                   | `npm run start:playback`         |
+| 8086 | Vision runner (Gemini, Grok, Kimi, Muse)         | `npm run start:vision-providers` |
+| 8087 | Recovery companion                               | `npm run start:recovery`         |
+| 8090 | Versioned runtime releases (new Main World runs) | `npm run start:releases`         |
+| 3001 | Physics test lab (optional)                      | `npm run dev:lab`                |
 
-To refresh the read-only inventory and register newly discovered snapshots:
+Vision launches need the vision runner and fail if it is offline; they never fall
+back to ASCII. Image rendering uses Playwright with your local Chrome. Do not stop the
+capability service while it owns an active Any-language run.
 
-```sh
+</details>
+
+<details>
+<summary><b>Automatic recovery</b></summary>
+
+<br>
+
+Some provider failures are retried without touching game state. Every attempt is
+audited, retries are capped, and **Pause** or **Stop** always cancels a pending retry.
+
+- **Codex:** transient 429/5xx failures resume the same conversation after
+  15 s, 30 s, 1 min, 2 min, then 5 min. Vision runs also recover from unfinished
+  `list_mcp_resources` calls.
+- **Gemini vision:** "blocked by Gemini's filters" responses resume after 15 s,
+  1 min, then 3 min. Retries stop after three attempts without new moves, or eight in
+  an hour. Attempts are logged to `~/.mazebench/gemini-vision-recovery/retry-audit.jsonl`.
+- **Grok vision:** matching-session HTTP errors resume with the same limits. Attempts
+  are logged to `~/.mazebench/grok-vision-recovery/retry-audit.jsonl`.
+
+The dashboard shows **Auto-resuming** while a retry is waiting and **Needs attention**
+once retries are exhausted. Integrity violations always need a human review.
+
+</details>
+
+## Watch and compare runs
+
+<img src="docs/media/benchmark-replay.gif" width="760" alt="A recorded agent run replayed in 3D with the scrubber advancing">
+
+Open any run card to follow it.
+
+- **Overview** replays the run in 3D or ASCII, independent of the view the agent
+  played in. The **Agent** label shows what it actually received. Scrub, step, and play at
+  0.5×–10×. **Live** follows a running agent move by move.
+- **Download** exports the replay as a GIF or video, in 3D or ASCII.
+- **Analysis** charts tokens, API-equivalent cost and novelty over the run.
+- **Activity** shows the agent's messages and tool calls.
+- **Compare heatmaps** sets runs side by side. Gem curves can be plotted against
+  moves, tokens or estimated cost.
+- **Pricing** lists the per-token rates behind cost estimates. **Older runs** opens
+  the archive of earlier recordings.
+
+> [!TIP]
+> Compare runs that share a version label and coding condition. Runs on different
+> world versions can contain different gems and room layouts.
+
+## Versions and integrity
+
+The badge in the header (for example `v1.1.86`) names the exact engine, play adapter
+and world inventory that new AI benchmark runs use.
+
+- **`v1.1.N`** labels come from the append-only registry in
+  [`benchmarking/version-registry.mjs`](benchmarking/version-registry.mjs). Identical
+  content always gets the same number. Run cards show the version each run recorded.
+- **`v1.0.N`** labels group legacy runs, reconstructed from Git history and run dates.
+- **Checkpoints** are authenticated and incremental. Read them with `readCheckpointJson`
+  from [`benchmarking/v1/checkpoint-json.mjs`](benchmarking/v1/checkpoint-json.mjs). Read
+  [`benchmarking/storage/README.md`](benchmarking/storage/README.md) before any rollback or repair.
+- **Pinned worlds.** New Main World runs get a private snapshot of the engine and world,
+  and existing runs stay pinned to their recorded revisions. Editor saves no longer
+  reach a run in progress.
+
+<details>
+<summary><b>Rebuilding the version catalogue</b></summary>
+
+<br>
+
+Refresh the read-only inventory and register newly discovered snapshots:
+
+```bash
 node scripts/catalogue-run-versions.mjs \
   "$HOME/records/mazebench-benchmark" outputs/version-audit/catalogue.json \
   "$HOME/records/mazebench-vision" \
   --legacy-repo /path/to/MazeBenchEngine --register
 ```
 
-Open `/outputs/version-audit/catalogue.html` on the local site for the searchable
-version/run inventory. The JSON includes full fingerprints, linked repair archives,
-observed world revisions and action boundaries. Unobserved room edits published
-after a run stopped do not become that run's version. Older actions keep their
-pre-repair engine identity. Pinned and archived manifests are distinguished from
-world revisions observed by actions; a run can span several versions. Git snapshots
-from all legacy branches during the saved-run era support the chronological
-assignment. A catalogue is an inventory of the supplied roots, not a claim to
-recover deleted or unsaved source bytes.
+Then open `/outputs/version-audit/catalogue.html` on the local site. To match legacy
+runs to historical engines and assign release numbers:
 
-The HTML/JSON reports stay under ignored `outputs/`. The registry contains only
-version identities and fingerprint aliases, not run records. This command never
-modifies, reseals, pauses or resumes a run.
-
-Older recordings are browsable at `/benchmarking/ui/archive.html`, linked as
-**Older runs** in Benchmark navigation. The read-only report service on port 8085
-serves paged original ASCII/JSON observations, preserved MP4s with byte-range
-seeking, and imported heatmaps. It does not resimulate old records with today's
-engine. `MAZEBENCH_LEGACY_RECORDS_ROOT` overrides the legacy run directory. Run
-records, research caches, and generated reports remain Git-ignored.
-
-Historical matching is reproducible with:
-
-```sh
-node scripts/match-legacy-run-versions.mjs \
-  outputs/version-audit/catalogue.json /path/to/MazeBenchEngine
-```
-
-This extracts historical Git runtimes into ignored `.mazebench/`, compares
-initial board hashes and recorded world gem totals, and checks every saved
-`goto_level` state with hash format 3 (which excludes already-collected gems).
-It never launches an agent. The output is `outputs/version-audit/legacy-matches.json`.
-Then assign concrete legacy releases:
-
-```sh
+```bash
+node scripts/match-legacy-run-versions.mjs outputs/version-audit/catalogue.json /path/to/MazeBenchEngine
 node scripts/assign-legacy-run-versions.mjs
 ```
 
-The owner explicitly authorized Git history and run-date reconstruction. Select
-the latest preceding state-compatible snapshot when possible; otherwise select
-the latest preceding Git snapshot. A future commit is never used when an earlier
-snapshot exists. Number distinct selected engine inventories in first-run order.
-Each assignment retains the source commit, GitHub link, date, world fingerprint,
-and method in `outputs/version-audit/legacy-assignments.json` and the ignored
-import index. The original legacy run files and signed runs remain unchanged.
-The command preserves a GitHub-ref history log and an import-index backup.
-Rerun the catalogue command to refresh its HTML/JSON with the assignments.
-Cards and heatmap comparisons show concrete release numbers; provenance identifies
-historical reconstruction rather than claiming old runs had signed manifests.
+These commands never launch an agent and never modify, reseal, pause or resume a run.
+Reports stay in the ignored `outputs/` folder.
 
-`scripts/recover-archived-manifests.mjs <catalogue.json> <successor-plan.json>`
-reverses a recorded migration plan against its verified successor backup. It
-writes only to `.mazebench/recovered-manifests/`, and only when the reconstructed
-bytes match an original manifest SHA-256 recorded in the run. Provenance receipts
-retain the source/plan hashes. The catalogue automatically discovers these
-recovered files; executing run manifests and checkpoints are never rewritten.
+</details>
+
+## Develop the engine
+
+The canonical C++ physics engine, the visual physics test lab, and every authored test
+live in this repository.
+
+```bash
+npm ci                  # once
+npm run dev:lab         # physics test lab on http://localhost:3001
+npm run build           # lab, engine (WASM) and solver accelerators
+npm test                # native engine, lab/WASM and site tests
+npm run test:quick      # fast checks against the current built engine
+npm run test:parity     # shared renderer identity and engine adapter equivalence
+npm run lint && npm run typecheck
+```
+
+After any C++ change, rebuild the solver accelerators with `npm run build:solvers`.
+
+```text
+engine/          C++ physics (engine/src, engine/include), tests and benchmarks
+engine/current/  Live browser engine API and the shared WASM link
+play/current/    Command playback and connected-room orchestration
+ui/              Main-site renderers and browser entry points
+apps/web/        Physics test lab (editor + timeline)
+project-data/    Authored physics test fixtures
+level-data/      The authored world: 256 rooms
+benchmarking/    Harnesses, MCP server, run storage, dashboard
+replays/  solutions/  world-solver/   Replay movies, route search, world solvers
+engine/v1/  play/v1/  render/v1/  render-ascii/v1/  benchmarking/v1/
+                 Frozen, signed runtimes used by historical benchmark runs
+```
+
+More detail lives in [`ARCHITECTURE.md`](ARCHITECTURE.md),
+[the test-lab guide](docs/test-lab.md), [the test catalog](docs/TEST_CATALOG.md) and
+[the consolidation notes](docs/consolidation.md).
+
+## License
+
+[MIT](LICENSE) © 2026 Jonathan Pappas and David Pappas
