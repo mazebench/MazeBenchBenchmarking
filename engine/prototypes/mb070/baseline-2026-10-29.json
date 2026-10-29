@@ -1,0 +1,126 @@
+{
+  "baseline": "f38f4d38b86d23fb9013ce6409d02e88915a4dc2",
+  "timestamp": "2026-10-29T03:12:35.554Z",
+  "platform": "darwin",
+  "arch": "arm64",
+  "generatedCases": 200,
+  "generatedCommands": 6400,
+  "cpu": "Apple M1 Max",
+  "node": "v26.8.1",
+  "cases": 4,
+  "frames": 44,
+  "measurements": [
+    {
+      "backend": "reference",
+      "processWallMs": 162.01941699999998
+    },
+    {
+      "backend": "release/mb070-native",
+      "processWallMs": 213.783292
+    },
+    {
+      "fixture": "blocked.txt",
+      "backend": "cpp-wasm",
+      "iterations": 1000,
+      "commands": 8000,
+      "elapsedMs": 28.719416000000024,
+      "linearMemoryBytes": 100663296
+    },
+    {
+      "fixture": "blocked.txt",
+      "backend": "rust-wasm",
+      "iterations": 1000,
+      "commands": 8000,
+      "elapsedMs": 21.98145900000003,
+      "linearMemoryBytes": 1114112
+    },
+    {
+      "backend": "reference",
+      "processWallMs": 3.8881660000000124
+    },
+    {
+      "backend": "release/mb070-native",
+      "processWallMs": 2.488042000000007
+    },
+    {
+      "fixture": "chain.txt",
+      "backend": "cpp-wasm",
+      "iterations": 1000,
+      "commands": 12000,
+      "elapsedMs": 39.22550000000001,
+      "linearMemoryBytes": 100663296
+    },
+    {
+      "fixture": "chain.txt",
+      "backend": "rust-wasm",
+      "iterations": 1000,
+      "commands": 12000,
+      "elapsedMs": 36.45420800000005,
+      "linearMemoryBytes": 1114112
+    },
+    {
+      "backend": "reference",
+      "processWallMs": 4.12966700000004
+    },
+    {
+      "backend": "release/mb070-native",
+      "processWallMs": 2.9949169999999867
+    },
+    {
+      "fixture": "single.txt",
+      "backend": "cpp-wasm",
+      "iterations": 1000,
+      "commands": 12000,
+      "elapsedMs": 37.82016699999997,
+      "linearMemoryBytes": 100663296
+    },
+    {
+      "fixture": "single.txt",
+      "backend": "rust-wasm",
+      "iterations": 1000,
+      "commands": 12000,
+      "elapsedMs": 32.94070799999997,
+      "linearMemoryBytes": 1114112
+    },
+    {
+      "backend": "reference",
+      "processWallMs": 3.849958000000015
+    },
+    {
+      "backend": "release/mb070-native",
+      "processWallMs": 2.7314589999999725
+    },
+    {
+      "fixture": "walk.txt",
+      "backend": "cpp-wasm",
+      "iterations": 1000,
+      "commands": 12000,
+      "elapsedMs": 34.619958,
+      "linearMemoryBytes": 100663296
+    },
+    {
+      "fixture": "walk.txt",
+      "backend": "rust-wasm",
+      "iterations": 1000,
+      "commands": 12000,
+      "elapsedMs": 32.746834000000035,
+      "linearMemoryBytes": 1114112
+    }
+  ],
+  "notes": "WASM timing includes upload, reset, trace allocation/readback and JS loop after 100 warmups. Native process timings include startup and text I/O. These are harness baselines, not kernel-only comparisons or final performance targets.",
+  "wasmBytes": {
+    "rust": 6158,
+    "cpp": 562638
+  },
+  "nativeMemory": {
+    "workload": "single.txt, full process including text I/O; macOS /usr/bin/time -l",
+    "cppPeakRssBytes": 10289152,
+    "rustPeakRssBytes": 1523712,
+    "cppPeakFootprintBytes": 9748864,
+    "rustPeakFootprintBytes": 1032504
+  },
+  "toolchains": {
+    "nativeRust": "1.98.0",
+    "wasmRust": "1.82.0"
+  }
+}

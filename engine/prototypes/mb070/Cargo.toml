@@ -1,0 +1,16 @@
+[package]
+name = "mb070-physics"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "mb070-native"
+path = "src/main.rs"
+
+[profile.release]
+panic = "abort"
+lto = true
